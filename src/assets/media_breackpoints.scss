@@ -1,0 +1,49 @@
+// BREAKPOINT
+$breakpoint_desktop: 1200px;
+$breakpoint_laptop: 1024px;
+$breakpoint_tablet: 767px;
+$breakpoint_mobile: 576px;
+
+// Mixin для десктопної версії сторінки, що додає CSS-медіа-запит за шириною екрану
+@mixin desktop() {
+  @media (max-width: $breakpoint_desktop) {
+    @content;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    @content;
+  }
+}
+
+// Mixin для лаптопної версії сторінки, що додає CSS-медіа-запит за шириною екрану
+@mixin laptop() {
+  @media (max-width: $breakpoint_laptop) {
+    @content;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    @content;
+  }
+}
+
+// Mixin для таблетної версії сторінки, що додає CSS-медіа-запит за шириною екрану
+@mixin tablet() {
+  @media (max-width: $breakpoint_tablet) {
+    @content;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    @content;
+  }
+}
+
+// Mixin для мобільної версії сторінки, що додає CSS-медіа-запит за шириною екрану
+@mixin mobile() {
+  @media (max-width: $breakpoint_mobile) {
+    @content;
+  }
+
+  @media (hover: none) and (pointer: coarse) {
+    @content;
+  }
+}
