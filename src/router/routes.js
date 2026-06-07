@@ -6,12 +6,12 @@ export default [
     children: [
       {
         path: '/',
-        redirect: '/wallet',
+        redirect: '/accounts',
       },
       {
-        path: '/wallet',
-        name: 'Wallet',
-        component: () => import('../views/WalletView.vue'),
+        path: '/accounts',
+        name: 'Accounts',
+        component: () => import('../views/AccountsView.vue'),
       },
       {
         path: '/categories',
@@ -19,24 +19,14 @@ export default [
         component: () => import('../views/CategoriesView.vue'),
       },
       {
-        path: '/income',
-        name: 'Income',
-        component: () => import('../views/IncomeView.vue'),
+        path: '/overview',
+        name: 'Overview',
+        component: () => import('../views/OverviewView.vue'),
       },
       {
-        path: '/expenses',
-        name: 'Expenses',
-        component: () => import('../views/ExpensesView.vue'),
-      },
-      {
-        path: '/transfer',
-        name: 'Transfer',
-        component: () => import('../views/TransferView.vue'),
-      },
-      {
-        path: '/monitoring',
-        name: 'Monitoring',
-        component: () => import('../views/MonitoringView.vue'),
+        path: '/transactions',
+        name: 'Transactions',
+        component: () => import('../views/TransactionsView.vue'),
       },
     ],
   },

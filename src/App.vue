@@ -36,18 +36,24 @@
 
 <template>
   <UISpinnerLoad v-if="userStore.isLoading" />
-  <RouterView
-    v-else
-    v-slot="{ Component }"
-  >
-    <Transition
-      name="fade"
-      mode="out-in"
-    >
-      <Component :is="Component" />
-    </Transition>
-  </RouterView>
-  <!-- </div> -->
+  <UITheLogin v-else-if="!userStore.user" />
+  <RouterView v-else />
 </template>
 
-<style></style>
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family:
+      'Roboto',
+      -apple-system,
+      sans-serif;
+    user-select: none;
+  }
+
+  body {
+    background-color: #e0e0e0;
+    min-height: 100dvh;
+  }
+</style>

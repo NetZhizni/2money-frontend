@@ -26,7 +26,7 @@ export default {
 
   async userGetInfo(user) {
     this.user = user
-    this.getInfoResult = await univesalAPI('userGetInfo')
+    this.getInfoResult = await univesalAPI('getCurrentUser')
   },
 
   async logOut() {
