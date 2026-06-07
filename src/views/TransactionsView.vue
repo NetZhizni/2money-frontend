@@ -35,6 +35,7 @@
       >
       </UIMyPopup>
     </div>
+    <UIMyAdd />
   </div>
 </template>
 
@@ -291,6 +292,7 @@
     overflow-y: auto;
     padding: 15px; /* bottom padding for FAB */
     background-color: #ffffff;
+    padding-bottom: 70px;
   }
 
   .date-group {

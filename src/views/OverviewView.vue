@@ -1,8 +1,11 @@
 <template>
-  <div></div>
+  <main class="main-content"></main>
 </template>
 
-<script setup>
-</script>
+<script setup></script>
 
-<style scoped></style>
+<style scoped>
+  .main-content {
+    flex: 1;
+  }
+</style>

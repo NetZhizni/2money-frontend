@@ -8,6 +8,7 @@
       :icon="item.icon"
       :color="item.color"
     />
+    <!-- <UIMyAdd /> -->
   </main>
 </template>
 
@@ -36,12 +37,21 @@
     { name: 'Корм', icon: 'paw', amount: '0 ₴', color: '#666666' },
     { name: 'Роздача', icon: 'hand-coin', amount: '0 ₴', color: '#666666' },
     { name: 'Виставон', icon: 'basket', amount: '0 ₴', color: '#666666' },
+    { name: 'Одяг', icon: 'coat-hanger', amount: '0 ₴', color: '#7b8d99' },
+    { name: 'Подарунки', icon: 'gift', amount: '0 ₴', color: '#d55d75' },
+    { name: 'Настя', icon: 'user', amount: '0 ₴', color: '#5ab3c8' },
+    { name: "Зв'язок", icon: 'globe', amount: '0 ₴', color: '#6db36e' },
+    { name: 'Дім', icon: 'house', amount: '0 ₴', color: '#a0a5ad' },
+    { name: 'Машина', icon: 'car', amount: '0 ₴', color: '#63a8e0' },
+    { name: "Здоров'я", icon: 'medical-bag', amount: '0 ₴', color: '#84bd76' },
+    { name: 'Корм', icon: 'paw', amount: '0 ₴', color: '#666666' },
+    { name: 'Роздача', icon: 'hand-coin', amount: '0 ₴', color: '#666666' },
+    { name: 'Виставон', icon: 'basket', amount: '0 ₴', color: '#666666' },
   ]
 </script>
 
 <style scoped>
-
-    .main-content {
+  .main-content {
     overflow: scroll;
     flex: 1;
     padding: 20px 10px;
@@ -53,7 +63,7 @@
     gap: 15px 5px;
     align-items: center;
     justify-items: center;
-    position: relative;
+    padding-bottom: 70px;
   }
 
   /* Central Circle */

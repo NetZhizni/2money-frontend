@@ -19,7 +19,7 @@
     { name: 'Рахунки', icon: 'wallet', to: '/accounts' },
     { name: 'Категорії', icon: 'chart-pie-outline', to: '/categories' },
     { name: 'Операції', icon: 'list-box-outline', to: '/transactions' },
-    // { name: 'Огляд', icon: 'chart-line', to: '/overview' },
+    { name: 'Огляд', icon: 'chart-line', to: '/overview' },
   ]
 
   const routerPush = (to) => {

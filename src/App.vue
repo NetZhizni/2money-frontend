@@ -27,7 +27,7 @@
   let lastTouchEnd = 0
   function preventDoubleTap(e) {
     const now = new Date().getTime()
-    if (now - lastTouchEnd <= 300) {
+    if (now - lastTouchEnd <= 200) {
       e.preventDefault()
     }
     lastTouchEnd = now
@@ -40,20 +40,4 @@
   <RouterView v-else />
 </template>
 
-<style>
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    font-family:
-      'Roboto',
-      -apple-system,
-      sans-serif;
-    user-select: none;
-  }
-
-  body {
-    background-color: #e0e0e0;
-    min-height: 100dvh;
-  }
-</style>
+<style></style>

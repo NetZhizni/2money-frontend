@@ -15,15 +15,12 @@
           class="popup__dialog"
           :class="`popup__${props.popupType}`"
         >
-          <q-btn
-            flat
-            round
+          <button
             class="dialog__close"
-            :disabled="props.btnCancelLoading || props.btnConfirmLoading"
             @click.stop.passive="closePopup"
           >
-            <UIMyIcon icon="mdi:close" />
-          </q-btn>
+            <Icon :icon="`mdi:close`" />
+          </button>
           <div class="dialog__title">{{ props.title }}</div>
           <div
             v-if="props.subtitle"
@@ -84,6 +81,7 @@
 
 <script setup>
   import { defineProps, defineEmits } from 'vue'
+  import { Icon } from '@iconify/vue'
 
   const props = defineProps({
     modelValue: { type: Boolean, required: true, default: false },
@@ -229,11 +227,29 @@
 
   .dialog__close {
     position: absolute;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     top: 0px;
     right: 0px;
-    // color: var(--color-text-secondary);
+    background-color: white;
     width: 44px;
     height: 44px;
+    border: 0px;
+    border-radius: 50%;
+    cursor: pointer;
+    @include transition();
+  }
+
+  .dialog__close:hover {
+    background-color: #d3d3d3;
+    // transform: translateY(-2px) scale(1.05); /* Кнопка злегка "підстрибує" вгору */
+    box-shadow: 0 6px 14px #0000000f; /* Тінь збільшується при наведенні */
+  }
+
+  .dialog__close:active {
+    transform: translateY(1px) scale(0.95);
+    box-shadow: 0 2px 5px #0000004d;
   }
 
   .popup__small {

@@ -1,11 +1,11 @@
 <template>
   <div class="transaction-item">
-    <div
-      class="tx-icon account-icon"
-      :style="{ color: props.color }"
-    >
-      <Icon :icon="`mdi:${props.icon}`" />
-    </div>
+    <UIMyIcon
+      class="acc-icon-wrapper"
+      :color="props.color"
+      :icon="props.icon"
+      type="transaction"
+    />
     <div class="tx-details">
       <div class="tx-title">{{ props.title }}</div>
       <div class="tx-account">
@@ -24,7 +24,6 @@
 
 <script setup>
   import { ref, defineProps, defineEmits, computed } from 'vue'
-  import { Icon } from '@iconify/vue'
   const props = defineProps({
     title: { type: String, required: true, default: 'asdasd' },
     // account: { type: String, required: true, default: '' },
@@ -38,6 +37,11 @@
 </script>
 
 <style scoped>
+  .acc-icon-wrapper {
+    position: relative;
+    margin-right: 15px;
+  }
+
   .account-icon {
     background-color: color-mix(in srgb, currentColor 25%, transparent);
   }

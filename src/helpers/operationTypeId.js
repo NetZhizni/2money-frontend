@@ -1,16 +1,20 @@
-  const operationTypeId = (fromAccountId, toAccountId) => {
-    const isFromAccounts = [1, 2, 3].includes(fromAccountId)
-    const isFromIncome = [4].includes(fromAccountId)
-    const isFromExpenses = [5].includes(fromAccountId)
+const accounts = [1, 2, 3]
+const income = [4]
+const expenses = [5]
 
-    const isToAccounts = [1, 2, 3].includes(toAccountId)
-    const isToIncome = [4].includes(toAccountId)
-    const isToExpenses = [5].includes(toAccountId)
+const operationTypeId = (fromAccountId, toAccountId) => {
+  const isFromAccounts = accounts.includes(fromAccountId)
+  const isFromIncome = income.includes(fromAccountId)
+  const isFromExpenses = expenses.includes(fromAccountId)
 
-    if (isFromAccounts && isToAccounts) return 3 // Переказ
-    if (isFromAccounts && isToExpenses) return 2 // Витрата
-    if (isFromIncome && isToAccounts) return 1 // Дохід
-    throw new Error('Невідома операція')
-  }
+  const isToAccounts = accounts.includes(toAccountId)
+  const isToIncome = income.includes(toAccountId)
+  const isToExpenses = expenses.includes(toAccountId)
 
-  export default operationTypeId
+  if (isFromAccounts && isToAccounts) return 3 // Переказ
+  if (isFromAccounts && isToExpenses) return 2 // Витрата
+  if (isFromIncome && isToAccounts) return 1 // Дохід
+  throw new Error('Невідома операція')
+}
+
+export default operationTypeId
