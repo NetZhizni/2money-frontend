@@ -1,0 +1,232 @@
+:root {
+  color-scheme: light;
+
+  --page-bg: #f0f0f2;
+  --surface: #ffffff;
+  --surface-2: #f5f5f4;
+  --border: rgba(11, 11, 11, 0.08);
+
+  --text-primary: #16161a;
+  --text-secondary: #6b6b70;
+  --text-muted: #9a9a9e;
+
+  --accent: #2a78d6;
+  --expense: #e34948;
+  --income: #1baf7a;
+  --transfer: #4a3aa7;
+
+  --nav-active: #2a78d6;
+  --shadow-sm: 0 1px 2px rgba(16, 16, 20, 0.06), 0 1px 1px rgba(16, 16, 20, 0.04);
+  --shadow-md: 0 8px 24px rgba(16, 16, 20, 0.12);
+
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --radius-pill: 999px;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --page-bg: #0d0d0d;
+    --surface: #1a1a19;
+    --surface-2: #232322;
+    --border: rgba(255, 255, 255, 0.1);
+
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+
+    --accent: #3987e5;
+    --expense: #e66767;
+    --income: #199e70;
+    --transfer: #9085e9;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --page-bg: #0d0d0d;
+  --surface: #1a1a19;
+  --surface-2: #232322;
+  --border: rgba(255, 255, 255, 0.1);
+
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+
+  --accent: #3987e5;
+  --expense: #e66767;
+  --income: #199e70;
+  --transfer: #9085e9;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--page-bg);
+  color: var(--text-primary);
+}
+
+body {
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+button {
+  font-family: inherit;
+}
+
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* ---------- Shared form / button primitives (global, used across SFCs) ---------- */
+
+.btn {
+  appearance: none;
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: 12px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.1s ease;
+}
+.btn:active {
+  transform: scale(0.98);
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-secondary {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+.btn-danger {
+  background: var(--expense);
+  color: #fff;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  /* Grid/flex items default to a min-width of their content's natural size
+     (e.g. a <select> or <input type="date">), which can force a `.row-2`
+     column wider than the popup and trigger horizontal scroll. Overriding
+     it to 0 lets the field shrink to its assigned column/flex width. */
+  min-width: 0;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.field input[type='text'],
+.field input[type='number'],
+.field input[type='date'],
+.field select,
+.field textarea {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  font-size: 15px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus,
+.field textarea:focus {
+  border-color: var(--accent);
+}
+
+.field-error {
+  color: var(--expense);
+  font-size: 12px;
+}
+
+.segmented {
+  display: flex;
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  gap: 2px;
+}
+
+.segmented button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 9px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.segmented button.active {
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.segmented button {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* ---------- Generic tap feedback for interactive list/tile rows (used across many SFCs) ---------- */
+.tile,
+.row,
+.card-main,
+.rank-row {
+  transition: transform 0.1s ease;
+}
+.tile:active,
+.row:active,
+.card-main:active,
+.rank-row:active {
+  transform: scale(0.97);
+}
