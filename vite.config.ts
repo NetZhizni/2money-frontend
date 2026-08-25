@@ -18,10 +18,9 @@ export default defineConfig({
       // app installable and it can only ever open as a normal browser tab —
       // this is what "standalone" actually depends on, not the manifest alone.
       devOptions: { enabled: true, type: 'module' },
-      // Precache the built app shell so the app still opens with no network
-      // at all. The DATA layer offline story is now our own (src/db/sync.ts +
-      // Dexie, see src/db/schema.ts) — this only needs to cover static assets.
-      includeAssets: ['favicon.svg', 'icons.svg', 'apple-touch-icon.png'],
+      // favicon.svg/icons.svg/apple-touch-icon.png already match the
+      // globPatterns below (svg/png), so listing them again in includeAssets
+      // only duplicated them in the precache manifest — removed.
       manifest: {
         name: '2Money',
         short_name: '2Money',
@@ -39,6 +38,17 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // registerType 'prompt' leaves `skipWaiting` off by default (correct —
+        // the new SW only activates once the user confirms in the update
+        // toast), but it also leaves `clientsClaim` off. Without clientsClaim,
+        // the tab that triggered the update never fires `controllerchange`
+        // (only *other*, not-yet-controlled tabs would), so the reload that
+        // src/pwa/updateService.ts waits for never happens — the SW keeps
+        // re-finding the same "new" version on every hourly check, which
+        // looked like an infinite update loop that only a hard reload broke
+        // out of. clientsClaim just lets the already user-approved, already
+        // active worker take over the open tab so that reload can fire.
+        clientsClaim: true,
         // SPA fallback: any non-precached navigation still resolves to the
         // shell so client-side routing keeps working offline.
         navigateFallback: '/index.html',

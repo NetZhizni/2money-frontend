@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { auth } from '../firebase'
 import { markBackendReachable, markBackendUnreachable } from '../db/syncStatus'
+import { env } from '../runtimeConfig'
 
 /**
  * The one HTTP client talking to the Express/PostgreSQL backend. Every
@@ -8,7 +9,7 @@ import { markBackendReachable, markBackendUnreachable } from '../db/syncStatus'
  * there is no more direct Firestore access anywhere in the app.
  */
 export const http = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? '/api',
+  baseURL: env.VITE_API_URL,
 })
 
 http.interceptors.request.use(async (config) => {

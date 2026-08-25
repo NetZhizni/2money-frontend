@@ -1,0 +1,61 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Docker's embedded DNS — resolves service names on any custom
+    # docker-compose network. Needed so /api below re-resolves the backend
+    # per-request instead of caching its IP once at nginx startup: without
+    # this, a `proxy_pass http://backend:3100;` literal (a) crashes the
+    # whole container at startup if "backend" isn't resolvable yet
+    # (ordering), and (b) keeps proxying to a stale IP after the backend
+    # container restarts and gets a new one.
+    resolver 127.0.0.11 valid=30s;
+
+    # SPA fallback — client-side routing (vue-router) resolves everything
+    # that isn't a real static file to the app shell.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # The app shell and PWA service-worker files must always be revalidated
+    # so the update-prompt flow (src/pwa/updateService.ts) can detect new
+    # deployments promptly.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location ~* ^/(sw\.js|registerSW\.js|manifest\.webmanifest)$ {
+        add_header Cache-Control "no-cache";
+    }
+
+    # Build output is content-hashed (see vite.config.ts rollupOptions),
+    # so these are safe to cache forever.
+    location ~* \.(?:js|css|woff2?|png|jpg|jpeg|svg|ico)$ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # Reverse-proxy to the backend service. The app calls a relative /api
+    # URL (VITE_API_URL, see src/api/http.ts), so requests never leave the
+    # browser's origin — nginx forwards them to the backend container over
+    # the compose network instead. No path rewrite, same as vite dev's
+    # server.proxy in vite.config.ts, so the backend sees the same
+    # /api/... path either way.
+    #
+    # $API_UPSTREAM is filled in at container start (this file lives in
+    # /etc/nginx/templates/, auto-processed by the base nginx image's
+    # envsubst entrypoint) — default is set via ENV in the Dockerfile and
+    # can be overridden per-deployment with `environment: API_UPSTREAM=...`
+    # in docker-compose, no rebuild needed.
+    location /api/ {
+        set $backend_upstream ${API_UPSTREAM};
+        proxy_pass http://$backend_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

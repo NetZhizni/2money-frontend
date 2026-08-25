@@ -1,0 +1,12 @@
+node_modules
+dist
+dev-dist
+.git
+.github
+.agents
+.claude
+*.log
+.env
+.env.local
+.env.local.example
+README.md

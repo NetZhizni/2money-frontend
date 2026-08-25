@@ -34,9 +34,19 @@ export function setupServiceWorker() {
 
 // Activates the waiting service worker and reloads the page to run the new
 // version. Called from the update popup's "Оновити" button.
+//
+// registerSW()'s returned function only *sends* the skip-waiting message —
+// the actual reload happens later, internally, off a `controllerchange`
+// event that fires once the new worker takes control of this tab (see
+// clientsClaim in vite.config.ts for why that event can fail to fire). If
+// that doesn't happen quickly, force it ourselves rather than leaving the
+// user stuck on "Оновлення…" forever.
 export async function applyUpdate() {
   if (!applyUpdateFn) return
   await applyUpdateFn(true)
+  setTimeout(() => {
+    window.location.reload()
+  }, 4000)
 }
 
 // Manually asks the browser to re-fetch the service worker file right now,
