@@ -77,17 +77,18 @@ html,
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
+  overflow: hidden;
   background: var(--page-bg);
   color: var(--text-primary);
 }
 
 body {
-  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
 #app {
-  min-height: 100vh;
+  height: 100%;
 }
 
 button {

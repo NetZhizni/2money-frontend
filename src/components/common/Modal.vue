@@ -173,6 +173,7 @@ function afterLeave() {
 .sheet-body {
   flex: 1 1 auto;
   overflow-y: auto;
+  overscroll-behavior: contain;
   /* Per spec, a non-'visible' overflow-y forces overflow-x to 'auto' too,
      so any child that overflows horizontally (e.g. a grid row before the
      min-width fix) would silently grow a horizontal scrollbar here. */

@@ -43,6 +43,8 @@ async function handleSignIn() {
 <style scoped>
 .login-shell {
   min-height: 100vh;
+  min-height: 100dvh;
+  overflow-y: auto;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -128,8 +128,6 @@ const periodLabel = computed(() => {
 .top-header {
   background: var(--page-bg);
   padding: 14px 12px 10px;
-  position: sticky;
-  top: 0;
   z-index: 30;
 }
 

@@ -28,8 +28,6 @@ const tabs = [
   background: var(--surface);
   border-top: 1px solid var(--border);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
-  position: sticky;
-  bottom: 0;
   z-index: 20;
 }
 
