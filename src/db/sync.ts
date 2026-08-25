@@ -1,7 +1,7 @@
 import { isAxiosError } from 'axios'
 import http from '../api/http'
 import { db, type SyncableEntity } from './schema'
-import { markSynced } from './syncStatus'
+import { backendOnline, markSynced } from './syncStatus'
 import type { Account, Transaction } from '../types/models'
 
 const RESOURCE_PATH: Record<SyncableEntity, string> = {
@@ -98,6 +98,61 @@ export async function fullSync(currentUserId: string | null): Promise<void> {
     ),
   )
   if (results.every(Boolean)) markSynced()
+}
+
+/**
+ * "Hard resync": wipes every locally-cached synced table (this profile's own
+ * accounts/categories/transactions/recurringTemplates/budgets, the shared
+ * family directory, and the delta-sync cursors) and re-pulls all of it fresh
+ * from the backend, as if this were a brand-new device. For when the local
+ * Dexie cache is suspected to have drifted and the server should just win.
+ *
+ * Unlike resetAllData() in src/db/reset.ts, nothing is deleted *on* the
+ * server — this only touches the local cache. Refuses to run while anything
+ * is still queued in the outbox: wiping local tables would silently lose
+ * whatever local edit hasn't made it to the server yet, so the caller must
+ * push (or discard) it first.
+ */
+export async function resyncFromServer(currentUserId: string | null): Promise<void> {
+  if (!currentUserId) throw new Error('Не автентифіковано')
+  if (!backendOnline.value) throw new Error('Немає з’єднання із сервером')
+
+  await pushOutbox(currentUserId)
+  const stillPending = await db.outbox.where('ownerId').equals(currentUserId).count()
+  if (stillPending > 0) {
+    throw new Error('Є незбережені локальні зміни, які не вдалося надіслати. Спробуйте ще раз, коли з’явиться з’єднання.')
+  }
+
+  await db.transaction(
+    'rw',
+    [db.accounts, db.categories, db.transactions, db.recurringTemplates, db.budgets, db.syncCursors, db.users],
+    async () => {
+      await Promise.all([
+        db.accounts.clear(),
+        db.categories.clear(),
+        db.transactions.clear(),
+        db.recurringTemplates.clear(),
+        db.budgets.clear(),
+        db.syncCursors.clear(),
+        db.users.clear(),
+      ])
+    },
+  )
+
+  const results = await Promise.all(
+    ALL_ENTITIES.map((entity) =>
+      pullEntity(entity)
+        .then(() => true)
+        .catch((error) => {
+          console.error(`[sync] resync pull ${entity} failed`, error)
+          return false
+        }),
+    ),
+  )
+  await Promise.all([pullUserDirectory(), pullAllAccounts(currentUserId), pullAllTransactions(currentUserId)])
+
+  if (results.every(Boolean)) markSynced()
+  else throw new Error('Частину даних не вдалося завантажити із сервера. Спробуйте ще раз.')
 }
 
 /** Refreshes the small, non-syncable-via-outbox family directory (see stores/profiles.ts). */

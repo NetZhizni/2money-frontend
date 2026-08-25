@@ -3,12 +3,13 @@ import { ref } from 'vue'
 import { db } from './schema'
 
 /**
- * Whether the backend actually answered our last request — set from
- * src/api/http.ts's response interceptor. A 4xx/5xx still counts as
- * "reachable" (the server did respond); only a network error/timeout flips
- * this false. This is a stronger signal than `navigator.onLine`, which only
- * reflects the device's own network interface and says nothing about
- * whether our backend is actually up.
+ * Whether the backend actually answered our last request *correctly* — set
+ * from src/api/http.ts's response interceptor. A 2xx or a 4xx (the backend
+ * rejecting that particular request on purpose) counts as reachable; a 5xx
+ * (the backend itself erroring) or no response at all (network
+ * error/timeout) flips this false. This is a stronger signal than
+ * `navigator.onLine`, which only reflects the device's own network interface
+ * and says nothing about whether our backend is actually up and working.
  */
 export const backendOnline = ref(navigator.onLine)
 

@@ -25,9 +25,13 @@ http.interceptors.request.use(async (config) => {
  * the caller fall back to the offline-cached Dexie data either way).
  *
  * Also doubles as the app's one source of truth for "is the backend online":
- * any response at all (even an error one — the server did answer) marks it
- * reachable; a request that fails with no response (network error/timeout)
- * marks it unreachable. See src/db/syncStatus.ts.
+ * a 2xx, or a 4xx (the backend rejecting *this* request on purpose — bad
+ * input, not found, auth — still means it's up and answering correctly)
+ * marks it reachable. A 5xx (the backend answered but is itself erroring —
+ * see backend/src/middleware/error.js) or no response at all (network
+ * error/timeout) marks it unreachable: `navigator.onLine` alone can't tell
+ * you that, it only knows about the device's own network interface, not
+ * whether *our* backend is actually working. See src/db/syncStatus.ts.
  */
 http.interceptors.response.use(
   (response) => {
@@ -35,7 +39,7 @@ http.interceptors.response.use(
     return response
   },
   async (error) => {
-    if (error.response) markBackendReachable()
+    if (error.response && error.response.status < 500) markBackendReachable()
     else markBackendUnreachable()
 
     const original = error.config
