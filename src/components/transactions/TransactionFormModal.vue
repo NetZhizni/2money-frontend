@@ -138,8 +138,8 @@ watch(
     const shouldCompute = form.type === 'transfer' ? isCrossProfileTransfer.value : needsRate.value
     if (!shouldCompute || creditTouched.value) return
     // Rate FROM the transaction's currency TO the app's base currency — pivoted
-    // through NBU's UAH rates, so this stays correct even when the base
-    // currency itself isn't UAH (a raw NBU rate is always "UAH per unit").
+    // through UAH rates, so this stays correct even when the base currency
+    // itself isn't UAH (a raw exchange rate is always "UAH per unit").
     form.exchangeRate = await convertAmount(1, currency.value, settings.baseCurrency, new Date(form.date).getTime())
   },
   { immediate: true },

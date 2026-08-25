@@ -179,7 +179,7 @@ export async function loadDemoData(): Promise<void> {
   const savingsAccountId = created['Заощадження'].id
 
   // Demo transactions never need historical precision, so resolve each
-  // currency's rate to the app's base currency once (pivoting through NBU's
+  // currency's rate to the app's base currency once (pivoting through
   // UAH rates) and reuse it everywhere instead of one call per transaction.
   const uahToBaseRate = await convertAmount(1, 'UAH', settings.baseCurrency)
   const usdToBaseRate = await convertAmount(1, 'USD', settings.baseCurrency)

@@ -100,7 +100,7 @@ export interface ExchangeRateEntry {
   id: string
   dateKey: string
   currency: string
-  rate: number // UAH per 1 unit of currency (NBU convention)
+  rate: number // UAH per 1 unit of currency
   fetchedAt: number
 }
 

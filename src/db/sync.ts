@@ -108,10 +108,15 @@ export async function fullSync(currentUserId: string | null): Promise<void> {
  * Dexie cache is suspected to have drifted and the server should just win.
  *
  * Unlike resetAllData() in src/db/reset.ts, nothing is deleted *on* the
- * server — this only touches the local cache. Refuses to run while anything
- * is still queued in the outbox: wiping local tables would silently lose
- * whatever local edit hasn't made it to the server yet, so the caller must
- * push (or discard) it first.
+ * server — this only touches the local cache. Tries to push whatever's
+ * queued first so a real edit isn't lost silently, but this is a
+ * user-confirmed destructive action (see the ConfirmDialog in
+ * SyncStatusBadge.vue): if some of *this user's* outbox entries still won't
+ * push (stuck behind a permanent failure, e.g.), they're discarded rather
+ * than aborting the whole resync — otherwise the exact entries the user is
+ * trying to escape are also the ones that permanently block ever clearing
+ * the local DB, leaving "Очікує синхронізації" stuck forever. Other family
+ * members' queued entries on a shared device are left untouched.
  */
 export async function resyncFromServer(currentUserId: string | null): Promise<void> {
   if (!currentUserId) throw new Error('Не автентифіковано')
@@ -120,12 +125,12 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
   await pushOutbox(currentUserId)
   const stillPending = await db.outbox.where('ownerId').equals(currentUserId).count()
   if (stillPending > 0) {
-    throw new Error('Є незбережені локальні зміни, які не вдалося надіслати. Спробуйте ще раз, коли з’явиться з’єднання.')
+    console.warn(`[sync] resync: discarding ${stillPending} outbox entr${stillPending === 1 ? 'y' : 'ies'} that failed to push`)
   }
 
   await db.transaction(
     'rw',
-    [db.accounts, db.categories, db.transactions, db.recurringTemplates, db.budgets, db.syncCursors, db.users],
+    [db.accounts, db.categories, db.transactions, db.recurringTemplates, db.budgets, db.syncCursors, db.users, db.outbox],
     async () => {
       await Promise.all([
         db.accounts.clear(),
@@ -135,6 +140,7 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
         db.budgets.clear(),
         db.syncCursors.clear(),
         db.users.clear(),
+        db.outbox.where('ownerId').equals(currentUserId).delete(),
       ])
     },
   )

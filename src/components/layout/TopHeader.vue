@@ -9,7 +9,7 @@ import { useCountUp } from '../../composables/useCountUp'
 import { formatMoney, MONTHS_UK, MONTHS_UK_SHORT, MONTHS_UK_GENITIVE } from '../../utils/format'
 import MdiIcon from '../common/MdiIcon.vue'
 import PeriodPickerPopover from './PeriodPickerPopover.vue'
-import CurrencySwitcherPopover from './CurrencySwitcherPopover.vue'
+import CurrencyPickerModal from './CurrencyPickerModal.vue'
 import SearchModal from './SearchModal.vue'
 import SettingsModal from './SettingsModal.vue'
 import SyncStatusBadge from './SyncStatusBadge.vue'
@@ -75,7 +75,7 @@ const periodLabel = computed(() => {
       </button>
       <div class="icon-btn-spacer" aria-hidden="true"></div>
       <div class="balance-wrap">
-        <button class="balance" @click="showCurrencyPicker = !showCurrencyPicker">
+        <button class="balance" @click="showCurrencyPicker = true">
           <span class="label">
             Всі рахунки
             <MdiIcon name="mdiChevronDown" :size="13" color="var(--text-secondary)" />
@@ -84,7 +84,6 @@ const periodLabel = computed(() => {
             {{ totalBalance === null ? '…' : formatMoney(animatedTotalBalance ?? 0, displayCurrency.effective) }}
           </span>
         </button>
-        <CurrencySwitcherPopover v-if="showCurrencyPicker" @close="showCurrencyPicker = false" />
       </div>
       <SyncStatusBadge />
       <button class="icon-btn" aria-label="Пошук" @click="showSearch = true">
@@ -120,7 +119,7 @@ const periodLabel = computed(() => {
     </div>
   </header>
 
-  <div v-if="showCurrencyPicker" class="scrim" @click="showCurrencyPicker = false" />
+  <CurrencyPickerModal v-if="showCurrencyPicker" @close="showCurrencyPicker = false" />
   <SearchModal v-if="showSearch" @close="showSearch = false" />
   <SettingsModal v-if="showSettings" @close="showSettings = false" />
 </template>
@@ -160,7 +159,6 @@ const periodLabel = computed(() => {
 }
 
 .balance-wrap {
-  position: relative;
   flex: 1;
   min-width: 0;
 }
@@ -245,9 +243,4 @@ const periodLabel = computed(() => {
   font-size: 11px;
 }
 
-.scrim {
-  position: fixed;
-  inset: 0;
-  z-index: 10;
-}
 </style>

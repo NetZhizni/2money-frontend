@@ -68,14 +68,14 @@ export const useAccountsStore = defineStore('accounts', () => {
 
   /**
    * Sum of all `includeInTotal` account balances converted to `targetCurrency`
-   * (the app's base currency, or a display-currency override) via NBU.
+   * (the app's base currency, or a display-currency override).
    * Archiving an account only hides it from active pickers (account selects
    * when creating a transaction) — it's still real money, so it keeps
    * counting toward the total for as long as `includeInTotal` is set. Per
-   * spec, this rollup always uses the LATEST NBU rate (never the
-   * manually-edited per-operation rate, and never a historical rate) — `asOf`
-   * only limits which transactions count, not which rate is used. Pivots
-   * correctly through UAH regardless of what `targetCurrency` is.
+   * spec, this rollup always uses the LATEST rate (never the manually-edited
+   * per-operation rate, and never a historical rate) — `asOf` only limits
+   * which transactions count, not which rate is used. Pivots correctly
+   * through UAH regardless of what `targetCurrency` is.
    */
   async function totalBalanceInBase(targetCurrency: string, asOf?: number): Promise<number> {
     const transactions = useTransactionsStore()
