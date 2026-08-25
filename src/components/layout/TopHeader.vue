@@ -73,6 +73,7 @@ const periodLabel = computed(() => {
       <button class="icon-btn" aria-label="Налаштування" @click="showSettings = true">
         <MdiIcon name="mdiAccountCircleOutline" :size="26" />
       </button>
+      <div class="icon-btn-spacer" aria-hidden="true"></div>
       <div class="balance-wrap">
         <button class="balance" @click="showCurrencyPicker = !showCurrencyPicker">
           <span class="label">
@@ -150,6 +151,12 @@ const periodLabel = computed(() => {
   justify-content: center;
   cursor: pointer;
   border-radius: 50%;
+}
+
+.icon-btn-spacer {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
 }
 
 .balance-wrap {
