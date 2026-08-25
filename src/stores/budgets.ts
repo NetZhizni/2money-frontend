@@ -39,5 +39,15 @@ export const useBudgetsStore = defineStore('budgets', () => {
     return collection.all.value.find((b) => b.categoryId === categoryId)
   }
 
-  return { all: collection.all, loaded: collection.loaded, load, reset: collection.reset, add, update, remove, forCategory }
+  return {
+    all: collection.all,
+    loaded: collection.loaded,
+    load,
+    reset: collection.reset,
+    isPending: collection.isPending,
+    add,
+    update,
+    remove,
+    forCategory,
+  }
 })

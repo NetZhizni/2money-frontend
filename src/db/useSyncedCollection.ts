@@ -19,8 +19,27 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
   const loaded = ref(false)
   let subscription: { unsubscribe: () => void } | null = null
 
+  // A record is "pending" (queued on this device, not yet confirmed by the
+  // backend) exactly when it still has an entry in the outbox — there's no
+  // separate synced/pending field on the record itself (see OutboxEntry's
+  // doc comment: create and update both collapse into one idempotent
+  // upsert), so this is derived live from the same queue src/db/sync.ts
+  // drains, scoped to this entity.
+  const pendingIds = ref<Set<string>>(new Set())
+  let pendingSubscription: { unsubscribe: () => void } | null = null
+
+  function isPending(id: string): boolean {
+    return pendingIds.value.has(id)
+  }
+
   function load(): Promise<void> {
     stop()
+    pendingSubscription = liveQuery(() => db.outbox.where('entity').equals(entity).toArray()).subscribe({
+      next: (entries) => {
+        pendingIds.value = new Set(entries.map((e) => e.recordId))
+      },
+      error: (error) => console.error(`[${entity}] pending liveQuery failed`, error),
+    })
     return new Promise((resolve) => {
       let first = true
       subscription = liveQuery(queryFn).subscribe({
@@ -40,12 +59,15 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
   function stop() {
     subscription?.unsubscribe()
     subscription = null
+    pendingSubscription?.unsubscribe()
+    pendingSubscription = null
   }
 
   function reset() {
     stop()
     all.value = []
     loaded.value = false
+    pendingIds.value = new Set()
   }
 
   /** Optimistic local write (create or update — Dexie `put` is an upsert) + queue for the API. */
@@ -62,5 +84,5 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
     if (authStore.uid) await enqueueDelete(entity, authStore.uid, id)
   }
 
-  return { all, loaded, load, stop, reset, put, removeLocal }
+  return { all, loaded, load, stop, reset, put, removeLocal, pendingIds, isPending }
 }

@@ -48,5 +48,15 @@ export const useTemplatesStore = defineStore('templates', () => {
     return generateDueRecurring(collection.all.value, authStore.uid, Date.now(), settings.baseCurrency)
   }
 
-  return { all: collection.all, loaded: collection.loaded, load, reset: collection.reset, add, update, remove, runDueGeneration }
+  return {
+    all: collection.all,
+    loaded: collection.loaded,
+    load,
+    reset: collection.reset,
+    isPending: collection.isPending,
+    add,
+    update,
+    remove,
+    runDueGeneration,
+  }
 })

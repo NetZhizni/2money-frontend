@@ -58,6 +58,28 @@ export function fullDateLabel(date: Date): string {
   return `${capitalized}, ${date.getDate()} ${MONTHS_UK_GENITIVE[date.getMonth()]} ${date.getFullYear()} р.`
 }
 
+/** Ukrainian plural form picker (1 хвилина / 2 хвилини / 5 хвилин). */
+function pluralUk(n: number, forms: [one: string, few: string, many: string]): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return forms[0]
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms[1]
+  return forms[2]
+}
+
+/** Coarse "N хвилин тому" label for status timestamps (sync status, "востаннє в мережі" тощо) — not for transaction dates. */
+export function relativeTimeUk(ms: number, now: number = Date.now()): string {
+  const diffSec = Math.max(0, Math.round((now - ms) / 1000))
+  if (diffSec < 5) return 'щойно'
+  if (diffSec < 60) return `${diffSec} ${pluralUk(diffSec, ['секунду', 'секунди', 'секунд'])} тому`
+  const diffMin = Math.round(diffSec / 60)
+  if (diffMin < 60) return `${diffMin} ${pluralUk(diffMin, ['хвилину', 'хвилини', 'хвилин'])} тому`
+  const diffHour = Math.round(diffMin / 60)
+  if (diffHour < 24) return `${diffHour} ${pluralUk(diffHour, ['годину', 'години', 'годин'])} тому`
+  const diffDay = Math.round(diffHour / 24)
+  return `${diffDay} ${pluralUk(diffDay, ['день', 'дні', 'днів'])} тому`
+}
+
 export function dateKey(date: Date | number): string {
   const d = typeof date === 'number' ? new Date(date) : date
   const y = d.getFullYear()

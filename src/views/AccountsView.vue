@@ -115,6 +115,7 @@ async function handleDeleteConfirmed() {
         :key="account.id"
         :account="account"
         :balance="balanceOf(account)"
+        :pending="accounts.isPending(account.id)"
         @click="openEdit(account)"
         @add-operation="openAddOperation(account)"
         @history="historyAccount = account"

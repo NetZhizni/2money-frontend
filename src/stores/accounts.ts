@@ -95,6 +95,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     archived,
     load,
     reset: collection.reset,
+    isPending: collection.isPending,
     add,
     update,
     setArchived,

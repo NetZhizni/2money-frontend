@@ -85,6 +85,7 @@ export const useCategoriesStore = defineStore('categories', () => {
     loaded: collection.loaded,
     load,
     reset: collection.reset,
+    isPending: collection.isPending,
     topLevel,
     childrenOf,
     byId,

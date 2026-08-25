@@ -1,6 +1,7 @@
 import { isAxiosError } from 'axios'
 import http from '../api/http'
 import { db, type SyncableEntity } from './schema'
+import { markSynced } from './syncStatus'
 import type { Account, Transaction } from '../types/models'
 
 const RESOURCE_PATH: Record<SyncableEntity, string> = {
@@ -76,13 +77,27 @@ async function pullEntity(entity: SyncableEntity): Promise<void> {
 
 const ALL_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets']
 
-/** Push pending local writes, then pull fresh data for every entity. Safe to call repeatedly/concurrently. */
+/**
+ * Push pending local writes, then pull fresh data for every entity. Safe to
+ * call repeatedly/concurrently. Marks `syncStatus.lastSyncedAt` (used by the
+ * "остання синхронізація" indicator) only once every entity's pull actually
+ * succeeded — a partial failure leaves the previous timestamp standing
+ * rather than claiming a full sync that didn't happen.
+ */
 export async function fullSync(currentUserId: string | null): Promise<void> {
   if (!currentUserId || !navigator.onLine) return
   await pushOutbox(currentUserId)
-  await Promise.all(
-    ALL_ENTITIES.map((entity) => pullEntity(entity).catch((error) => console.error(`[sync] pull ${entity} failed`, error))),
+  const results = await Promise.all(
+    ALL_ENTITIES.map((entity) =>
+      pullEntity(entity)
+        .then(() => true)
+        .catch((error) => {
+          console.error(`[sync] pull ${entity} failed`, error)
+          return false
+        }),
+    ),
   )
+  if (results.every(Boolean)) markSynced()
 }
 
 /** Refreshes the small, non-syncable-via-outbox family directory (see stores/profiles.ts). */

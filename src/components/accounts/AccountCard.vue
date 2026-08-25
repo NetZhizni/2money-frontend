@@ -5,7 +5,7 @@ import MdiIcon from '../common/MdiIcon.vue'
 import { formatMoney } from '../../utils/format'
 import type { Account } from '../../types/models'
 
-const props = defineProps<{ account: Account; balance: number }>()
+const props = defineProps<{ account: Account; balance: number; pending?: boolean }>()
 defineEmits<{ click: []; addOperation: []; history: [] }>()
 
 const typeLabel = computed(() => {
@@ -18,7 +18,12 @@ const typeLabel = computed(() => {
 <template>
   <div class="card">
     <button class="card-main" @click="$emit('click')">
-      <IconCircle :icon="account.icon" :color="account.color" :size="48" />
+      <div class="icon-wrap">
+        <IconCircle :icon="account.icon" :color="account.color" :size="48" />
+        <span v-if="pending" class="pending-badge" title="Очікує синхронізації" aria-label="Очікує синхронізації">
+          <MdiIcon name="mdiClockOutline" :size="11" color="#fff" />
+        </span>
+      </div>
       <div class="info">
         <span class="name">{{ account.name }}</span>
         <span class="meta">
@@ -46,6 +51,25 @@ const typeLabel = computed(() => {
   background: var(--surface);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+}
+
+.icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.pending-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  border: 2px solid var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .card-main {

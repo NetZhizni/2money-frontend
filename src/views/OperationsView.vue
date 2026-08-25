@@ -276,7 +276,17 @@ async function handleDeleteConfirmed() {
 
       <TransitionGroup tag="div" name="tx-row">
         <button v-for="t in group.list" :key="t.id" class="row" @click="openEdit(t)">
-          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="44" />
+          <div class="row-icon-wrap">
+            <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="44" />
+            <span
+              v-if="transactions.isPending(t.id)"
+              class="pending-badge"
+              title="Очікує синхронізації"
+              aria-label="Очікує синхронізації"
+            >
+              <MdiIcon name="mdiClockOutline" :size="11" color="#fff" />
+            </span>
+          </div>
           <div class="row-text">
             <span class="row-title">{{ rowMeta(t).title }}</span>
             <span class="row-sub">{{ rowMeta(t).subtitle }}</span>
@@ -502,6 +512,25 @@ async function handleDeleteConfirmed() {
   margin-bottom: 6px;
   cursor: pointer;
   text-align: left;
+}
+
+.row-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.pending-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  border: 2px solid var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .row-text {

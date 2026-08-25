@@ -12,6 +12,7 @@ import PeriodPickerPopover from './PeriodPickerPopover.vue'
 import CurrencySwitcherPopover from './CurrencySwitcherPopover.vue'
 import SearchModal from './SearchModal.vue'
 import SettingsModal from './SettingsModal.vue'
+import SyncStatusBadge from './SyncStatusBadge.vue'
 
 const route = useRoute()
 const period = usePeriodStore()
@@ -84,6 +85,7 @@ const periodLabel = computed(() => {
         </button>
         <CurrencySwitcherPopover v-if="showCurrencyPicker" @close="showCurrencyPicker = false" />
       </div>
+      <SyncStatusBadge />
       <button class="icon-btn" aria-label="Пошук" @click="showSearch = true">
         <MdiIcon name="mdiMagnify" :size="24" />
       </button>

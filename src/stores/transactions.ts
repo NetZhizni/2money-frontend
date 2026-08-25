@@ -103,6 +103,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
     loaded: collection.loaded,
     load,
     reset: collection.reset,
+    isPending: collection.isPending,
     add,
     update,
     remove,
