@@ -92,7 +92,7 @@ async function removeBudget() {
         </div>
       </div>
       <div v-else class="budget-edit">
-        <input v-model="budgetInput" type="number" min="0" step="1" :placeholder="`Сума в ${currency}`" />
+        <input v-model="budgetInput" type="number" min="0" step="1" inputmode="numeric" :placeholder="`Сума в ${currency}`" />
         <button class="btn btn-secondary" @click="saveBudget">Зберегти</button>
       </div>
     </div>

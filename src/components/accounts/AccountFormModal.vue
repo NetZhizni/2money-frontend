@@ -94,7 +94,7 @@ function submit() {
       </div>
       <div class="field">
         <label>Початковий баланс</label>
-        <input v-model.number="form.initialBalance" type="number" step="0.01" />
+        <input v-model.number="form.initialBalance" type="number" step="0.01" inputmode="decimal" />
       </div>
     </div>
 

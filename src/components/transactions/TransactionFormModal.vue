@@ -379,7 +379,7 @@ async function handleDuplicate() {
     <div class="row-2">
       <div class="field">
         <label>Сума ({{ currency }})</label>
-        <input v-model.number="form.amount" type="number" step="0.01" min="0" placeholder="0.00" />
+        <input v-model.number="form.amount" type="number" step="0.01" min="0" placeholder="0.00" inputmode="decimal" />
       </div>
       <div class="field">
         <label>Дата</label>
@@ -389,13 +389,13 @@ async function handleDuplicate() {
 
     <div v-if="form.type !== 'transfer' && needsRate" class="field">
       <label>Сума зарахування ({{ settings.baseCurrency }})</label>
-      <input v-model.number="creditAmount" type="number" step="0.01" />
+      <input v-model.number="creditAmount" type="number" step="0.01" inputmode="decimal" />
       <span class="hint">Розраховано за курсом НБУ, можна відредагувати вручну. Впливає лише на аналітику; баланс рахунку рахується у власній валюті.</span>
     </div>
 
     <div v-if="isCrossCurrencyTransfer" class="field">
       <label>Сума зарахування ({{ destAccount?.currency }})</label>
-      <input v-model.number="form.toAmount" type="number" step="0.01" @input="toAmountTouched = true" />
+      <input v-model.number="form.toAmount" type="number" step="0.01" inputmode="decimal" @input="toAmountTouched = true" />
       <span class="hint">Розраховано за курсом НБУ, можна відредагувати вручну.</span>
     </div>
 

@@ -130,11 +130,11 @@ function resetAll() {
     <div class="row-2">
       <div class="field">
         <label>Сума від</label>
-        <input v-model.number="form.minAmount" type="number" min="0" placeholder="0" />
+        <input v-model.number="form.minAmount" type="number" min="0" placeholder="0" inputmode="decimal" />
       </div>
       <div class="field">
         <label>Сума до</label>
-        <input v-model.number="form.maxAmount" type="number" min="0" placeholder="∞" />
+        <input v-model.number="form.maxAmount" type="number" min="0" placeholder="∞" inputmode="decimal" />
       </div>
     </div>
 
