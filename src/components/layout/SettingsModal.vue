@@ -15,6 +15,7 @@ import { loadDemoData } from '../../db/demoData'
 import { resetAllData } from '../../db/reset'
 import { formatMoney } from '../../utils/format'
 import ConfirmDialog from '../common/ConfirmDialog.vue'
+import { forceCheckForUpdate } from '../../pwa/updateService'
 
 const emit = defineEmits<{ close: [] }>()
 
@@ -111,6 +112,22 @@ async function handleImportFile(e: Event) {
   }
 }
 
+const updateChecking = ref(false)
+const updateStatus = ref('')
+
+async function handleCheckUpdate() {
+  updateChecking.value = true
+  updateStatus.value = ''
+  try {
+    const result = await forceCheckForUpdate()
+    if (result === 'up-to-date') updateStatus.value = 'У вас уже остання версія застосунку.'
+    else if (result === 'error') updateStatus.value = 'Не вдалося перевірити оновлення. Перевірте з’єднання.'
+    // 'updated' перезавантажує сторінку самостійно — статус показати не встигне.
+  } finally {
+    updateChecking.value = false
+  }
+}
+
 const router = useRouter()
 
 function openAdmin() {
@@ -203,6 +220,15 @@ async function handleSignOut() {
       </div>
       <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
       <p v-if="status" class="status">{{ status }}</p>
+    </div>
+
+    <div class="field">
+      <label>Оновлення застосунку</label>
+      <p class="hint">Перевіряє наявність нової версії застосунку та встановлює її негайно.</p>
+      <button class="btn btn-secondary" :disabled="updateChecking" @click="handleCheckUpdate">
+        {{ updateChecking ? 'Перевірка…' : 'Перевірити оновлення' }}
+      </button>
+      <p v-if="updateStatus" class="status">{{ updateStatus }}</p>
     </div>
 
     <div class="field">
