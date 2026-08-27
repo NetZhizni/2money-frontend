@@ -42,6 +42,7 @@ function pct(amount: number): number {
 
 <style scoped>
 .rank-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 14px;

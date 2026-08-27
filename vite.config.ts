@@ -17,7 +17,18 @@ export default defineConfig({
       // (only a production build does), so Chrome/Android never consider the
       // app installable and it can only ever open as a normal browser tab —
       // this is what "standalone" actually depends on, not the manifest alone.
-      devOptions: { enabled: true, type: 'module' },
+      devOptions: {
+        enabled: true,
+        type: 'module',
+        // In dev, Vite serves files on the fly instead of writing them to
+        // disk, so dev-dist/ only ever contains the generated sw.js /
+        // workbox-*.js — which globPatterns below explicitly excludes. That
+        // leaves nothing to match, so workbox always logs a "glob pattern
+        // doesn't match any files" warning here. It's expected and harmless
+        // (production builds glob the real dist/ and precache fine) —
+        // suppressed so it doesn't look like a real problem on every dev run.
+        suppressWarnings: true,
+      },
       // favicon.svg/icons.svg/apple-touch-icon.png already match the
       // globPatterns below (svg/png), so listing them again in includeAssets
       // only duplicated them in the precache manifest — removed.

@@ -123,6 +123,7 @@ watchEffect(() => {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   padding-bottom: 8px;
+  scrollbar-gutter: stable;
 }
 
 .page-enter-active,
@@ -158,10 +159,8 @@ watchEffect(() => {
   .bottom-nav-slot {
     display: none;
   }
-  .main-column {
-    max-width: 1000px;
-    margin: 0 auto;
-    width: 100%;
+  .app-content {
+    padding-inline: clamp(24px, 5vw, 64px);
   }
 }
 </style>

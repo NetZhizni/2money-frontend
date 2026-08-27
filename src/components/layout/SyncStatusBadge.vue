@@ -126,6 +126,11 @@ async function handleResyncConfirmed() {
   cursor: pointer;
   border-radius: 50%;
   position: relative;
+  transition: transform 0.12s ease;
+}
+
+.icon-btn:active {
+  transform: scale(0.88);
 }
 
 .pending-dot {

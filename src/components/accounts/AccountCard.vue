@@ -96,6 +96,12 @@ const typeLabel = computed(() => {
   border-left: 1px solid var(--border);
   background: none;
   cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.add-op-btn:active,
+.history-btn:active {
+  transform: scale(0.85);
 }
 
 .history-btn {

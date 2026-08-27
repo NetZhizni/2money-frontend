@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import Modal from '../common/Modal.vue'
-import IconPicker from '../common/IconPicker.vue'
-import ColorPicker from '../common/ColorPicker.vue'
 import IconCircle from '../common/IconCircle.vue'
+import IconColorPickerModal from '../common/IconColorPickerModal.vue'
+import MdiIcon from '../common/MdiIcon.vue'
 import { COMMON_CURRENCIES } from '../../utils/currencies'
 import type { Account, AccountType, LoanDirection } from '../../types/models'
 
-const props = defineProps<{ account?: Account | null }>()
+const props = defineProps<{ account?: Account | null; defaultType?: AccountType }>()
 const emit = defineEmits<{ close: []; save: [Partial<Account>]; deleted: []; archived: [] }>()
 
 const isEdit = computed(() => !!props.account)
@@ -18,17 +18,21 @@ const TYPE_DEFAULTS: Record<AccountType, { icon: string; color: string }> = {
   loan: { icon: 'mdiHandshakeOutline', color: '#eda100' },
 }
 
+const initialType = props.account?.type ?? props.defaultType ?? ('regular' as AccountType)
+
 const form = reactive({
   name: props.account?.name ?? '',
-  type: props.account?.type ?? ('regular' as AccountType),
+  type: initialType,
   loanDirection: props.account?.loanDirection ?? ('lent' as LoanDirection),
   currency: props.account?.currency ?? 'UAH',
   initialBalance: props.account?.initialBalance ?? 0,
   includeInTotal: props.account?.includeInTotal ?? true,
-  icon: props.account?.icon ?? TYPE_DEFAULTS.regular.icon,
-  color: props.account?.color ?? TYPE_DEFAULTS.regular.color,
+  icon: props.account?.icon ?? TYPE_DEFAULTS[initialType].icon,
+  color: props.account?.color ?? TYPE_DEFAULTS[initialType].color,
   note: props.account?.note ?? '',
 })
+
+const showIconColorPicker = ref(false)
 
 function selectType(type: AccountType) {
   form.type = type
@@ -58,9 +62,14 @@ function submit() {
 
 <template>
   <Modal :title="isEdit ? 'Редагувати рахунок' : 'Новий рахунок'" @close="emit('close')">
-    <div class="preview">
-      <IconCircle :icon="form.icon" :color="form.color" :size="72" />
-    </div>
+    <button type="button" class="preview" aria-label="Змінити значок і колір" @click="showIconColorPicker = true">
+      <span class="preview-inner">
+        <IconCircle :icon="form.icon" :color="form.color" :size="72" />
+        <span class="preview-edit-badge">
+          <MdiIcon name="mdiPencilOutline" :size="14" color="var(--surface)" />
+        </span>
+      </span>
+    </button>
 
     <div class="field">
       <label>Тип рахунку</label>
@@ -106,16 +115,6 @@ function submit() {
     </div>
 
     <div class="field">
-      <label>Іконка</label>
-      <IconPicker v-model="form.icon" :color="form.color" />
-    </div>
-
-    <div class="field">
-      <label>Колір</label>
-      <ColorPicker v-model="form.color" />
-    </div>
-
-    <div class="field">
       <label>Нотатка (необов'язково)</label>
       <textarea v-model="form.note" rows="2" />
     </div>
@@ -131,6 +130,15 @@ function submit() {
       <button class="btn btn-danger" @click="emit('deleted')">Видалити рахунок</button>
     </div>
   </Modal>
+
+  <IconColorPickerModal
+    v-if="showIconColorPicker"
+    :icon="form.icon"
+    :color="form.color"
+    @update:icon="(v) => (form.icon = v)"
+    @update:color="(v) => (form.color = v)"
+    @close="showIconColorPicker = false"
+  />
 </template>
 
 <style scoped>
@@ -138,6 +146,28 @@ function submit() {
   display: flex;
   justify-content: center;
   margin-bottom: 16px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+}
+.preview-inner {
+  position: relative;
+  display: inline-flex;
+}
+.preview-edit-badge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .row-2 {
   display: grid;

@@ -137,7 +137,10 @@ const groups = computed(() => {
   return [...byDay.entries()]
     .map(([, list]) => ({
       date: new Date(list[0].date),
-      list,
+      // Every operation on the same calendar day shares the same `date`
+      // (day-precision only, see Transaction.date) so it can't order them —
+      // newest created/edited goes first within the day instead.
+      list: [...list].sort((a, b) => b.updatedAt - a.updatedAt),
       net: list.reduce((s, t) => s + t.baseAmount, 0),
     }))
     .sort((a, b) => b.date.getTime() - a.date.getTime())
@@ -214,135 +217,133 @@ async function handleDeleteConfirmed() {
 </script>
 
 <template>
-  <div class="view">
-    <div class="filter-row">
-      <div v-if="filterCategory" class="filter-chip">
-        <IconCircle :icon="filterCategory.icon" :color="filterCategory.color" :size="24" />
-        <span>Фільтр: {{ filterCategory.name }}</span>
-        <button class="clear-filter" aria-label="Прибрати фільтр" @click="clearCategoryFilter">✕</button>
+  <div class="filter-row">
+    <div v-if="filterCategory" class="filter-chip">
+      <IconCircle :icon="filterCategory.icon" :color="filterCategory.color" :size="24" />
+      <span>Фільтр: {{ filterCategory.name }}</span>
+      <button class="clear-filter" aria-label="Прибрати фільтр" @click="clearCategoryFilter">✕</button>
+    </div>
+    <div v-if="filterAccount" class="filter-chip">
+      <IconCircle :icon="filterAccount.icon" :color="filterAccount.color" :size="24" />
+      <span>Рахунок: {{ filterAccount.name }}</span>
+      <button class="clear-filter" aria-label="Прибрати фільтр" @click="clearAccountFilter">✕</button>
+    </div>
+    <div v-if="hasActiveFilters" class="filter-chip">
+      <MdiIcon name="mdiFilterVariant" :size="16" color="var(--accent)" />
+      <span>Фільтрів: {{ activeFilterCount }}</span>
+      <button class="clear-filter" aria-label="Скинути фільтри" @click="clearAllFilters">✕</button>
+    </div>
+    <button class="filter-btn" @click="showFilterModal = true">
+      <MdiIcon name="mdiTune" :size="18" />
+      <span>Фільтри</span>
+    </button>
+  </div>
+
+  <div class="balance-bar">
+    <div class="cell">
+      <span class="label">Початковий баланс</span>
+      <span class="value income">{{ initialBalance === null ? '…' : formatMoney(initialBalance, displayCurrency.code) }}</span>
+    </div>
+    <div class="cell">
+      <span class="label">Кінцевий баланс</span>
+      <span class="value" :class="{ negative: (finalBalance ?? 0) < 0 }">
+        {{ finalBalance === null ? '…' : formatMoney(finalBalance, displayCurrency.code) }}
+      </span>
+    </div>
+  </div>
+
+  <div v-if="!groups.length" class="empty">
+    {{
+      filterCategory
+        ? 'Операцій по цій категорії за цей період ще немає.'
+        : filterAccount
+          ? 'Операцій по цьому рахунку за цей період ще немає.'
+          : 'Операцій за цей період ще немає.'
+    }}
+  </div>
+
+  <div v-for="group in groups" :key="group.date.toDateString()" class="day-group">
+    <div class="day-heading">
+      <div class="day-num-col">
+        <span class="day-num">{{ dayHeader(group.date).day }}</span>
       </div>
-      <div v-if="filterAccount" class="filter-chip">
-        <IconCircle :icon="filterAccount.icon" :color="filterAccount.color" :size="24" />
-        <span>Рахунок: {{ filterAccount.name }}</span>
-        <button class="clear-filter" aria-label="Прибрати фільтр" @click="clearAccountFilter">✕</button>
+      <div class="day-label-col">
+        <span class="weekday">{{ dayHeader(group.date).weekday }}</span>
+        <span class="monthyear">{{ dayHeader(group.date).monthYear }}</span>
       </div>
-      <div v-if="hasActiveFilters" class="filter-chip">
-        <MdiIcon name="mdiFilterVariant" :size="16" color="var(--accent)" />
-        <span>Фільтрів: {{ activeFilterCount }}</span>
-        <button class="clear-filter" aria-label="Скинути фільтри" @click="clearAllFilters">✕</button>
-      </div>
-      <button class="filter-btn" @click="showFilterModal = true">
-        <MdiIcon name="mdiTune" :size="18" />
-        <span>Фільтри</span>
-      </button>
+      <span class="day-total" :class="{ negative: group.net < 0 }">
+        {{ formatMoney(Math.abs(displayCurrency.convert(group.net)), displayCurrency.code) }}
+      </span>
     </div>
 
-    <div class="balance-bar">
-      <div class="cell">
-        <span class="label">Початковий баланс</span>
-        <span class="value income">{{ initialBalance === null ? '…' : formatMoney(initialBalance, displayCurrency.code) }}</span>
-      </div>
-      <div class="cell">
-        <span class="label">Кінцевий баланс</span>
-        <span class="value" :class="{ negative: (finalBalance ?? 0) < 0 }">
-          {{ finalBalance === null ? '…' : formatMoney(finalBalance, displayCurrency.code) }}
-        </span>
-      </div>
-    </div>
-
-    <div v-if="!groups.length" class="empty">
-      {{
-        filterCategory
-          ? 'Операцій по цій категорії за цей період ще немає.'
-          : filterAccount
-            ? 'Операцій по цьому рахунку за цей період ще немає.'
-            : 'Операцій за цей період ще немає.'
-      }}
-    </div>
-
-    <div v-for="group in groups" :key="group.date.toDateString()" class="day-group">
-      <div class="day-heading">
-        <div class="day-num-col">
-          <span class="day-num">{{ dayHeader(group.date).day }}</span>
-        </div>
-        <div class="day-label-col">
-          <span class="weekday">{{ dayHeader(group.date).weekday }}</span>
-          <span class="monthyear">{{ dayHeader(group.date).monthYear }}</span>
-        </div>
-        <span class="day-total" :class="{ negative: group.net < 0 }">
-          {{ formatMoney(Math.abs(displayCurrency.convert(group.net)), displayCurrency.code) }}
-        </span>
-      </div>
-
-      <TransitionGroup tag="div" name="tx-row">
-        <button v-for="t in group.list" :key="t.id" class="row" @click="openEdit(t)">
-          <div class="row-icon-wrap">
-            <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="44" />
-            <span
-              v-if="transactions.isPending(t.id)"
-              class="pending-badge"
-              title="Очікує синхронізації"
-              aria-label="Очікує синхронізації"
-            >
-              <MdiIcon name="mdiClockOutline" :size="11" color="#fff" />
-            </span>
-          </div>
-          <div class="row-text">
-            <span class="row-title">{{ rowMeta(t).title }}</span>
-            <span class="row-sub">{{ rowMeta(t).subtitle }}</span>
-            <span v-if="t.note" class="row-note">{{ t.note }}</span>
-          </div>
-          <span class="row-amount-col">
-            <span class="row-amount" :class="rowMeta(t).amountClass">
-              {{ t.type === 'expense' ? '-' : t.type === 'income' ? '+' : '' }}{{ formatMoney(t.amount, t.currency) }}
-            </span>
-            <span v-if="convertedLabel(t)" class="row-converted">{{ convertedLabel(t) }}</span>
+    <TransitionGroup tag="div" name="tx-row" class="tx-list">
+      <button v-for="t in group.list" :key="t.id" class="row" @click="openEdit(t)">
+        <div class="row-icon-wrap">
+          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="44" />
+          <span
+            v-if="transactions.isPending(t.id)"
+            class="pending-badge"
+            title="Очікує синхронізації"
+            aria-label="Очікує синхронізації"
+          >
+            <MdiIcon name="mdiClockOutline" :size="11" color="#fff" />
           </span>
-        </button>
-      </TransitionGroup>
-    </div>
+        </div>
+        <div class="row-text">
+          <span class="row-title">{{ rowMeta(t).title }}</span>
+          <span class="row-sub">{{ rowMeta(t).subtitle }}</span>
+          <span v-if="t.note" class="row-note">{{ t.note }}</span>
+        </div>
+        <span class="row-amount-col">
+          <span class="row-amount" :class="rowMeta(t).amountClass">
+            {{ t.type === 'expense' ? '-' : t.type === 'income' ? '+' : '' }}{{ formatMoney(t.amount, t.currency) }}
+          </span>
+          <span v-if="convertedLabel(t)" class="row-converted">{{ convertedLabel(t) }}</span>
+        </span>
+      </button>
+    </TransitionGroup>
+  </div>
 
+  <!-- Teleported to <body>: position:fixed only escapes the page-transition's
+       transform (App.vue animates route roots with `transform`) if the fab
+       isn't a descendant of the transformed element — otherwise that
+       transform makes it fixed's containing block, and the fab briefly
+       renders at the transformed box's edges before snapping to its real
+       viewport-fixed spot once the transition ends. -->
+  <Teleport to="body">
     <button class="fab" aria-label="Додати операцію" @click="openCreate">
       <MdiIcon name="mdiPlus" :size="26" color="#fff" />
     </button>
+  </Teleport>
 
-    <TransactionFormModal
-      v-if="showForm"
-      :transaction="editingTransaction"
-      :preset-category-id="!editingTransaction && filterCategoryId ? filterCategoryId : undefined"
-      @close="showForm = false"
-      @saved="showForm = false"
-      @duplicated="showForm = false"
-      @deleted="handleDeleteRequest"
-    />
+  <TransactionFormModal
+    v-if="showForm"
+    :transaction="editingTransaction"
+    :preset-category-id="!editingTransaction && filterCategoryId ? filterCategoryId : undefined"
+    @close="showForm = false"
+    @saved="showForm = false"
+    @duplicated="showForm = false"
+    @deleted="handleDeleteRequest"
+  />
 
-    <ConfirmDialog
-      v-if="confirmDelete"
-      title="Видалити операцію?"
-      message="Цю операцію буде видалено безповоротно."
-      confirm-label="Видалити"
-      danger
-      @close="confirmDelete = null"
-      @confirm="handleDeleteConfirmed"
-    />
+  <ConfirmDialog
+    v-if="confirmDelete"
+    title="Видалити операцію?"
+    message="Цю операцію буде видалено безповоротно."
+    confirm-label="Видалити"
+    danger
+    @close="confirmDelete = null"
+    @confirm="handleDeleteConfirmed"
+  />
 
-    <OperationsFilterModal
-      v-if="showFilterModal"
-      v-model="filters"
-      @close="showFilterModal = false"
-    />
-  </div>
+  <OperationsFilterModal
+    v-if="showFilterModal"
+    v-model="filters"
+    @close="showFilterModal = false"
+  />
 </template>
 
 <style scoped>
-.view {
-  padding: 4px 16px 90px;
-  max-width: 640px;
-  margin: 0 auto;
-  position: relative;
-  min-height: 60vh;
-}
-
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -437,6 +438,10 @@ async function handleDeleteConfirmed() {
 
 .day-group {
   margin-bottom: 6px;
+}
+
+.tx-list {
+  position: relative;
 }
 
 .day-heading {
@@ -603,6 +608,11 @@ async function handleDeleteConfirmed() {
   justify-content: center;
   cursor: pointer;
   z-index: 15;
+  transition: transform 0.12s ease;
+}
+
+.fab:active {
+  transform: scale(0.9);
 }
 
 @media (min-width: 900px) {

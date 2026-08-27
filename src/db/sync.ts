@@ -213,7 +213,7 @@ export async function pullAllTransactions(currentUserId: string | null): Promise
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
-/** Starts background sync: immediately, on regaining connectivity, and every 30s while online. Call once per login. */
+/** Starts background sync: immediately, on regaining connectivity, and every 1min while online. Call once per login. */
 export function startAutoSync(getUserId: () => string | null): () => void {
   const run = () => {
     void fullSync(getUserId())
@@ -222,7 +222,7 @@ export function startAutoSync(getUserId: () => string | null): () => void {
     void pullAllTransactions(getUserId())
   }
   window.addEventListener('online', run)
-  intervalHandle = setInterval(run, 30_000)
+  intervalHandle = setInterval(run, 60_000)
   run()
 
   return () => {

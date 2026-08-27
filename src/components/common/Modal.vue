@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
-withDefaults(defineProps<{ title?: string; wide?: boolean }>(), {})
+const props = withDefaults(defineProps<{ title?: string; wide?: boolean; width?: number }>(), {})
 const emit = defineEmits<{ close: [] }>()
 
 // Swipe-down-to-dismiss on mobile — grabbable from the handle or the header,
@@ -41,6 +41,15 @@ function requestClose() {
 function afterLeave() {
   emit('close')
 }
+
+// Merges the drag-to-dismiss offset with an optional fixed width override
+// (used by compact popups like the period picker) into a single style object.
+const sheetStyle = computed(() => {
+  const style: Record<string, string> = {}
+  if (props.width) style.maxWidth = `${props.width}px`
+  if (dragOffset.value) style.transform = `translateY(${dragOffset.value}px)`
+  return Object.keys(style).length ? style : undefined
+})
 </script>
 
 <template>
@@ -52,7 +61,7 @@ function afterLeave() {
           :class="{ wide, dragging }"
           role="dialog"
           aria-modal="true"
-          :style="dragOffset ? { transform: `translateY(${dragOffset}px)` } : undefined"
+          :style="sheetStyle"
         >
           <div
             class="grabber"

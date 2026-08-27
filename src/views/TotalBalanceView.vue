@@ -226,6 +226,7 @@ function sharePct(total: number): number {
 }
 
 .breakdown {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;

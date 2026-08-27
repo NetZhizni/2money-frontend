@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { toRaw } from 'vue'
 import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
@@ -54,7 +55,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
     const current = collection.all.value.find((t) => t.id === id)
     if (!current) return
     const { toOwnerId, ...rest } = patch
-    const updated: Transaction = { ...current, ...rest, updatedAt: Date.now() }
+    // `current` comes off the store's reactive `all` array, so its nested
+    // `participantIds` array is a Vue reactive Proxy, not a plain array —
+    // toRaw() unwraps it before it reaches Dexie's `put`, which otherwise
+    // throws DataCloneError trying to structured-clone the Proxy into
+    // IndexedDB (silently rejecting the save with no visible error).
+    const updated: Transaction = { ...toRaw(current), ...rest, updatedAt: Date.now() }
     if (toOwnerId !== undefined) {
       updated.participantIds = participantsFor(authStore.uid!, toOwnerId)
     }

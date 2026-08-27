@@ -132,11 +132,6 @@ const ringSegments = computed(() => {
 })
 
 const visibleTop = computed(() => categories.topLevel(kind.value))
-const EXPANDED_COUNT = 11
-const expanded = ref(false)
-const displayedTop = computed(() => (expanded.value ? visibleTop.value : visibleTop.value.slice(0, EXPANDED_COUNT)))
-const hasMore = computed(() => visibleTop.value.length > EXPANDED_COUNT && !expanded.value)
-const canCollapse = computed(() => expanded.value && visibleTop.value.length > EXPANDED_COUNT)
 
 // --- modals ---
 const showForm = ref(false)
@@ -171,15 +166,14 @@ function openAddSubcategory(parent: Category) {
 
 /**
  * After creating (not editing) a category, jump straight to its detail sheet —
- * proves the create actually worked instead of silently landing behind the
- * "Більше…" fold, and lets the user immediately add subcategories/operations.
+ * proves the create actually worked, and lets the user immediately add
+ * subcategories/operations.
  */
 function handleCategorySaved(saved: Category) {
   showForm.value = false
   const wasCreate = !formCategory.value
   formCategory.value = null
   if (!wasCreate) return
-  expanded.value = true
   if (kind.value !== saved.kind) kind.value = saved.kind
   if (saved.parentId) {
     const parent = categories.byId(saved.parentId)
@@ -224,112 +218,107 @@ function openAddOperation(category: Category) {
 </script>
 
 <template>
-  <div class="view">
-    <SpendingRing
-      :segments="ringSegments"
-      :expense-total="displayExpenseTotal"
-      :income-total="displayIncomeTotal"
-      :currency="displayCurrency.code"
-      :kind="kind"
-    />
+  <SpendingRing
+    :segments="ringSegments"
+    :expense-total="displayExpenseTotal"
+    :income-total="displayIncomeTotal"
+    :currency="displayCurrency.code"
+    :kind="kind"
+  />
 
-    <div class="kind-toggle segmented">
-      <button :class="{ active: kind === 'expense' }" @click="kind = 'expense'">Витрати</button>
-      <button :class="{ active: kind === 'income' }" @click="kind = 'income'">Доходи</button>
-    </div>
-
-    <TransitionGroup tag="div" name="tile" class="grid">
-      <CategoryTile
-        v-for="c in displayedTop"
-        :key="c.id"
-        :name="c.name"
-        :icon="c.icon"
-        :color="c.color"
-        :amount="displayRolledTotals[c.id] ?? 0"
-        :currency="displayCurrency.code"
-        :budget="budgetProgressByCategory[c.id] ?? null"
-        :budget-label="budgetLabel(c.id)"
-        @click="openDetail(c)"
-      />
-      <CategoryTile
-        v-if="transferTileAmount > 0"
-        key="__transfers__"
-        :name="TRANSFER_CATEGORY_LABEL"
-        :icon="TRANSFER_CATEGORY_ICON"
-        :color="TRANSFER_CATEGORY_COLOR"
-        :amount="displayCurrency.convert(transferTileAmount)"
-        :currency="displayCurrency.code"
-        @click="router.push('/operations')"
-      />
-      <button v-if="hasMore" key="__more__" class="tile more-tile" @click="expanded = true">
-        <div class="more-circle"><MdiIcon name="mdiChevronDown" :size="26" color="var(--text-muted)" /></div>
-        <span class="name">Більше…</span>
-      </button>
-      <button v-else-if="canCollapse" key="__less__" class="tile more-tile" @click="expanded = false">
-        <div class="more-circle"><MdiIcon name="mdiChevronUp" :size="26" color="var(--text-muted)" /></div>
-        <span class="name">Менше</span>
-      </button>
-      <button key="__add__" class="tile add-tile" @click="openCreate">
-        <div class="more-circle add"><MdiIcon name="mdiPlus" :size="26" color="var(--accent)" /></div>
-        <span class="name">Додати</span>
-      </button>
-    </TransitionGroup>
-
-    <CategoryFormModal
-      v-if="showForm"
-      :category="formCategory"
-      :default-kind="kind"
-      :default-parent-id="formDefaultParent"
-      @close="showForm = false"
-      @saved="handleCategorySaved"
-      @archived="handleArchive"
-      @deleted="handleDeleteRequest"
-    />
-
-    <CategoryDetailModal
-      v-if="detailCategory"
-      :category="detailCategory"
-      :totals="rolledTotals"
-      :currency="settings.baseCurrency"
-      @close="detailCategory = null"
-      @edit="openEditFromDetail"
-      @add-subcategory="openAddSubcategory"
-      @editSubcategory="openEditFromDetail"
-      @view-operations="openOperationsFiltered"
-      @add-operation="openAddOperation"
-    />
-
-    <TransactionFormModal
-      v-if="showTxForm"
-      :preset-category-id="txPresetCategoryId"
-      @close="showTxForm = false"
-      @saved="showTxForm = false"
-      @deleted="showTxForm = false"
-    />
-
-    <ConfirmDialog
-      v-if="confirmDelete"
-      title="Видалити категорію?"
-      :message="`Категорію «${confirmDelete.name}» та ВСІ пов'язані з нею операції (і підкатегорій) буде видалено безповоротно.`"
-      confirm-label="Видалити"
-      danger
-      @close="confirmDelete = null"
-      @confirm="handleDeleteConfirmed"
-    />
+  <div class="kind-toggle segmented">
+    <button :class="{ active: kind === 'expense' }" @click="kind = 'expense'">Витрати</button>
+    <button :class="{ active: kind === 'income' }" @click="kind = 'income'">Доходи</button>
   </div>
+
+  <TransitionGroup tag="div" name="tile" class="grid">
+    <CategoryTile
+      v-for="c in visibleTop"
+      :key="c.id"
+      :name="c.name"
+      :icon="c.icon"
+      :color="c.color"
+      :amount="displayRolledTotals[c.id] ?? 0"
+      :currency="displayCurrency.code"
+      :budget="budgetProgressByCategory[c.id] ?? null"
+      :budget-label="budgetLabel(c.id)"
+      @click="openDetail(c)"
+    />
+    <CategoryTile
+      v-if="transferTileAmount > 0"
+      key="__transfers__"
+      :name="TRANSFER_CATEGORY_LABEL"
+      :icon="TRANSFER_CATEGORY_ICON"
+      :color="TRANSFER_CATEGORY_COLOR"
+      :amount="displayCurrency.convert(transferTileAmount)"
+      :currency="displayCurrency.code"
+      @click="router.push('/operations')"
+    />
+  </TransitionGroup>
+
+  <!-- Teleported to <body>: position:fixed only escapes the page-transition's
+       transform (App.vue animates route roots with `transform`) if the fab
+       isn't a descendant of the transformed element — otherwise that
+       transform makes it fixed's containing block, and the fab briefly
+       renders at the transformed box's edges before snapping to its real
+       viewport-fixed spot once the transition ends. -->
+  <Teleport to="body">
+    <button class="fab" aria-label="Додати категорію" @click="openCreate">
+      <MdiIcon name="mdiPlus" :size="26" color="#fff" />
+    </button>
+  </Teleport>
+
+  <CategoryFormModal
+    v-if="showForm"
+    :category="formCategory"
+    :default-kind="kind"
+    :default-parent-id="formDefaultParent"
+    @close="showForm = false"
+    @saved="handleCategorySaved"
+    @archived="handleArchive"
+    @deleted="handleDeleteRequest"
+  />
+
+  <CategoryDetailModal
+    v-if="detailCategory"
+    :category="detailCategory"
+    :totals="rolledTotals"
+    :currency="settings.baseCurrency"
+    @close="detailCategory = null"
+    @edit="openEditFromDetail"
+    @add-subcategory="openAddSubcategory"
+    @editSubcategory="openEditFromDetail"
+    @view-operations="openOperationsFiltered"
+    @add-operation="openAddOperation"
+  />
+
+  <TransactionFormModal
+    v-if="showTxForm"
+    :preset-category-id="txPresetCategoryId"
+    @close="showTxForm = false"
+    @saved="showTxForm = false"
+    @deleted="showTxForm = false"
+  />
+
+  <ConfirmDialog
+    v-if="confirmDelete"
+    title="Видалити категорію?"
+    :message="`Категорію «${confirmDelete.name}» та ВСІ пов'язані з нею операції (і підкатегорій) буде видалено безповоротно.`"
+    confirm-label="Видалити"
+    danger
+    @close="confirmDelete = null"
+    @confirm="handleDeleteConfirmed"
+  />
 </template>
 
 <style scoped>
-.view {
-  padding: 8px 16px 90px;
-}
-
 .kind-toggle {
   max-width: 260px;
   margin: 20px auto 18px;
 }
 
 .grid {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 14px 4px;
@@ -361,33 +350,31 @@ function openAddOperation(category: Category) {
   }
 }
 
-.tile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 6px 2px;
-}
-
-.more-circle {
+.fab {
+  position: fixed;
+  right: 24px;
+  bottom: 84px;
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--surface-2);
+  border: none;
+  background: var(--accent);
+  box-shadow: var(--shadow-md);
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  z-index: 15;
+  transition: transform 0.12s ease;
 }
 
-.more-circle.add {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+.fab:active {
+  transform: scale(0.9);
 }
 
-.name {
-  font-size: 12.5px;
-  color: var(--text-primary);
+@media (min-width: 900px) {
+  .fab {
+    bottom: 32px;
+  }
 }
 </style>

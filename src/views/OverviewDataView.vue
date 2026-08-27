@@ -228,93 +228,82 @@ const expenseRanking = computed(() => {
 </script>
 
 <template>
-  <div class="view">
-    <div class="top-row">
-      <div class="stat-tile expense">
-        <span class="stat-label">Витрати</span>
-        <span class="stat-value">{{ formatMoney(animatedExpenseTotal, displayCurrency.code) }}</span>
-      </div>
-      <div class="stat-tile income">
-        <span class="stat-label">Доходи</span>
-        <span class="stat-value">{{ formatMoney(animatedIncomeTotal, displayCurrency.code) }}</span>
-      </div>
+  <div class="top-row">
+    <div class="stat-tile expense">
+      <span class="stat-label">Витрати</span>
+      <span class="stat-value">{{ formatMoney(animatedExpenseTotal, displayCurrency.code) }}</span>
     </div>
+    <div class="stat-tile income">
+      <span class="stat-label">Доходи</span>
+      <span class="stat-value">{{ formatMoney(animatedIncomeTotal, displayCurrency.code) }}</span>
+    </div>
+  </div>
 
-    <div class="balance-card">
-      <div class="balance-text">
-        <span class="stat-label">Баланс</span>
-        <span class="balance-value" :class="{ negative: netBalance < 0 }">
-          {{ formatMoney(animatedNetBalance, displayCurrency.code) }}
-        </span>
-        <span v-if="balanceDeltaPct !== null" class="balance-delta" :class="balanceDeltaPct >= 0 ? 'up' : 'down'">
-          <MdiIcon :name="balanceDeltaPct >= 0 ? 'mdiTrendingUp' : 'mdiTrendingDown'" :size="14" />
-          {{ Math.abs(balanceDeltaPct) }}% від попереднього періоду
-        </span>
-      </div>
-      <div class="savings-col">
-        <div class="savings-ring" :style="{ '--pct': savingsRatePct }">
-          <span>{{ savingsRatePct }}%</span>
-        </div>
-        <span class="savings-label">Заощадж.</span>
-      </div>
+  <div class="balance-card">
+    <div class="balance-text">
+      <span class="stat-label">Баланс</span>
+      <span class="balance-value" :class="{ negative: netBalance < 0 }">
+        {{ formatMoney(animatedNetBalance, displayCurrency.code) }}
+      </span>
+      <span v-if="balanceDeltaPct !== null" class="balance-delta" :class="balanceDeltaPct >= 0 ? 'up' : 'down'">
+        <MdiIcon :name="balanceDeltaPct >= 0 ? 'mdiTrendingUp' : 'mdiTrendingDown'" :size="14" />
+        {{ Math.abs(balanceDeltaPct) }}% від попереднього періоду
+      </span>
     </div>
+    <div class="savings-col">
+      <div class="savings-ring" :style="{ '--pct': savingsRatePct }">
+        <span>{{ savingsRatePct }}%</span>
+      </div>
+      <span class="savings-label">Заощадж.</span>
+    </div>
+  </div>
 
-    <div v-if="periodBars.length" class="card">
-      <ExpenseIncomeChart :key="`bars-${period.granularity}-${period.start}`" :bars="periodBars" :currency="displayCurrency.code" />
-    </div>
+  <div v-if="periodBars.length" class="card">
+    <ExpenseIncomeChart :key="`bars-${period.granularity}-${period.start}`" :bars="periodBars" :currency="displayCurrency.code" />
+  </div>
 
-    <div class="avg-row">
-      <div class="avg-tile">
-        <span class="avg-label">День (сер.)</span>
-        <span class="avg-value">{{ formatMoney(dailyAvg, displayCurrency.code) }}</span>
-      </div>
-      <div class="avg-tile">
-        <span class="avg-label">Тиждень (сер.)</span>
-        <span class="avg-value">{{ formatMoney(weeklyAvg, displayCurrency.code) }}</span>
-      </div>
-      <div class="avg-tile">
-        <span class="avg-label">{{ periodTotalLabel }}</span>
-        <span class="avg-value">{{ formatMoney(displayExpenseTotal, displayCurrency.code) }}</span>
-      </div>
+  <div class="avg-row">
+    <div class="avg-tile">
+      <span class="avg-label">День (сер.)</span>
+      <span class="avg-value">{{ formatMoney(dailyAvg, displayCurrency.code) }}</span>
     </div>
+    <div class="avg-tile">
+      <span class="avg-label">Тиждень (сер.)</span>
+      <span class="avg-value">{{ formatMoney(weeklyAvg, displayCurrency.code) }}</span>
+    </div>
+    <div class="avg-tile">
+      <span class="avg-label">{{ periodTotalLabel }}</span>
+      <span class="avg-value">{{ formatMoney(displayExpenseTotal, displayCurrency.code) }}</span>
+    </div>
+  </div>
 
-    <div class="avg-row">
-      <div class="avg-tile">
-        <span class="avg-label">Операцій</span>
-        <span class="avg-value">{{ transactionCount }}</span>
-      </div>
-      <div class="avg-tile">
-        <span class="avg-label">Середній чек</span>
-        <span class="avg-value">{{ formatMoney(avgExpense, displayCurrency.code) }}</span>
-      </div>
+  <div class="avg-row">
+    <div class="avg-tile">
+      <span class="avg-label">Операцій</span>
+      <span class="avg-value">{{ transactionCount }}</span>
     </div>
+    <div class="avg-tile">
+      <span class="avg-label">Середній чек</span>
+      <span class="avg-value">{{ formatMoney(avgExpense, displayCurrency.code) }}</span>
+    </div>
+  </div>
 
-    <div class="card">
-      <h3 class="section-title">Витрати за категоріями</h3>
-      <CategoryDonutChart
-        :key="`donut-${period.granularity}-${period.start}`"
-        :segments="expenseRanking"
-        :currency="displayCurrency.code"
-      />
-    </div>
+  <div class="card">
+    <h3 class="section-title">Витрати за категоріями</h3>
+    <CategoryDonutChart
+      :key="`donut-${period.granularity}-${period.start}`"
+      :segments="expenseRanking"
+      :currency="displayCurrency.code"
+    />
+  </div>
 
-    <div class="card">
-      <h3 class="section-title">Топ категорій витрат</h3>
-      <CategoryRankList :rows="expenseRanking" :currency="displayCurrency.code" @select="openCategoryOperations" />
-    </div>
+  <div class="card">
+    <h3 class="section-title">Топ категорій витрат</h3>
+    <CategoryRankList :rows="expenseRanking" :currency="displayCurrency.code" @select="openCategoryOperations" />
   </div>
 </template>
 
 <style scoped>
-.view {
-  padding: 8px 16px 90px;
-  max-width: 640px;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .top-row {
   display: flex;
   gap: 10px;
@@ -484,11 +473,5 @@ const expenseRanking = computed(() => {
 .avg-value {
   font-size: 13px;
   font-weight: 700;
-}
-
-@media (min-width: 900px) {
-  .view {
-    max-width: 900px;
-  }
 }
 </style>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref } from 'vue'
+import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
 import { formatMoney } from '../../utils/format'
 
@@ -33,10 +33,15 @@ const view = ref<ViewMode>('bars')
 // Only label roughly every Nth bar to avoid crowding, plus first/last — N
 // scales with the bar count so this reads fine whether there are 7 (week),
 // 31 (month), 12 (year) or however many years ("all").
-const labelStep = computed(() => Math.max(1, Math.ceil(props.bars.length / 8)))
+const labelStep = computed(() => Math.max(1, Math.ceil(props.bars.length / 5)))
 
-const xLabelFormatter = (val: string, _ts?: number, opts?: any) =>
-  opts && opts.i % labelStep.value !== 0 && opts.i !== props.bars.length - 1 ? '' : val
+// Blank out the skipped categories up front rather than filtering them in a
+// labels.formatter callback: for a category (non-datetime) x-axis ApexCharts
+// calls that formatter as (value, index) with no third `opts` argument, so an
+// `opts.i`-based check silently never fires and every label ends up shown.
+const xCategories = computed(() =>
+  props.bars.map((b, i) => (i % labelStep.value === 0 || i === props.bars.length - 1 ? b.label : '')),
+)
 
 const tooltipXFormatter = (_val: number, opts?: { dataPointIndex: number }) =>
   props.bars[opts?.dataPointIndex ?? 0]?.tooltipLabel ?? ''
@@ -49,10 +54,22 @@ const tooltipXFormatter = (_val: number, opts?: { dataPointIndex: number }) =>
 // no currency symbol) the moment anything (currency, theme, the bars data
 // itself) changes after the initial mount. Only the mount path preserves
 // functions, so we force a full remount on any change that would otherwise
-// hit that lossy update path, by keying on everything the options embed.
-const chartFingerprint = computed(() =>
-  JSON.stringify([props.currency, mode.value, colors.value.accent, props.bars]),
-)
+// hit that lossy update path.
+//
+// This used to gate the remount on `JSON.stringify([...])` of the relevant
+// inputs, i.e. only when their *content* actually changed. But the parent
+// view keeps this component mounted across background-sync refreshes of the
+// same period (see OverviewDataView.vue's own, coarser `:key`), and each
+// refresh hands down a brand new `bars` array reference even when the totals
+// haven't moved — same JSON, no remount, yet `barsOptions`/`trendOptions`
+// still recompute to a new object and get pushed through the lossy update
+// path, silently killing the formatter until the *content* next changes.
+// Track raw reference changes instead so every actual prop/theme update
+// forces a remount, whether or not the content happens to match.
+const chartVersion = ref(0)
+watch([() => props.bars, () => props.currency, mode, colors], () => {
+  chartVersion.value++
+})
 
 // Default view: expense/income columns with the net-balance trend overlaid as
 // a line on the same axis — replaces what used to be two separate cards
@@ -65,7 +82,13 @@ const barsSeries = computed(() => [
 ])
 
 const barsOptions = computed(() => ({
-  chart: { type: 'line' as const, toolbar: { show: false }, background: 'transparent', animations: { speed: 400 } },
+  chart: {
+    type: 'line' as const,
+    toolbar: { show: false },
+    zoom: { enabled: false },
+    background: 'transparent',
+    animations: { speed: 400 },
+  },
   theme: { mode: mode.value },
   colors: [colors.value.expense, colors.value.income, colors.value.accent],
   stroke: { width: [0, 0, 3], curve: 'smooth' as const },
@@ -79,8 +102,8 @@ const barsOptions = computed(() => ({
   grid: { borderColor: colors.value.border, strokeDashArray: 3 },
   legend: { position: 'bottom' as const, labels: { colors: colors.value.textSecondary }, markers: { size: 5 } },
   xaxis: {
-    categories: props.bars.map((b) => b.label),
-    labels: { style: { colors: colors.value.textMuted }, formatter: xLabelFormatter },
+    categories: xCategories.value,
+    labels: { style: { colors: colors.value.textMuted } },
     axisBorder: { show: false },
     axisTicks: { show: false },
   },
@@ -99,7 +122,13 @@ const barsOptions = computed(() => ({
 const trendSeries = computed(() => [{ name: 'Чистий баланс', data: props.bars.map((b) => b.income - b.expense) }])
 
 const trendOptions = computed(() => ({
-  chart: { type: 'area' as const, toolbar: { show: false }, background: 'transparent', animations: { speed: 400 } },
+  chart: {
+    type: 'area' as const,
+    toolbar: { show: false },
+    zoom: { enabled: false },
+    background: 'transparent',
+    animations: { speed: 400 },
+  },
   theme: { mode: mode.value },
   colors: [colors.value.accent],
   stroke: { curve: 'smooth' as const, width: 2.5 },
@@ -111,8 +140,8 @@ const trendOptions = computed(() => ({
   },
   grid: { borderColor: colors.value.border, strokeDashArray: 3 },
   xaxis: {
-    categories: props.bars.map((b) => b.label),
-    labels: { style: { colors: colors.value.textMuted }, formatter: xLabelFormatter },
+    categories: xCategories.value,
+    labels: { style: { colors: colors.value.textMuted } },
     axisBorder: { show: false },
     axisTicks: { show: false },
   },
@@ -136,24 +165,26 @@ const trendOptions = computed(() => ({
         <button :class="{ active: view === 'trend' }" @click="view = 'trend'">Лінія</button>
       </div>
     </div>
-    <Transition name="chart-fade" mode="out-in">
-      <VueApexCharts
-        v-if="view === 'bars'"
-        :key="`bars-${chartFingerprint}`"
-        type="line"
-        height="240"
-        :options="barsOptions"
-        :series="barsSeries"
-      />
-      <VueApexCharts
-        v-else
-        :key="`trend-${chartFingerprint}`"
-        type="area"
-        height="220"
-        :options="trendOptions"
-        :series="trendSeries"
-      />
-    </Transition>
+    <div class="chart-body">
+      <Transition name="chart-fade" mode="out-in">
+        <VueApexCharts
+          v-if="view === 'bars'"
+          :key="`bars-${chartVersion}`"
+          type="line"
+          height="240"
+          :options="barsOptions"
+          :series="barsSeries"
+        />
+        <VueApexCharts
+          v-else
+          :key="`trend-${chartVersion}`"
+          type="area"
+          height="220"
+          :options="trendOptions"
+          :series="trendSeries"
+        />
+      </Transition>
+    </div>
   </div>
 </template>
 
@@ -179,6 +210,13 @@ const trendOptions = computed(() => ({
 
 .view-toggle {
   max-width: 190px;
+}
+
+/* Reserves the chart's footprint before vue3-apexcharts (loaded async,
+   see the defineAsyncComponent above) actually mounts, so the surrounding
+   layout doesn't jump once it appears. */
+.chart-body {
+  min-height: 240px;
 }
 
 .chart-fade-enter-active,

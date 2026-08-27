@@ -10,11 +10,18 @@ import TransactionFormModal from '../components/transactions/TransactionFormModa
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
 import { loadDemoData } from '../db/demoData'
-import type { Account } from '../types/models'
+import type { Account, AccountType } from '../types/models'
 
 const accounts = useAccountsStore()
 const transactions = useTransactionsStore()
 const router = useRouter()
+
+const TABS: { value: AccountType; label: string }[] = [
+  { value: 'regular', label: 'Звичайний' },
+  { value: 'loan', label: 'Позика' },
+  { value: 'savings', label: 'Збереження' },
+]
+const activeTab = ref<AccountType>('regular')
 
 const showArchived = ref(false)
 const showForm = ref(false)
@@ -63,8 +70,9 @@ function balanceOf(account: Account): number {
   return computeAccountBalance(account, transactions.forAccount(account.id))
 }
 
-const activeAccounts = computed(() => accounts.active)
-const archivedAccounts = computed(() => accounts.archived)
+const activeAccounts = computed(() => accounts.active.filter((a) => a.type === activeTab.value))
+const archivedAccounts = computed(() => accounts.archived.filter((a) => a.type === activeTab.value))
+const hasAnyAccounts = computed(() => accounts.active.length > 0 || accounts.archived.length > 0)
 
 function openCreate() {
   editingAccount.value = null
@@ -109,6 +117,17 @@ async function handleDeleteConfirmed() {
 
 <template>
   <div class="view">
+    <div class="segmented tabs">
+      <button
+        v-for="tab in TABS"
+        :key="tab.value"
+        :class="{ active: activeTab === tab.value }"
+        @click="activeTab = tab.value"
+      >
+        {{ tab.label }}
+      </button>
+    </div>
+
     <TransitionGroup tag="div" name="account-card" class="list">
       <AccountCard
         v-for="account in activeAccounts"
@@ -144,20 +163,33 @@ async function handleDeleteConfirmed() {
       </div>
     </div>
 
-    <div v-if="!activeAccounts.length && !archivedAccounts.length" class="empty-state">
+    <div v-if="!activeAccounts.length && !archivedAccounts.length && !hasAnyAccounts" class="empty-state">
       <p class="empty">Рахунків ще немає. Додайте перший, щоб почати облік фінансів.</p>
       <button class="btn btn-secondary demo-btn" :disabled="demoLoading" @click="handleLoadDemo">
         {{ demoLoading ? 'Додаємо…' : 'Або спробувати на демо-даних' }}
       </button>
     </div>
 
-    <button v-if="activeAccounts.length" class="fab" aria-label="Додати операцію" @click="openAddOperationGeneric">
-      <MdiIcon name="mdiPlus" :size="26" color="#fff" />
-    </button>
+    <div v-else-if="!activeAccounts.length && !archivedAccounts.length" class="empty-state">
+      <p class="empty">У цій вкладці ще немає рахунків.</p>
+    </div>
+
+    <!-- Teleported to <body>: position:fixed only escapes the page-transition's
+         transform (App.vue animates route roots with `transform`) if the fab
+         isn't a descendant of the transformed element — otherwise that
+         transform makes it fixed's containing block, and the fab briefly
+         renders at the transformed box's edges before snapping to its real
+         viewport-fixed spot once the transition ends. -->
+    <Teleport to="body">
+      <button v-if="hasAnyAccounts" class="fab" aria-label="Додати операцію" @click="openAddOperationGeneric">
+        <MdiIcon name="mdiPlus" :size="26" color="#fff" />
+      </button>
+    </Teleport>
 
     <AccountFormModal
       v-if="showForm"
       :account="editingAccount"
+      :default-type="activeTab"
       @close="showForm = false"
       @save="handleSave"
       @archived="handleArchiveToggle"
@@ -200,7 +232,16 @@ async function handleDeleteConfirmed() {
   margin: 0 auto;
 }
 
+.tabs {
+  margin-bottom: 14px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--page-bg);
+}
+
 .list {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -235,6 +276,11 @@ async function handleDeleteConfirmed() {
   color: var(--accent);
   font-weight: 600;
   cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.add-account:active {
+  transform: scale(0.97);
 }
 
 .archived-section {
@@ -288,6 +334,11 @@ async function handleDeleteConfirmed() {
   justify-content: center;
   cursor: pointer;
   z-index: 15;
+  transition: transform 0.12s ease;
+}
+
+.fab:active {
+  transform: scale(0.9);
 }
 
 @media (min-width: 900px) {

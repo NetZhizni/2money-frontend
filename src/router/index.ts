@@ -10,9 +10,21 @@ import { useAuthStore } from '../stores/auth'
 const routes = [
   { path: '/', redirect: '/categories' },
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
-  { path: '/categories', name: 'categories', component: () => import('../views/CategoriesView.vue') },
-  { path: '/operations', name: 'operations', component: () => import('../views/OperationsView.vue') },
-  { path: '/overview', name: 'overview', component: () => import('../views/OverviewView.vue') },
+  {
+    path: '/categories',
+    component: () => import('../views/PeriodPageView.vue'),
+    children: [{ path: '', name: 'categories', component: () => import('../views/CategoriesDataView.vue') }],
+  },
+  {
+    path: '/operations',
+    component: () => import('../views/PeriodPageView.vue'),
+    children: [{ path: '', name: 'operations', component: () => import('../views/OperationsDataView.vue') }],
+  },
+  {
+    path: '/overview',
+    component: () => import('../views/PeriodPageView.vue'),
+    children: [{ path: '', name: 'overview', component: () => import('../views/OverviewDataView.vue') }],
+  },
   { path: '/total', name: 'total', component: () => import('../views/TotalBalanceView.vue') },
   { path: '/admin', name: 'admin', component: () => import('../views/AdminUsersView.vue') },
 ]
