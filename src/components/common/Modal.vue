@@ -94,7 +94,8 @@ const sheetStyle = computed(() => {
 .backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(11, 11, 11, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
   align-items: flex-end;
   justify-content: center;

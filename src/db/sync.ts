@@ -1,8 +1,7 @@
 import { isAxiosError } from 'axios'
 import http from '../api/http'
-import { db, type SyncableEntity } from './schema'
+import { db, type SyncableEntity, type UserDirectoryEntry } from './schema'
 import { backendOnline, markSynced } from './syncStatus'
-import type { Account, Transaction } from '../types/models'
 
 const RESOURCE_PATH: Record<SyncableEntity, string> = {
   accounts: 'accounts',
@@ -57,12 +56,24 @@ export async function pushOutbox(currentUserId: string | null): Promise<void> {
   }
 }
 
-/** Pulls one entity's delta (or full active set, on first sync) and merges it into Dexie. */
-async function pullEntity(entity: SyncableEntity): Promise<void> {
+/**
+ * Pulls one entity's delta (or full active set, on first sync) and merges it
+ * into Dexie. With `{ scope: 'all' }`, hits the same endpoint with
+ * `?scope=all` — the whole family's records instead of just the signed-in
+ * user's own — and tracks that under its own `"<entity>:all"` cursor, so the
+ * own-records pull and the family-wide pull never fight over one bookmark.
+ * Both shapes come back as `{ items, syncedAt }` from the backend (see
+ * backend/src/sql/syncable.js's listOwned/listAll), active-only on first
+ * load and including tombstones (`deletedAt`) once a cursor exists — so a
+ * family member's deletion is picked up the same way a local one is, with no
+ * separate "sweep records that vanished from a full snapshot" step needed.
+ */
+async function pullEntity(entity: SyncableEntity, opts?: { scope: 'all' }): Promise<void> {
   const path = RESOURCE_PATH[entity]
-  const cursor = await db.syncCursors.get(entity)
+  const cursorKey = opts?.scope ? (`${entity}:${opts.scope}` as const) : entity
+  const cursor = await db.syncCursors.get(cursorKey)
   const { data } = await http.get<{ items: SyncRow[]; syncedAt: number }>(`/${path}`, {
-    params: cursor?.since ? { since: cursor.since } : {},
+    params: { ...(opts?.scope ? { scope: opts.scope } : {}), ...(cursor?.since ? { since: cursor.since } : {}) },
   })
 
   const table = db[entity] as unknown as { put: (row: SyncRow) => Promise<unknown>; delete: (id: string) => Promise<void> }
@@ -71,32 +82,54 @@ async function pullEntity(entity: SyncableEntity): Promise<void> {
       if (item.deletedAt) await table.delete(item.id)
       else await table.put(item)
     }
-    await db.syncCursors.put({ entity, since: data.syncedAt })
+    await db.syncCursors.put({ entity: cursorKey, since: data.syncedAt })
   })
 }
 
-const ALL_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets']
+/**
+ * Full financial transparency within the family, for every syncable entity:
+ * every local "own" store already reads its slice by filtering the very
+ * same Dexie table client-side (`db.accounts.where('ownerId').equals(uid)`,
+ * etc. — see stores/accounts.ts, stores/categories.ts, stores/transactions.ts,
+ * stores/templates.ts, stores/budgets.ts), so a single family-wide
+ * `scope=all` pull per entity is a superset that covers both "my own" and
+ * "everyone's" views — no separate own-scope pull needed on top. Also what
+ * a future "view another family member's data" / whole-family-budget
+ * feature needs: that data has to already be synced locally, not fetched
+ * on demand only when such a view is opened.
+ */
+const SYNC_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets']
 
 /**
- * Push pending local writes, then pull fresh data for every entity. Safe to
- * call repeatedly/concurrently. Marks `syncStatus.lastSyncedAt` (used by the
- * "остання синхронізація" indicator) only once every entity's pull actually
+ * Pulls a batch of entities (each via `pullEntity`), tolerating individual
+ * failures — returns one boolean per entity so the caller can decide what a
+ * "fully synced" outcome means, same as each call site did inline before.
+ */
+async function pullMany(entities: SyncableEntity[], opts: { scope: 'all' } | undefined, logLabel: string): Promise<boolean[]> {
+  return Promise.all(
+    entities.map((entity) =>
+      pullEntity(entity, opts)
+        .then(() => true)
+        .catch((error) => {
+          console.error(`[sync] ${logLabel} pull ${entity}${opts ? '?scope=all' : ''} failed`, error)
+          return false
+        }),
+    ),
+  )
+}
+
+/**
+ * Push pending local writes, then pull fresh data for every entity — the
+ * whole family's, for every entity (see SYNC_ENTITIES). Safe to call
+ * repeatedly/concurrently. Marks `syncStatus.lastSyncedAt` (used by the
+ * "остання синхронізація" indicator) only once every pull actually
  * succeeded — a partial failure leaves the previous timestamp standing
  * rather than claiming a full sync that didn't happen.
  */
 export async function fullSync(currentUserId: string | null): Promise<void> {
   if (!currentUserId || !navigator.onLine) return
   await pushOutbox(currentUserId)
-  const results = await Promise.all(
-    ALL_ENTITIES.map((entity) =>
-      pullEntity(entity)
-        .then(() => true)
-        .catch((error) => {
-          console.error(`[sync] pull ${entity} failed`, error)
-          return false
-        }),
-    ),
-  )
+  const results = await pullMany(SYNC_ENTITIES, { scope: 'all' }, 'sync')
   if (results.every(Boolean)) markSynced()
 }
 
@@ -145,81 +178,126 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
     },
   )
 
-  const results = await Promise.all(
-    ALL_ENTITIES.map((entity) =>
-      pullEntity(entity)
-        .then(() => true)
-        .catch((error) => {
-          console.error(`[sync] resync pull ${entity} failed`, error)
-          return false
-        }),
-    ),
-  )
-  await Promise.all([pullUserDirectory(), pullAllAccounts(currentUserId), pullAllTransactions(currentUserId)])
+  const userDirectoryOk = await pullUserDirectory()
+    .then(() => true)
+    .catch((error) => {
+      console.error('[sync] resync pull users failed', error)
+      return false
+    })
+  const results = await pullMany(SYNC_ENTITIES, { scope: 'all' }, 'resync')
 
-  if (results.every(Boolean)) markSynced()
+  if (userDirectoryOk && results.every(Boolean)) markSynced()
   else throw new Error('Частину даних не вдалося завантажити із сервера. Спробуйте ще раз.')
 }
 
-/** Refreshes the small, non-syncable-via-outbox family directory (see stores/profiles.ts). */
+/**
+ * Refreshes the small, non-syncable-via-outbox family directory (see
+ * stores/profiles.ts). GET /users always returns the full current directory
+ * (no delta/cursor) — this mirrors it exactly (deleting any local row not in
+ * the fresh response) instead of only ever upserting, so a deactivated
+ * member, or a stale id left over from an earlier session, doesn't linger in
+ * Dexie forever alongside the real, current rows (e.g. duplicate-looking
+ * entries in the "Переглянути як" picker).
+ */
 export async function pullUserDirectory(): Promise<void> {
   if (!navigator.onLine) return
-  const { data } = await http.get('/users')
-  await db.users.bulkPut(data)
-}
-
-/**
- * Refreshes every OTHER family member's active accounts into the same
- * `accounts` table as the signed-in user's own (delta-synced separately by
- * pullEntity('accounts')) — cheap since it's a small, family-scale list, and
- * it means stores/allAccounts.ts is just "the whole table" with no separate
- * cache to keep in sync. This endpoint has no delta/tombstone story (always
- * the full active set), so a foreign account no longer in the response is
- * swept out of the local cache here instead.
- */
-export async function pullAllAccounts(currentUserId: string | null): Promise<void> {
-  if (!navigator.onLine) return
-  const { data } = await http.get<Account[]>('/accounts', { params: { scope: 'all' } })
-  const seenIds = new Set(data.map((a) => a.id))
-  await db.transaction('rw', db.accounts, async () => {
-    await db.accounts.bulkPut(data)
-    const stale = await db.accounts
-      .filter((a) => a.ownerId !== currentUserId && !seenIds.has(a.id))
-      .primaryKeys()
-    if (stale.length) await db.accounts.bulkDelete(stale)
+  const { data } = await http.get<UserDirectoryEntry[]>('/users')
+  await db.transaction('rw', db.users, async () => {
+    const freshIds = new Set(data.map((u) => u.id))
+    const staleIds = (await db.users.toCollection().primaryKeys()).filter((id) => !freshIds.has(id as string))
+    if (staleIds.length) await db.users.bulkDelete(staleIds)
+    await db.users.bulkPut(data)
   })
 }
 
 /**
- * Refreshes every family member's active transactions into the same
- * `transactions` table as the signed-in user's own (delta-synced separately
- * by pullEntity('transactions')) — same reasoning as pullAllAccounts: this
- * app's trust model is full financial transparency within the family (every
- * account is already visible to everyone via `accounts?scope=all`), so
- * TotalBalanceView's combined-balance breakdown needs the same for transactions.
+ * Refreshes every family member's active accounts (own included — this app's
+ * trust model is full financial transparency within the family) into
+ * `accounts`, delta-synced under its own `accounts:all` cursor — cheap after
+ * the first pull, not a full re-fetch every time. The per-profile
+ * stores/accounts.ts store is just a client-side filter (`.where('ownerId')`)
+ * over this same table, so this one family-wide pull is the only network
+ * fetch `accounts` ever needs (see SYNC_ENTITIES/fullSync); exported
+ * separately so a view/store can also trigger an immediate on-demand
+ * refresh outside the 1min interval (stores/allAccounts.ts,
+ * components/layout/UserSwitcherModal.vue).
  */
-export async function pullAllTransactions(currentUserId: string | null): Promise<void> {
+export async function pullAllAccounts(): Promise<void> {
   if (!navigator.onLine) return
-  const { data } = await http.get<Transaction[]>('/transactions', { params: { scope: 'all' } })
-  const seenIds = new Set(data.map((t) => t.id))
-  await db.transaction('rw', db.transactions, async () => {
-    await db.transactions.bulkPut(data)
-    const stale = await db.transactions
-      .filter((t) => !t.participantIds.includes(currentUserId ?? '') && !seenIds.has(t.id))
-      .primaryKeys()
-    if (stale.length) await db.transactions.bulkDelete(stale)
-  })
+  await pullEntity('accounts', { scope: 'all' })
+}
+
+/**
+ * Refreshes every family member's active transactions (own included) into
+ * `transactions` — same reasoning and mechanics as pullAllAccounts: the
+ * per-profile stores/transactions.ts store filters this same table
+ * client-side by `participantIds`, so this is the only network fetch
+ * `transactions` ever needs. Also backs the "Переглянути як" popup's
+ * combined-balance breakdown (components/layout/UserSwitcherModal.vue),
+ * which needs the whole family's transactions regardless of participation.
+ */
+export async function pullAllTransactions(): Promise<void> {
+  if (!navigator.onLine) return
+  await pullEntity('transactions', { scope: 'all' })
+}
+
+/**
+ * Refreshes the whole family's active categories into `categories` — unlike
+ * the other `pullAll*` functions here, this isn't a superset for a
+ * client-side owner filter: categories ARE the shared family resource (see
+ * stores/categories.ts, which reads this same table entirely unfiltered), so
+ * this is simply the only network fetch `categories` ever needs. Exported
+ * separately (see startAutoSync) so db/seed.ts can pull the current shared
+ * set on demand before deciding whether it still needs seeding.
+ */
+export async function pullAllCategories(): Promise<void> {
+  if (!navigator.onLine) return
+  await pullEntity('categories', { scope: 'all' })
+}
+
+/**
+ * Refreshes every family member's active recurring templates (own included)
+ * into `recurringTemplates` — same reasoning and mechanics as
+ * pullAllAccounts/pullAllTransactions: the per-profile stores/templates.ts
+ * store filters this same table client-side by `ownerId`, so this is the
+ * only network fetch `recurringTemplates` ever needs. Also needed for a
+ * future "view another family member's finances" view to show their
+ * upcoming recurring payments, not just what's already been generated into
+ * transactions.
+ */
+export async function pullAllTemplates(): Promise<void> {
+  if (!navigator.onLine) return
+  await pullEntity('recurringTemplates', { scope: 'all' })
+}
+
+/**
+ * Refreshes every family member's active budgets (own included) into
+ * `budgets` — same reasoning and mechanics as pullAllAccounts/
+ * pullAllTransactions: the per-profile stores/budgets.ts store filters this
+ * same table client-side by `ownerId`, so this is the only network fetch
+ * `budgets` ever needs. Also what a future whole-family budget view needs
+ * (summing every member's budget per category).
+ */
+export async function pullAllBudgets(): Promise<void> {
+  if (!navigator.onLine) return
+  await pullEntity('budgets', { scope: 'all' })
 }
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
-/** Starts background sync: immediately, on regaining connectivity, and every 1min while online. Call once per login. */
+/**
+ * Starts background sync: immediately, on regaining connectivity, and every
+ * 1min while online. Call once per login. `fullSync` alone already covers
+ * every entity, whole-family (see SYNC_ENTITIES) — pullAllAccounts/
+ * pullAllCategories/pullAllTransactions/pullAllTemplates/pullAllBudgets stay
+ * exported separately only for views/stores that want an immediate
+ * on-demand refresh outside this interval (see stores/allAccounts.ts,
+ * db/seed.ts, components/layout/UserSwitcherModal.vue).
+ */
 export function startAutoSync(getUserId: () => string | null): () => void {
   const run = () => {
     void fullSync(getUserId())
     void pullUserDirectory()
-    void pullAllAccounts(getUserId())
-    void pullAllTransactions(getUserId())
   }
   window.addEventListener('online', run)
   intervalHandle = setInterval(run, 60_000)

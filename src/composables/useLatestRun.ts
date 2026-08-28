@@ -7,7 +7,7 @@
  * whenever another profile's data arrived mid-computation (shared
  * accounts/transactions listeners firing again while a conversion was still
  * in flight) — see TopHeader, OperationsView, useDisplayCurrency,
- * TotalBalanceView.
+ * UserSwitcherModal.
  *
  * Usage:
  *   const guard = useLatestRun()

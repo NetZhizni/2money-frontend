@@ -8,6 +8,7 @@ import { useAccountsStore } from '../../stores/accounts'
 import { useCategoriesStore } from '../../stores/categories'
 import { useTransactionsStore } from '../../stores/transactions'
 import { useAuthStore } from '../../stores/auth'
+import { useViewAsStore } from '../../stores/viewAs'
 import { COMMON_CURRENCIES } from '../../utils/currencies'
 import { exportData, downloadBackup, importData } from '../../db/backup'
 import { downloadTransactionsCsv } from '../../db/csvExport'
@@ -25,6 +26,14 @@ const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const transactions = useTransactionsStore()
 const authStore = useAuthStore()
+const viewAs = useViewAsStore()
+
+// Демо-дані/резервна копія/скидання read straight off the shared
+// accounts/categories/transactions/budgets stores, which "Переглянути як"
+// (see UserSwitcherModal) repoints at whoever's being viewed — so while
+// that's active they'd act on the wrong person's data. Simplest safe fix:
+// these stay unavailable until back on "Ви".
+const viewingOther = computed(() => viewAs.isReadOnly)
 
 const FREQ_LABEL: Record<string, string> = { daily: 'щодня', weekly: 'щотижня', monthly: 'щомісяця', yearly: 'щороку' }
 
@@ -198,28 +207,34 @@ async function handleSignOut() {
 
     <div class="field">
       <label>Демо-дані</label>
-      <p class="hint">
-        Додає кілька тестових рахунків (у т.ч. заощадження, позику та валютний) і операції за
-        останні 6 місяців — щоб одразу побачити діаграми та аналітику заповненими.
-      </p>
-      <p v-if="hasAnyData" class="hint">
-        Уже є рахунки або операції, тож демо-дані додати не можна — спершу скиньте всі дані нижче.
-      </p>
-      <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData" @click="handleLoadDemo">
-        {{ demoLoading ? 'Додаємо…' : 'Додати демо-дані' }}
-      </button>
+      <p v-if="viewingOther" class="hint">Спершу поверніться до свого профілю (кнопка з фото у шапці).</p>
+      <template v-else>
+        <p class="hint">
+          Додає кілька тестових рахунків (у т.ч. заощадження, позику та валютний) і операції за
+          останні 6 місяців — щоб одразу побачити діаграми та аналітику заповненими.
+        </p>
+        <p v-if="hasAnyData" class="hint">
+          Уже є рахунки або операції, тож демо-дані додати не можна — спершу скиньте всі дані нижче.
+        </p>
+        <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData" @click="handleLoadDemo">
+          {{ demoLoading ? 'Додаємо…' : 'Додати демо-дані' }}
+        </button>
+      </template>
     </div>
 
     <div class="field">
       <label>Резервна копія даних</label>
-      <p class="hint">Стосується лише вашого профілю (рахунки, категорії, операції).</p>
-      <div class="backup-actions">
-        <button class="btn btn-secondary" @click="handleExport">Експортувати JSON</button>
-        <button class="btn btn-secondary" @click="triggerImport">Імпортувати JSON</button>
-        <button class="btn btn-secondary" @click="handleExportCsv">Експортувати CSV</button>
-      </div>
-      <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
-      <p v-if="status" class="status">{{ status }}</p>
+      <p v-if="viewingOther" class="hint">Спершу поверніться до свого профілю (кнопка з фото у шапці).</p>
+      <template v-else>
+        <p class="hint">Стосується лише вашого профілю (рахунки, категорії, операції).</p>
+        <div class="backup-actions">
+          <button class="btn btn-secondary" @click="handleExport">Експортувати JSON</button>
+          <button class="btn btn-secondary" @click="triggerImport">Імпортувати JSON</button>
+          <button class="btn btn-secondary" @click="handleExportCsv">Експортувати CSV</button>
+        </div>
+        <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
+        <p v-if="status" class="status">{{ status }}</p>
+      </template>
     </div>
 
     <div class="field">
@@ -233,11 +248,14 @@ async function handleSignOut() {
 
     <div class="field">
       <label>Скидання всіх даних</label>
-      <p class="hint">
-        Видаляє всі ваші рахунки, операції та повторювані операції. Категорії та налаштування
-        залишаються. Дію не можна скасувати.
-      </p>
-      <button class="btn btn-danger reset-btn" @click="showResetConfirm = true">Скинути всі дані</button>
+      <p v-if="viewingOther" class="hint">Спершу поверніться до свого профілю (кнопка з фото у шапці).</p>
+      <template v-else>
+        <p class="hint">
+          Видаляє всі ваші рахунки, операції та повторювані операції. Категорії та налаштування
+          залишаються. Дію не можна скасувати.
+        </p>
+        <button class="btn btn-danger reset-btn" @click="showResetConfirm = true">Скинути всі дані</button>
+      </template>
     </div>
   </Modal>
 

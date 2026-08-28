@@ -7,8 +7,11 @@ import LoginView from './views/LoginView.vue'
 import UpdateToast from './components/common/UpdateToast.vue'
 import { seedDefaultsIfEmpty } from './db/seed'
 import { useAuthStore } from './stores/auth'
+import { useViewAsStore } from './stores/viewAs'
 import { useProfilesStore } from './stores/profiles'
 import { useAllAccountsStore } from './stores/allAccounts'
+import { useAllTemplatesStore } from './stores/allTemplates'
+import { useAllBudgetsStore } from './stores/allBudgets'
 import { useSettingsStore } from './stores/settings'
 import { useAccountsStore } from './stores/accounts'
 import { useCategoriesStore } from './stores/categories'
@@ -17,8 +20,11 @@ import { useTemplatesStore } from './stores/templates'
 import { useBudgetsStore } from './stores/budgets'
 
 const authStore = useAuthStore()
+const viewAs = useViewAsStore()
 const profiles = useProfilesStore()
 const allAccounts = useAllAccountsStore()
+const allTemplates = useAllTemplatesStore()
+const allBudgets = useAllBudgetsStore()
 const settings = useSettingsStore()
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
@@ -29,6 +35,7 @@ const budgets = useBudgetsStore()
 const dataReady = ref(false)
 
 function resetAllStores() {
+  viewAs.reset()
   settings.reset()
   accounts.reset()
   categories.reset()
@@ -37,6 +44,8 @@ function resetAllStores() {
   budgets.reset()
   profiles.reset()
   allAccounts.reset()
+  allTemplates.reset()
+  allBudgets.reset()
   dataReady.value = false
 }
 
@@ -52,6 +61,8 @@ async function loadForCurrentUser(uid: string) {
     budgets.load(),
     profiles.load(),
     allAccounts.load(),
+    allTemplates.load(),
+    allBudgets.load(),
   ])
   await templates.runDueGeneration()
   dataReady.value = true
@@ -76,6 +87,21 @@ watch(
 watchEffect(() => {
   document.documentElement.setAttribute('data-theme', settings.theme === 'system' ? '' : settings.theme)
 })
+
+// Dexie's liveQuery only re-runs a store's query function on a matching
+// IndexedDB write — switching who we're "viewing as" changes no data, so
+// without this the 3 profile-scoped stores would keep showing whichever
+// owner's rows they last queried. Re-subscribing (via `.load()`) re-executes
+// each query function against the new viewAs.effectiveUid/mode right away.
+// `categories` is excluded on purpose: it's a shared family resource now
+// (see stores/categories.ts), not owner-scoped, so viewAs never changes it.
+watch(
+  () => `${viewAs.mode}:${viewAs.effectiveUid ?? ''}`,
+  () => {
+    if (!dataReady.value) return
+    void Promise.all([accounts.load(), transactions.load(), budgets.load()])
+  },
+)
 </script>
 
 <template>

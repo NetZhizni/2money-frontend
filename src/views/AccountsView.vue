@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAccountsStore, computeAccountBalance } from '../stores/accounts'
 import { useTransactionsStore } from '../stores/transactions'
+import { useProfilesStore } from '../stores/profiles'
+import { useViewAsStore } from '../stores/viewAs'
 import AccountCard from '../components/accounts/AccountCard.vue'
 import AccountFormModal from '../components/accounts/AccountFormModal.vue'
 import AccountDetailModal from '../components/accounts/AccountDetailModal.vue'
@@ -10,17 +12,26 @@ import TransactionFormModal from '../components/transactions/TransactionFormModa
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
 import { loadDemoData } from '../db/demoData'
+import { ACCOUNT_TYPE_OPTIONS } from '../utils/accountTypes'
+import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
 import type { Account, AccountType } from '../types/models'
+import type { ComponentPublicInstance } from 'vue'
 
 const accounts = useAccountsStore()
 const transactions = useTransactionsStore()
+const profiles = useProfilesStore()
+const viewAs = useViewAsStore()
 const router = useRouter()
+const readOnly = computed(() => viewAs.isReadOnly)
 
-const TABS: { value: AccountType; label: string }[] = [
-  { value: 'regular', label: 'Звичайний' },
-  { value: 'loan', label: 'Позика' },
-  { value: 'savings', label: 'Збереження' },
-]
+// "View as all" mixes every family member's accounts into one list — badge
+// whose account each card is. Outside that mode there's only ever one owner
+// in view, so no badge is needed.
+function ownerOf(account: Account) {
+  return viewAs.mode === 'all' ? (profiles.byId(account.ownerId) ?? null) : null
+}
+
+const TABS = ACCOUNT_TYPE_OPTIONS
 const activeTab = ref<AccountType>('regular')
 
 const showArchived = ref(false)
@@ -74,6 +85,20 @@ const activeAccounts = computed(() => accounts.active.filter((a) => a.type === a
 const archivedAccounts = computed(() => accounts.archived.filter((a) => a.type === activeTab.value))
 const hasAnyAccounts = computed(() => accounts.active.length > 0 || accounts.archived.length > 0)
 
+// Snapshots every card's rect right before Vue touches the DOM, so
+// pinLeavingRect (see listTransition.ts) has a pre-removal rect to pin a
+// leaving card to even when several cards leave in the same patch (e.g.
+// switching tabs swaps the whole list at once). This can't be an
+// `onBeforeUpdate` on this component: the `v-for` lives inside
+// TransitionGroup's slot, so the reactive read of `activeAccounts` is
+// tracked by TransitionGroup's own render effect, not this component's —
+// this component's `onBeforeUpdate` simply never fires for it. `watch`
+// (default "pre" flush) subscribes directly to the source instead, so it
+// fires before any DOM patch regardless of which component's render effect
+// ends up owning the dependency.
+const listGroupRef = ref<ComponentPublicInstance | null>(null)
+watch(activeAccounts, () => snapshotListRects(listGroupRef.value?.$el))
+
 function openCreate() {
   editingAccount.value = null
   showForm.value = true
@@ -82,6 +107,12 @@ function openCreate() {
 function openEdit(account: Account) {
   editingAccount.value = account
   showForm.value = true
+}
+
+/** Card tap: opens the edit form normally, or — while viewing another profile — the read-only history sheet instead. */
+function openCard(account: Account) {
+  if (readOnly.value) historyAccount.value = account
+  else openEdit(account)
 }
 
 async function handleSave(patch: Partial<Account>) {
@@ -128,20 +159,22 @@ async function handleDeleteConfirmed() {
       </button>
     </div>
 
-    <TransitionGroup tag="div" name="account-card" class="list">
+    <TransitionGroup ref="listGroupRef" tag="div" name="account-card" class="list" @before-leave="pinLeavingRect">
       <AccountCard
         v-for="account in activeAccounts"
         :key="account.id"
         :account="account"
         :balance="balanceOf(account)"
         :pending="accounts.isPending(account.id)"
-        @click="openEdit(account)"
+        :readonly="readOnly"
+        :owner="ownerOf(account)"
+        @click="openCard(account)"
         @add-operation="openAddOperation(account)"
         @history="historyAccount = account"
       />
     </TransitionGroup>
 
-    <button class="add-account" @click="openCreate">
+    <button v-if="!readOnly" class="add-account" @click="openCreate">
       <MdiIcon name="mdiPlus" :size="20" color="var(--accent)" />
       <span>Додати рахунок</span>
     </button>
@@ -157,15 +190,19 @@ async function handleDeleteConfirmed() {
           :key="account.id"
           :account="account"
           :balance="balanceOf(account)"
-          @click="openEdit(account)"
+          :readonly="readOnly"
+          :owner="ownerOf(account)"
+          @click="openCard(account)"
           @history="historyAccount = account"
         />
       </div>
     </div>
 
     <div v-if="!activeAccounts.length && !archivedAccounts.length && !hasAnyAccounts" class="empty-state">
-      <p class="empty">Рахунків ще немає. Додайте перший, щоб почати облік фінансів.</p>
-      <button class="btn btn-secondary demo-btn" :disabled="demoLoading" @click="handleLoadDemo">
+      <p class="empty">
+        {{ readOnly ? 'У цього користувача ще немає рахунків.' : 'Рахунків ще немає. Додайте перший, щоб почати облік фінансів.' }}
+      </p>
+      <button v-if="!readOnly" class="btn btn-secondary demo-btn" :disabled="demoLoading" @click="handleLoadDemo">
         {{ demoLoading ? 'Додаємо…' : 'Або спробувати на демо-даних' }}
       </button>
     </div>
@@ -181,7 +218,7 @@ async function handleDeleteConfirmed() {
          renders at the transformed box's edges before snapping to its real
          viewport-fixed spot once the transition ends. -->
     <Teleport to="body">
-      <button v-if="hasAnyAccounts" class="fab" aria-label="Додати операцію" @click="openAddOperationGeneric">
+      <button v-if="hasAnyAccounts && !readOnly" class="fab" aria-label="Додати операцію" @click="openAddOperationGeneric">
         <MdiIcon name="mdiPlus" :size="26" color="#fff" />
       </button>
     </Teleport>
@@ -217,6 +254,7 @@ async function handleDeleteConfirmed() {
     <AccountDetailModal
       v-if="historyAccount"
       :account="historyAccount"
+      :readonly="readOnly"
       @close="historyAccount = null"
       @edit="openEditFromDetail"
       @add-operation="openAddOperationFromDetail"
@@ -258,8 +296,9 @@ async function handleDeleteConfirmed() {
   transform: translateX(-12px);
 }
 .account-card-leave-active {
+  /* position/width are pinned inline by pinLeavingRect() before this class
+     applies — see @before-leave on the TransitionGroup above. */
   position: absolute;
-  width: 100%;
 }
 
 .add-account {

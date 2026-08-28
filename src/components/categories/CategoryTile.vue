@@ -40,8 +40,9 @@ function onPointerUp() {
     <span class="amount" :style="{ color: hasAmount ? color : 'var(--text-muted)' }">
       {{ formatMoney(amount, currency) }}
     </span>
-    <div v-if="budget" class="budget-track" :title="budgetLabel">
+    <div class="budget-track" :class="{ 'budget-track--empty': !budget }" :title="budgetLabel">
       <div
+        v-if="budget"
         class="budget-fill"
         :style="{ width: `${budget.pct}%`, background: budget.over ? 'var(--expense)' : color }"
       />
@@ -54,6 +55,7 @@ function onPointerUp() {
   display: flex;
   flex-direction: column;
   align-items: center;
+  width: 110px;
   gap: 6px;
   background: transparent;
   border: none;
@@ -74,6 +76,10 @@ function onPointerUp() {
 .amount {
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .budget-track {
@@ -83,6 +89,10 @@ function onPointerUp() {
   background: var(--surface-2);
   overflow: hidden;
   margin-top: 1px;
+}
+
+.budget-track--empty {
+  visibility: hidden;
 }
 
 .budget-fill {

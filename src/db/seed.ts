@@ -1,5 +1,5 @@
 import { db } from './schema'
-import { enqueueUpsertMany } from './sync'
+import { enqueueUpsertMany, pullAllCategories } from './sync'
 import http from '../api/http'
 import { newId } from '../utils/id'
 import type { Category } from '../types/models'
@@ -35,16 +35,20 @@ const DEFAULT_INCOME_CATEGORIES: Array<Pick<Category, 'name' | 'icon' | 'color'>
 ]
 
 /**
- * Per-profile seeding: each newly-created profile gets its own default
- * categories, gated on `settings.onboarded` (already `false` by default —
- * the row itself is created server-side alongside the user, see
- * UserModel.create on the backend). Works fully offline: the very first
- * login that reaches this point already required one successful GET
- * /api/auth/me, so `settings` is in Dexie by the time this runs.
+ * Categories are a shared family resource (see stores/categories.ts) — this
+ * seeds the default set exactly once, family-wide, the very first time
+ * anyone finds it empty. Every member after that just inherits the
+ * already-seeded shared set via the normal sync pull; there's no more
+ * "per-profile" seeding. Explicitly pulls first (rather than trusting
+ * whatever `fullSync`'s own unawaited background pull happens to have landed
+ * by now) so a second family member's fresh device doesn't race the check
+ * and wrongly reseed a duplicate set alongside what the family already has.
  */
 export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
-  const existing = await db.settings.get(ownerId)
-  if (existing?.onboarded) return
+  await pullAllCategories().catch((error) =>
+    console.warn('[seed] pullAllCategories failed, deciding from local cache only', error),
+  )
+  if ((await db.categories.count()) > 0) return
 
   const now = Date.now()
   const categories: Category[] = []
@@ -85,6 +89,7 @@ export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
   await db.categories.bulkPut(categories)
   await enqueueUpsertMany('categories', ownerId, categories)
 
+  const existing = await db.settings.get(ownerId)
   await db.settings.put({ id: ownerId, baseCurrency: existing?.baseCurrency ?? 'UAH', theme: existing?.theme ?? 'system', onboarded: true })
   try {
     await http.patch('/settings', { onboarded: true })

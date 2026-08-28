@@ -25,7 +25,6 @@ const routes = [
     component: () => import('../views/PeriodPageView.vue'),
     children: [{ path: '', name: 'overview', component: () => import('../views/OverviewDataView.vue') }],
   },
-  { path: '/total', name: 'total', component: () => import('../views/TotalBalanceView.vue') },
   { path: '/admin', name: 'admin', component: () => import('../views/AdminUsersView.vue') },
 ]
 

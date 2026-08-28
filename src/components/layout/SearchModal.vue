@@ -2,31 +2,33 @@
 import { computed, ref } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
+import OwnerAvatar from '../common/OwnerAvatar.vue'
 import TransactionFormModal from '../transactions/TransactionFormModal.vue'
 import { useTransactionsStore } from '../../stores/transactions'
-import { useAccountsStore } from '../../stores/accounts'
 import { useAllAccountsStore } from '../../stores/allAccounts'
 import { useProfilesStore } from '../../stores/profiles'
 import { useCategoriesStore } from '../../stores/categories'
+import { useViewAsStore } from '../../stores/viewAs'
 import { formatMoney, fullDateLabel } from '../../utils/format'
 import { resolveAccountLabel } from '../../utils/accountLabel'
 import { TRANSFER_CATEGORY_COLOR } from '../../utils/transferAnalytics'
-import type { Transaction } from '../../types/models'
+import type { Profile, Transaction } from '../../types/models'
 
 const emit = defineEmits<{ close: [] }>()
 
 const transactions = useTransactionsStore()
-const accounts = useAccountsStore()
 const allAccounts = useAllAccountsStore()
 const profiles = useProfilesStore()
 const categories = useCategoriesStore()
+const viewAs = useViewAsStore()
+const readOnly = computed(() => viewAs.isReadOnly)
 
 const query = ref('')
 
 function rowMeta(t: Transaction) {
   if (t.type === 'transfer') {
-    const from = resolveAccountLabel(t.accountId, accounts.all, allAccounts.all, profiles.all)
-    const to = resolveAccountLabel(t.toAccountId, accounts.all, allAccounts.all, profiles.all)
+    const from = resolveAccountLabel(t.accountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
+    const to = resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
     return {
       icon: 'mdiSwapHorizontal',
       color: TRANSFER_CATEGORY_COLOR,
@@ -34,19 +36,27 @@ function rowMeta(t: Transaction) {
       subtitle: `${from} → ${to}`,
       amountClass: 'transfer',
       searchable: `переказ ${from} ${to} ${t.note ?? ''}`,
+      // Both endpoints (possibly two different people) are already spelled
+      // out above — a single corner badge would misattribute a cross-profile
+      // transfer to whichever owner happened to be picked.
+      owner: null as Profile | null,
     }
   }
   const category = categories.byId(t.categoryId)
   const sub = categories.byId(t.subcategoryId ?? undefined)
-  const account = accounts.all.find((a) => a.id === t.accountId)
+  const account = allAccounts.byId(t.accountId)
   const title = category ? (sub ? `${category.name} (${sub.name})` : category.name) : '—'
   return {
-    icon: category?.icon ?? 'mdiHelpCircleOutline',
-    color: category?.color ?? '#9a9a9e',
+    icon: sub?.icon ?? category?.icon ?? 'mdiHelpCircleOutline',
+    color: sub?.color ?? category?.color ?? '#9a9a9e',
     title,
     subtitle: account?.name ?? '',
     amountClass: t.type === 'expense' ? 'expense' : 'income',
     searchable: `${category?.name ?? ''} ${sub?.name ?? ''} ${account?.name ?? ''} ${t.note ?? ''}`,
+    // "All" mode mixes every family member's operations in this list —
+    // badge whose it is. Outside that mode there's only ever one owner in
+    // view, so it would be redundant.
+    owner: viewAs.mode === 'all' ? (profiles.byId(account?.ownerId) ?? null) : null,
   }
 }
 
@@ -89,8 +99,19 @@ async function handleDeleted() {
     <p v-else-if="!results.length" class="hint">Нічого не знайдено.</p>
 
     <div class="results">
-      <button v-for="t in results" :key="t.id" class="row" @click="openResult(t)">
-        <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="40" />
+      <button
+        v-for="t in results"
+        :key="t.id"
+        class="row"
+        :class="{ 'row--static': readOnly }"
+        @click="!readOnly && openResult(t)"
+      >
+        <div class="row-icon-wrap">
+          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="40" />
+          <span v-if="rowMeta(t).owner" class="owner-badge">
+            <OwnerAvatar :profile="rowMeta(t).owner!" :size="16" />
+          </span>
+        </div>
         <div class="row-text">
           <span class="row-title">{{ rowMeta(t).title }}</span>
           <span class="row-sub">{{ rowMeta(t).subtitle }} · {{ fullDateLabel(new Date(t.date)) }}</span>
@@ -154,6 +175,21 @@ async function handleDeleted() {
   padding: 10px 12px;
   cursor: pointer;
   text-align: left;
+}
+
+.row--static {
+  cursor: default;
+}
+
+.row-icon-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.owner-badge {
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
 }
 
 .row-text {

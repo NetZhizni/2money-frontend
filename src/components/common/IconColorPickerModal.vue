@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import Modal from './Modal.vue'
 import IconPicker from './IconPicker.vue'
 import ColorPicker from './ColorPicker.vue'
@@ -10,12 +10,24 @@ const props = defineProps<{ icon: string; color: string }>()
 const emit = defineEmits<{ close: []; 'update:icon': [string]; 'update:color': [string] }>()
 
 const tab = ref<'icon' | 'color'>('icon')
+
+// Staged locally while browsing — nothing is applied to the "Рахунок" /
+// "Витрати" / "Доходи" edit popup underneath until "Обрати" is pressed.
+const localIcon = ref(props.icon)
+const localColor = ref(props.color)
+const changed = computed(() => localIcon.value !== props.icon || localColor.value !== props.color)
+
+function confirm() {
+  emit('update:icon', localIcon.value)
+  emit('update:color', localColor.value)
+  emit('close')
+}
 </script>
 
 <template>
   <Modal title="Значок і колір" @close="emit('close')">
     <div class="preview">
-      <IconCircle :icon="props.icon" :color="props.color" :size="88" />
+      <IconCircle :icon="localIcon" :color="localColor" :size="88" />
     </div>
 
     <div class="tab-switch">
@@ -31,11 +43,13 @@ const tab = ref<'icon' | 'color'>('icon')
 
     <IconPicker
       v-if="tab === 'icon'"
-      :model-value="props.icon"
-      :color="props.color"
-      @update:model-value="(v) => emit('update:icon', v)"
+      :model-value="localIcon"
+      :color="localColor"
+      @update:model-value="(v) => (localIcon = v)"
     />
-    <ColorPicker v-else :model-value="props.color" @update:model-value="(v) => emit('update:color', v)" />
+    <ColorPicker v-else :model-value="localColor" @update:model-value="(v) => (localColor = v)" />
+
+    <button type="button" class="btn btn-primary confirm-btn" :disabled="!changed" @click="confirm">Обрати</button>
   </Modal>
 </template>
 
@@ -71,5 +85,10 @@ const tab = ref<'icon' | 'color'>('icon')
 .tab-btn.active {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
+}
+
+.confirm-btn {
+  width: 100%;
+  margin-top: 16px;
 }
 </style>

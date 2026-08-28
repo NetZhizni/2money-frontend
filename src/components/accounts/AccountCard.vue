@@ -2,17 +2,18 @@
 import { computed } from 'vue'
 import IconCircle from '../common/IconCircle.vue'
 import MdiIcon from '../common/MdiIcon.vue'
+import OwnerAvatar from '../common/OwnerAvatar.vue'
 import { formatMoney } from '../../utils/format'
-import type { Account } from '../../types/models'
+import { accountTypeLabel } from '../../utils/accountTypes'
+import type { Account, Profile } from '../../types/models'
 
-const props = defineProps<{ account: Account; balance: number; pending?: boolean }>()
+// `owner` is set only in "view as all" (see stores/viewAs.ts), where this
+// list mixes accounts from every family member — badges whose account each
+// card is. Left unset the rest of the time, since there's only one owner in view.
+const props = defineProps<{ account: Account; balance: number; pending?: boolean; readonly?: boolean; owner?: Profile | null }>()
 defineEmits<{ click: []; addOperation: []; history: [] }>()
 
-const typeLabel = computed(() => {
-  if (props.account.type === 'savings') return 'Зберігаючий'
-  if (props.account.type === 'loan') return props.account.loanDirection === 'lent' ? 'Позика (дав)' : 'Позика (взяв)'
-  return 'Звичайний'
-})
+const typeLabel = computed(() => accountTypeLabel(props.account.type, props.account.loanDirection))
 </script>
 
 <template>
@@ -20,6 +21,9 @@ const typeLabel = computed(() => {
     <button class="card-main" @click="$emit('click')">
       <div class="icon-wrap">
         <IconCircle :icon="account.icon" :color="account.color" :size="48" />
+        <span v-if="owner" class="owner-badge">
+          <OwnerAvatar :profile="owner" :size="18" />
+        </span>
         <span v-if="pending" class="pending-badge" title="Очікує синхронізації" aria-label="Очікує синхронізації">
           <MdiIcon name="mdiClockOutline" :size="11" color="#fff" />
         </span>
@@ -36,7 +40,7 @@ const typeLabel = computed(() => {
     <button class="history-btn" aria-label="Історія балансу" @click="$emit('history')">
       <MdiIcon name="mdiChartLine" :size="18" color="var(--text-muted)" />
     </button>
-    <button class="add-op-btn" aria-label="Додати операцію на цей рахунок" @click="$emit('addOperation')">
+    <button v-if="!readonly" class="add-op-btn" aria-label="Додати операцію на цей рахунок" @click="$emit('addOperation')">
       <MdiIcon name="mdiPlus" :size="20" color="var(--accent)" />
     </button>
   </div>
@@ -70,6 +74,12 @@ const typeLabel = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.owner-badge {
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
 }
 
 .card-main {

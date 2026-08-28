@@ -300,9 +300,9 @@ async function handleDuplicate() {
         <div class="foreign-text">
           <span class="foreign-title">Переказ від {{ initiatorName }}</span>
           <span class="foreign-sub">
-            {{ resolveAccountLabel(props.transaction.accountId, accounts.all, allAccountsStore.all, profilesStore.all) }}
+            {{ resolveAccountLabel(props.transaction.accountId, authStore.uid, allAccountsStore.all, profilesStore.all) }}
             →
-            {{ resolveAccountLabel(props.transaction.toAccountId, accounts.all, allAccountsStore.all, profilesStore.all) }}
+            {{ resolveAccountLabel(props.transaction.toAccountId, authStore.uid, allAccountsStore.all, profilesStore.all) }}
           </span>
         </div>
       </div>

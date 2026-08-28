@@ -2,7 +2,6 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { liveQuery } from 'dexie'
 import { db } from '../db/schema'
-import { useAuthStore } from './auth'
 import { pullAllAccounts } from '../db/sync'
 import type { Account } from '../types/models'
 
@@ -33,8 +32,7 @@ export const useAllAccountsStore = defineStore('allAccounts', () => {
         },
         error: (error) => console.error('[allAccounts] liveQuery failed', error),
       })
-      const authStore = useAuthStore()
-      void pullAllAccounts(authStore.uid)
+      void pullAllAccounts()
     })
   }
 

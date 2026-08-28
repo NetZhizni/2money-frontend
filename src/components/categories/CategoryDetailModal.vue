@@ -12,6 +12,7 @@ const props = defineProps<{
   category: Category
   totals: Record<string, number> // categoryId -> amount for the active period
   currency: string
+  readonly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -64,12 +65,12 @@ async function removeBudget() {
     </div>
 
     <div class="quick-actions">
-      <button class="btn btn-primary" @click="emit('addOperation', category)">+ Додати операцію</button>
+      <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', category)">+ Додати операцію</button>
       <button class="btn btn-secondary" @click="emit('viewOperations', category)">Операції за період</button>
     </div>
-    <button class="btn btn-ghost edit-btn" @click="emit('edit', category)">Редагувати категорію</button>
+    <button v-if="!readonly" class="btn btn-ghost edit-btn" @click="emit('edit', category)">Редагувати категорію</button>
 
-    <div v-if="category.kind === 'expense'" class="budget-section">
+    <div v-if="category.kind === 'expense' && (existingBudget || !readonly)" class="budget-section">
       <div class="sub-header">
         <span>Місячний бюджет</span>
       </div>
@@ -85,13 +86,13 @@ async function removeBudget() {
           <span :class="{ over: progress?.over }">
             {{ formatMoney(total, currency) }} з {{ formatMoney(existingBudget.amount, currency) }}
           </span>
-          <div class="budget-actions">
+          <div v-if="!readonly" class="budget-actions">
             <button class="link" @click="editingBudget = true">Змінити</button>
             <button class="link danger" @click="removeBudget">Прибрати</button>
           </div>
         </div>
       </div>
-      <div v-else class="budget-edit">
+      <div v-else-if="!readonly" class="budget-edit">
         <input v-model="budgetInput" type="number" min="0" step="1" inputmode="numeric" :placeholder="`Сума в ${currency}`" />
         <button class="btn btn-secondary" @click="saveBudget">Зберегти</button>
       </div>
@@ -100,11 +101,17 @@ async function removeBudget() {
     <div class="sub-section">
       <div class="sub-header">
         <span>Підкатегорії</span>
-        <button class="link" @click="emit('addSubcategory', category)">+ Додати</button>
+        <button v-if="!readonly" class="link" @click="emit('addSubcategory', category)">+ Додати</button>
       </div>
       <p v-if="!children.length" class="empty">Підкатегорій ще немає.</p>
       <ul v-else class="sub-list">
-        <li v-for="child in children" :key="child.id" class="sub-item" @click="emit('editSubcategory', child)">
+        <li
+          v-for="child in children"
+          :key="child.id"
+          class="sub-item"
+          :class="{ 'sub-item--static': readonly }"
+          @click="!readonly && emit('editSubcategory', child)"
+        >
           <IconCircle :icon="child.icon" :color="child.color" :size="36" />
           <span class="sub-name" :class="{ archived: child.archived }">{{ child.name }}</span>
           <span class="sub-amount" :style="{ color: child.color }">
@@ -191,6 +198,14 @@ async function removeBudget() {
 }
 .sub-item:hover {
   background: var(--surface-2);
+}
+
+.sub-item--static {
+  cursor: default;
+}
+
+.sub-item--static:hover {
+  background: none;
 }
 .sub-name {
   flex: 1;

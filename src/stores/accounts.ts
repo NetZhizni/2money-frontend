@@ -6,6 +6,7 @@ import { newId } from '../utils/id'
 import { convertLatest } from '../db/exchangeRates'
 import { accountDelta } from '../utils/balanceHistory'
 import { useAuthStore } from './auth'
+import { useViewAsStore } from './viewAs'
 import { useTransactionsStore } from './transactions'
 import type { Account, Transaction } from '../types/models'
 
@@ -23,9 +24,15 @@ export function computeAccountBalance(account: Account, transactions: Transactio
 
 export const useAccountsStore = defineStore('accounts', () => {
   const authStore = useAuthStore()
+  const viewAs = useViewAsStore()
   const collection = useSyncedCollection<Account>('accounts', async () => {
-    if (!authStore.uid) return []
-    const rows = await db.accounts.where('ownerId').equals(authStore.uid).toArray()
+    // 'all' mode (viewAs.effectiveUid === null): every family member's accounts, unfiltered.
+    const rows =
+      viewAs.mode === 'all'
+        ? await db.accounts.toArray()
+        : viewAs.effectiveUid
+          ? await db.accounts.where('ownerId').equals(viewAs.effectiveUid).toArray()
+          : []
     return rows.sort((a, b) => a.order - b.order)
   })
 
@@ -37,7 +44,16 @@ export const useAccountsStore = defineStore('accounts', () => {
   const active = computed(() => collection.all.value.filter((a) => !a.archived))
   const archived = computed(() => collection.all.value.filter((a) => a.archived))
 
+  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
+  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
+  // should never actually fire — it's just a loud failure if something slips
+  // through, instead of silently writing under the wrong owner.
+  function assertWritable() {
+    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
+  }
+
   async function add(input: NewAccountInput): Promise<Account> {
+    assertWritable()
     const order = collection.all.value.length ? Math.max(...collection.all.value.map((a) => a.order)) + 1 : 0
     const account: Account = { ...input, id: newId(), ownerId: authStore.uid!, order, createdAt: Date.now() }
     await collection.put(account)
@@ -45,6 +61,7 @@ export const useAccountsStore = defineStore('accounts', () => {
   }
 
   async function update(id: string, patch: Partial<Account>): Promise<void> {
+    assertWritable()
     const current = collection.all.value.find((a) => a.id === id)
     if (!current) return
     await collection.put({ ...current, ...patch })
@@ -56,6 +73,7 @@ export const useAccountsStore = defineStore('accounts', () => {
 
   /** Hard delete: also cascades to every transaction that touches this account. */
   async function remove(id: string): Promise<void> {
+    assertWritable()
     const transactions = useTransactionsStore()
     await transactions.removeByAccount(id)
     await collection.removeLocal(id)

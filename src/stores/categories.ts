@@ -4,16 +4,27 @@ import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
 import { useAuthStore } from './auth'
+import { useViewAsStore } from './viewAs'
 import { useTransactionsStore } from './transactions'
 import type { Category, CategoryKind } from '../types/models'
 
 export type NewCategoryInput = Omit<Category, 'id' | 'createdAt' | 'order' | 'ownerId'>
 
+/**
+ * Categories are a SHARED family resource, unlike every other per-profile
+ * store here (accounts/transactions/budgets stay owner-scoped) — every
+ * active member sees and can edit the same list, so this store has no owner
+ * filter at all (own vs "Всі" is the same query; see the backend's
+ * CategoryModel and the merge-shared-categories migration for how the old
+ * per-owner duplicates were consolidated). `viewAs` still gates whether
+ * mutations are allowed below — read-only while "viewing as" someone else —
+ * it just no longer changes which rows are visible.
+ */
 export const useCategoriesStore = defineStore('categories', () => {
   const authStore = useAuthStore()
+  const viewAs = useViewAsStore()
   const collection = useSyncedCollection<Category>('categories', async () => {
-    if (!authStore.uid) return []
-    const rows = await db.categories.where('ownerId').equals(authStore.uid).toArray()
+    const rows = await db.categories.toArray()
     return rows.sort((a, b) => a.order - b.order)
   })
 
@@ -37,7 +48,16 @@ export const useCategoriesStore = defineStore('categories', () => {
     return collection.all.value.find((c) => c.id === id)
   }
 
+  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
+  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
+  // should never actually fire — it's just a loud failure if something slips
+  // through, instead of silently writing under the wrong owner.
+  function assertWritable() {
+    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
+  }
+
   async function add(input: NewCategoryInput): Promise<Category> {
+    assertWritable()
     const siblings = collection.all.value.filter((c) => c.parentId === (input.parentId ?? null))
     const order = siblings.length ? Math.max(...siblings.map((c) => c.order)) + 1 : 0
     const category: Category = { ...input, id: newId(), ownerId: authStore.uid!, order, createdAt: Date.now() }
@@ -46,6 +66,7 @@ export const useCategoriesStore = defineStore('categories', () => {
   }
 
   async function update(id: string, patch: Partial<Category>): Promise<void> {
+    assertWritable()
     const current = collection.all.value.find((c) => c.id === id)
     if (!current) return
     await collection.put({ ...current, ...patch })
@@ -69,6 +90,7 @@ export const useCategoriesStore = defineStore('categories', () => {
 
   /** Hard delete: removes the category, all its subcategories, and every transaction tied to any of them. */
   async function remove(id: string): Promise<void> {
+    assertWritable()
     const transactions = useTransactionsStore()
     const ids = collectWithDescendants(id)
     for (const categoryId of ids) {

@@ -7,9 +7,10 @@ import { useTransactionsStore } from '../../stores/transactions'
 import { computeAccountBalance } from '../../stores/accounts'
 import { buildBalanceHistory } from '../../utils/balanceHistory'
 import { formatMoney, startOfDay, endOfDay } from '../../utils/format'
+import { accountTypeLabel } from '../../utils/accountTypes'
 import type { Account } from '../../types/models'
 
-const props = defineProps<{ account: Account }>()
+const props = defineProps<{ account: Account; readonly?: boolean }>()
 const emit = defineEmits<{
   close: []
   edit: [Account]
@@ -19,11 +20,7 @@ const emit = defineEmits<{
 
 const transactions = useTransactionsStore()
 
-const typeLabel = computed(() => {
-  if (props.account.type === 'savings') return 'Зберігаючий'
-  if (props.account.type === 'loan') return props.account.loanDirection === 'lent' ? 'Позика (дав)' : 'Позика (взяв)'
-  return 'Звичайний'
-})
+const typeLabel = computed(() => accountTypeLabel(props.account.type, props.account.loanDirection))
 
 const accountTransactions = computed(() => transactions.forAccount(props.account.id))
 const currentBalance = computed(() => computeAccountBalance(props.account, accountTransactions.value))
@@ -81,10 +78,10 @@ const periodDelta = computed(() => {
     </div>
 
     <div class="quick-actions">
-      <button class="btn btn-primary" @click="emit('addOperation', account)">+ Додати операцію</button>
+      <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', account)">+ Додати операцію</button>
       <button class="btn btn-secondary" @click="emit('viewOperations', account)">Операції</button>
     </div>
-    <button class="btn btn-ghost edit-btn" @click="emit('edit', account)">Редагувати рахунок</button>
+    <button v-if="!readonly" class="btn btn-ghost edit-btn" @click="emit('edit', account)">Редагувати рахунок</button>
 
     <div class="history-section">
       <h3 class="section-title">Історія балансу</h3>

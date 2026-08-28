@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useTransactionsStore } from '../stores/transactions'
 import { useCategoriesStore } from '../stores/categories'
 import { usePeriodStore } from '../stores/period'
-import { useAuthStore } from '../stores/auth'
+import { useViewAsStore } from '../stores/viewAs'
 import { useDisplayCurrency } from '../composables/useDisplayCurrency'
 import { useCountUp } from '../composables/useCountUp'
 import ExpenseIncomeChart, { type PeriodBar } from '../components/overview/ExpenseIncomeChart.vue'
@@ -18,9 +18,15 @@ import type { Transaction } from '../types/models'
 const transactions = useTransactionsStore()
 const categories = useCategoriesStore()
 const period = usePeriodStore()
-const authStore = useAuthStore()
+const viewAs = useViewAsStore()
 const displayCurrency = useDisplayCurrency()
 const router = useRouter()
+
+// The uid a cross-profile transfer is judged "sent" vs "received" from — the
+// profile currently being browsed (self by default). In "Всі" mode there's
+// no single perspective left, so cross-profile transfers are excluded
+// entirely (money moving within the family isn't a real household expense/income).
+const perspectiveUid = computed(() => (viewAs.mode === 'all' ? null : viewAs.effectiveUid))
 
 function openCategoryOperations(categoryId: string) {
   // The "Перекази" ranking row is a pseudo-category (transfers have no real
@@ -37,16 +43,18 @@ const periodTransactions = computed(() => transactions.forPeriod(period.start, p
 // Cross-profile transfers count as an expense for whoever sent them / income
 // for whoever received them (same-profile transfers stay excluded — see
 // utils/transferAnalytics.ts for why).
-const crossProfileTransferExpense = computed(() =>
-  periodTransactions.value
-    .filter((t) => isCrossProfileTransfer(t) && t.ownerId === authStore.uid)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0),
-)
-const crossProfileTransferIncome = computed(() =>
-  periodTransactions.value
-    .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== authStore.uid)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0),
-)
+const crossProfileTransferExpense = computed(() => {
+  if (!perspectiveUid.value) return 0
+  return periodTransactions.value
+    .filter((t) => isCrossProfileTransfer(t) && t.ownerId === perspectiveUid.value)
+    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+})
+const crossProfileTransferIncome = computed(() => {
+  if (!perspectiveUid.value) return 0
+  return periodTransactions.value
+    .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== perspectiveUid.value)
+    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+})
 
 const expenseTotal = computed(
   () =>
@@ -65,12 +73,13 @@ const savingsRatePct = computed(() =>
 
 /** Expense/income for a slice of transactions, folding in cross-profile transfers the same way the period totals do. */
 function expenseIncomeOf(list: Transaction[]): { expense: number; income: number } {
+  const uid = perspectiveUid.value
   const expense =
     list.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(t.baseAmount), 0) +
-    list.filter((t) => isCrossProfileTransfer(t) && t.ownerId === authStore.uid).reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+    (uid ? list.filter((t) => isCrossProfileTransfer(t) && t.ownerId === uid).reduce((s, t) => s + Math.abs(t.baseAmount), 0) : 0)
   const income =
     list.filter((t) => t.type === 'income').reduce((s, t) => s + t.baseAmount, 0) +
-    list.filter((t) => isCrossProfileTransfer(t) && t.ownerId !== authStore.uid).reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+    (uid ? list.filter((t) => isCrossProfileTransfer(t) && t.ownerId !== uid).reduce((s, t) => s + Math.abs(t.baseAmount), 0) : 0)
   return { expense, income }
 }
 

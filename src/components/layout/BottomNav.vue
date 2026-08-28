@@ -1,14 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import MdiIcon from '../common/MdiIcon.vue'
-
-const tabs = [
-  { to: '/accounts', label: 'Рахунки', icon: 'mdiWalletOutline' },
-  { to: '/categories', label: 'Категорії', icon: 'mdiChartDonut' },
-  { to: '/operations', label: 'Операції', icon: 'mdiNotebookOutline' },
-  { to: '/overview', label: 'Огляд', icon: 'mdiFinance' },
-  { to: '/total', label: 'Разом', icon: 'mdiAccountGroupOutline' },
-]
+import { NAV_TABS as tabs } from '../../utils/navTabs'
 </script>
 
 <template>

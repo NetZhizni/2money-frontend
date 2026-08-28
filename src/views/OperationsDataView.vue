@@ -6,28 +6,32 @@ import { useAccountsStore } from '../stores/accounts'
 import { useAllAccountsStore } from '../stores/allAccounts'
 import { useProfilesStore } from '../stores/profiles'
 import { useCategoriesStore } from '../stores/categories'
+import { useViewAsStore } from '../stores/viewAs'
 import { usePeriodStore } from '../stores/period'
 import { useDisplayCurrency } from '../composables/useDisplayCurrency'
 import { useLatestRun } from '../composables/useLatestRun'
 import IconCircle from '../components/common/IconCircle.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
+import OwnerAvatar from '../components/common/OwnerAvatar.vue'
 import TransactionFormModal from '../components/transactions/TransactionFormModal.vue'
 import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import OperationsFilterModal, { type OperationsFilters } from '../components/transactions/OperationsFilterModal.vue'
 import { formatMoney, dayHeader } from '../utils/format'
 import { resolveAccountLabel } from '../utils/accountLabel'
-import { TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
-import type { Transaction } from '../types/models'
+import { isCrossProfileTransfer, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
+import type { Profile, Transaction } from '../types/models'
 
 const transactions = useTransactionsStore()
 const accounts = useAccountsStore()
 const allAccounts = useAllAccountsStore()
 const profiles = useProfilesStore()
 const categories = useCategoriesStore()
+const viewAs = useViewAsStore()
 const period = usePeriodStore()
 const displayCurrency = useDisplayCurrency()
 const route = useRoute()
 const router = useRouter()
+const readOnly = computed(() => viewAs.isReadOnly)
 
 // Optional ?category=<id> filter, arrived from "Операції за період" in a category's detail sheet.
 const filterCategoryId = computed(() => (typeof route.query.category === 'string' ? route.query.category : null))
@@ -127,6 +131,21 @@ const periodTransactions = computed(() => {
   return list
 })
 
+// `t.baseAmount` on a cross-profile transfer is always stored negative
+// (expense-shaped) from the SENDER's perspective — see TransactionFormModal's
+// `submit()`. Summing it as-is is correct for the sender, but for the
+// recipient viewing the very same synced doc it silently subtracts money
+// they received. Flip the sign to match whoever's being viewed, the same way
+// OverviewDataView does it: an expense if they sent it, income if they
+// received it. In "all" mode there's no single perspective — the transfer is
+// just money moving between two family members, so it nets to 0 there.
+function signedNet(t: Transaction): number {
+  if (!isCrossProfileTransfer(t)) return t.baseAmount
+  const uid = viewAs.effectiveUid
+  if (!uid) return 0
+  return Math.abs(t.baseAmount) * (t.ownerId === uid ? -1 : 1)
+}
+
 const groups = computed(() => {
   const byDay = new Map<string, Transaction[]>()
   for (const t of periodTransactions.value) {
@@ -141,7 +160,7 @@ const groups = computed(() => {
       // (day-precision only, see Transaction.date) so it can't order them —
       // newest created/edited goes first within the day instead.
       list: [...list].sort((a, b) => b.updatedAt - a.updatedAt),
-      net: list.reduce((s, t) => s + t.baseAmount, 0),
+      net: list.reduce((s, t) => s + signedNet(t), 0),
     }))
     .sort((a, b) => b.date.getTime() - a.date.getTime())
 })
@@ -162,26 +181,34 @@ watchEffect(async () => {
 
 function rowMeta(t: Transaction) {
   if (t.type === 'transfer') {
-    const from = resolveAccountLabel(t.accountId, accounts.all, allAccounts.all, profiles.all)
-    const to = resolveAccountLabel(t.toAccountId, accounts.all, allAccounts.all, profiles.all)
+    const from = resolveAccountLabel(t.accountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
+    const to = resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
     return {
       icon: 'mdiSwapHorizontal',
       color: TRANSFER_CATEGORY_COLOR,
       title: 'Переказ',
       subtitle: `${from} → ${to}`,
       amountClass: 'transfer',
+      // Both endpoints (possibly two different people) are already spelled
+      // out in the subtitle above — a single corner badge would misattribute
+      // a cross-profile transfer to whichever owner happened to be picked.
+      owner: null as Profile | null,
     }
   }
   const category = categories.byId(t.categoryId)
   const sub = categories.byId(t.subcategoryId ?? undefined)
-  const account = accounts.all.find((a) => a.id === t.accountId)
+  const account = allAccounts.byId(t.accountId)
   const title = category ? (sub ? `${category.name} (${sub.name})` : category.name) : '—'
   return {
-    icon: category?.icon ?? 'mdiHelpCircleOutline',
-    color: category?.color ?? '#9a9a9e',
+    icon: sub?.icon ?? category?.icon ?? 'mdiHelpCircleOutline',
+    color: sub?.color ?? category?.color ?? '#9a9a9e',
     title,
     subtitle: account?.name ?? '',
     amountClass: t.type === 'expense' ? 'expense' : 'income',
+    // "All" mode mixes every family member's operations in one list — badge
+    // whose it is. Outside that mode there's only ever one owner in view, so
+    // it would be redundant.
+    owner: viewAs.mode === 'all' ? (profiles.byId(account?.ownerId) ?? null) : null,
   }
 }
 
@@ -277,9 +304,18 @@ async function handleDeleteConfirmed() {
     </div>
 
     <TransitionGroup tag="div" name="tx-row" class="tx-list">
-      <button v-for="t in group.list" :key="t.id" class="row" @click="openEdit(t)">
+      <button
+        v-for="t in group.list"
+        :key="t.id"
+        class="row"
+        :class="{ 'row--static': readOnly }"
+        @click="!readOnly && openEdit(t)"
+      >
         <div class="row-icon-wrap">
           <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="44" />
+          <span v-if="rowMeta(t).owner" class="owner-badge">
+            <OwnerAvatar :profile="rowMeta(t).owner!" :size="18" />
+          </span>
           <span
             v-if="transactions.isPending(t.id)"
             class="pending-badge"
@@ -311,7 +347,7 @@ async function handleDeleteConfirmed() {
        renders at the transformed box's edges before snapping to its real
        viewport-fixed spot once the transition ends. -->
   <Teleport to="body">
-    <button class="fab" aria-label="Додати операцію" @click="openCreate">
+    <button v-if="!readOnly" class="fab" aria-label="Додати операцію" @click="openCreate">
       <MdiIcon name="mdiPlus" :size="26" color="#fff" />
     </button>
   </Teleport>
@@ -519,6 +555,10 @@ async function handleDeleteConfirmed() {
   text-align: left;
 }
 
+.row--static {
+  cursor: default;
+}
+
 .row-icon-wrap {
   position: relative;
   flex-shrink: 0;
@@ -536,6 +576,12 @@ async function handleDeleteConfirmed() {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.owner-badge {
+  position: absolute;
+  bottom: -2px;
+  left: -2px;
 }
 
 .row-text {

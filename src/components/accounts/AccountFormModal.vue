@@ -5,18 +5,13 @@ import IconCircle from '../common/IconCircle.vue'
 import IconColorPickerModal from '../common/IconColorPickerModal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import { COMMON_CURRENCIES } from '../../utils/currencies'
+import { ACCOUNT_TYPE_OPTIONS, ACCOUNT_TYPE_DEFAULTS, LOAN_DIRECTION_OPTIONS } from '../../utils/accountTypes'
 import type { Account, AccountType, LoanDirection } from '../../types/models'
 
 const props = defineProps<{ account?: Account | null; defaultType?: AccountType }>()
 const emit = defineEmits<{ close: []; save: [Partial<Account>]; deleted: []; archived: [] }>()
 
 const isEdit = computed(() => !!props.account)
-
-const TYPE_DEFAULTS: Record<AccountType, { icon: string; color: string }> = {
-  regular: { icon: 'mdiWalletOutline', color: '#2a78d6' },
-  savings: { icon: 'mdiPiggyBankOutline', color: '#1baf7a' },
-  loan: { icon: 'mdiHandshakeOutline', color: '#eda100' },
-}
 
 const initialType = props.account?.type ?? props.defaultType ?? ('regular' as AccountType)
 
@@ -27,8 +22,8 @@ const form = reactive({
   currency: props.account?.currency ?? 'UAH',
   initialBalance: props.account?.initialBalance ?? 0,
   includeInTotal: props.account?.includeInTotal ?? true,
-  icon: props.account?.icon ?? TYPE_DEFAULTS[initialType].icon,
-  color: props.account?.color ?? TYPE_DEFAULTS[initialType].color,
+  icon: props.account?.icon ?? ACCOUNT_TYPE_DEFAULTS[initialType].icon,
+  color: props.account?.color ?? ACCOUNT_TYPE_DEFAULTS[initialType].color,
   note: props.account?.note ?? '',
 })
 
@@ -37,8 +32,8 @@ const showIconColorPicker = ref(false)
 function selectType(type: AccountType) {
   form.type = type
   if (!isEdit.value) {
-    form.icon = TYPE_DEFAULTS[type].icon
-    form.color = TYPE_DEFAULTS[type].color
+    form.icon = ACCOUNT_TYPE_DEFAULTS[type].icon
+    form.color = ACCOUNT_TYPE_DEFAULTS[type].color
   }
 }
 
@@ -74,17 +69,28 @@ function submit() {
     <div class="field">
       <label>Тип рахунку</label>
       <div class="segmented">
-        <button :class="{ active: form.type === 'regular' }" @click="selectType('regular')">Звичайний</button>
-        <button :class="{ active: form.type === 'savings' }" @click="selectType('savings')">Зберігаючий</button>
-        <button :class="{ active: form.type === 'loan' }" @click="selectType('loan')">Позика</button>
+        <button
+          v-for="opt in ACCOUNT_TYPE_OPTIONS"
+          :key="opt.value"
+          :class="{ active: form.type === opt.value }"
+          @click="selectType(opt.value)"
+        >
+          {{ opt.label }}
+        </button>
       </div>
     </div>
 
     <div v-if="form.type === 'loan'" class="field">
       <label>Напрямок позики</label>
       <div class="segmented">
-        <button :class="{ active: form.loanDirection === 'lent' }" @click="form.loanDirection = 'lent'">Я позичив (дав)</button>
-        <button :class="{ active: form.loanDirection === 'borrowed' }" @click="form.loanDirection = 'borrowed'">Я взяв позику</button>
+        <button
+          v-for="dir in LOAN_DIRECTION_OPTIONS"
+          :key="dir.value"
+          :class="{ active: form.loanDirection === dir.value }"
+          @click="form.loanDirection = dir.value"
+        >
+          {{ dir.label }}
+        </button>
       </div>
     </div>
 

@@ -1,9 +1,9 @@
-import { useAccountsStore } from '../stores/accounts'
 import { useAllAccountsStore } from '../stores/allAccounts'
 import { useProfilesStore } from '../stores/profiles'
 import { useCategoriesStore } from '../stores/categories'
 import { useTransactionsStore } from '../stores/transactions'
 import { useSettingsStore } from '../stores/settings'
+import { useViewAsStore } from '../stores/viewAs'
 import { resolveAccountLabel } from '../utils/accountLabel'
 import { toCsv, CSV_BOM, type CsvCell } from '../utils/csv'
 import { downloadFile } from '../utils/download'
@@ -28,12 +28,12 @@ function formatAmount(n: number): string {
 
 /** All of the signed-in profile's transactions, oldest first, as a semicolon-delimited CSV string (with UTF-8 BOM). */
 export function buildTransactionsCsv(): string {
-  const accounts = useAccountsStore()
   const allAccounts = useAllAccountsStore()
   const profiles = useProfilesStore()
   const categories = useCategoriesStore()
   const transactions = useTransactionsStore()
   const settings = useSettingsStore()
+  const viewAs = useViewAsStore()
 
   const header: CsvCell[] = [
     'Дата',
@@ -55,8 +55,8 @@ export function buildTransactionsCsv(): string {
     rows.push([
       dateKey(t.date),
       TYPE_LABEL[t.type],
-      resolveAccountLabel(t.accountId, accounts.all, allAccounts.all, profiles.all),
-      t.type === 'transfer' ? resolveAccountLabel(t.toAccountId, accounts.all, allAccounts.all, profiles.all) : '',
+      resolveAccountLabel(t.accountId, viewAs.effectiveUid, allAccounts.all, profiles.all),
+      t.type === 'transfer' ? resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all) : '',
       categories.byId(t.categoryId)?.name ?? '',
       categories.byId(t.subcategoryId)?.name ?? '',
       formatAmount(signedAmount),

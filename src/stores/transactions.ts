@@ -4,6 +4,7 @@ import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
 import { useAuthStore } from './auth'
+import { useViewAsStore } from './viewAs'
 import type { Transaction } from '../types/models'
 
 /**
@@ -21,9 +22,15 @@ export type NewTransactionInput = Omit<Transaction, 'id' | 'createdAt' | 'update
 
 export const useTransactionsStore = defineStore('transactions', () => {
   const authStore = useAuthStore()
+  const viewAs = useViewAsStore()
   const collection = useSyncedCollection<Transaction>('transactions', async () => {
-    if (!authStore.uid) return []
-    const rows = await db.transactions.where('participantIds').equals(authStore.uid).toArray()
+    // 'all' mode (viewAs.effectiveUid === null): every family member's transactions, unfiltered.
+    const rows =
+      viewAs.mode === 'all'
+        ? await db.transactions.toArray()
+        : viewAs.effectiveUid
+          ? await db.transactions.where('participantIds').equals(viewAs.effectiveUid).toArray()
+          : []
     return rows.sort((a, b) => b.date - a.date)
   })
 
@@ -36,7 +43,16 @@ export const useTransactionsStore = defineStore('transactions', () => {
     return toOwnerId && toOwnerId !== ownerId ? [ownerId, toOwnerId] : [ownerId]
   }
 
+  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
+  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
+  // should never actually fire — it's just a loud failure if something slips
+  // through, instead of silently writing under the wrong owner.
+  function assertWritable() {
+    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
+  }
+
   async function add(input: NewTransactionInput): Promise<Transaction> {
+    assertWritable()
     const { toOwnerId, ...rest } = input
     const now = Date.now()
     const tx: Transaction = {
@@ -52,6 +68,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
   }
 
   async function update(id: string, patch: Partial<Transaction> & { toOwnerId?: string }): Promise<void> {
+    assertWritable()
     const current = collection.all.value.find((t) => t.id === id)
     if (!current) return
     const { toOwnerId, ...rest } = patch
@@ -69,6 +86,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
   /** Anyone in `participantIds` can delete — removing a transfer removes it for both sides. */
   async function remove(id: string): Promise<void> {
+    assertWritable()
     await collection.removeLocal(id)
   }
 

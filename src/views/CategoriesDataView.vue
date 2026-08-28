@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCategoriesStore } from '../stores/categories'
 import { useTransactionsStore } from '../stores/transactions'
 import { useBudgetsStore } from '../stores/budgets'
 import { usePeriodStore } from '../stores/period'
 import { useSettingsStore } from '../stores/settings'
-import { useAuthStore } from '../stores/auth'
+import { useViewAsStore } from '../stores/viewAs'
 import { useDisplayCurrency } from '../composables/useDisplayCurrency'
 import SpendingRing from '../components/categories/SpendingRing.vue'
 import CategoryTile from '../components/categories/CategoryTile.vue'
@@ -18,6 +19,7 @@ import MdiIcon from '../components/common/MdiIcon.vue'
 import { isCrossProfileTransfer, TRANSFER_CATEGORY_LABEL, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
 import { budgetProgress, type BudgetProgress } from '../utils/budget'
 import { formatMoney } from '../utils/format'
+import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
 import type { Category, CategoryKind } from '../types/models'
 
 const categories = useCategoriesStore()
@@ -25,26 +27,36 @@ const transactions = useTransactionsStore()
 const budgets = useBudgetsStore()
 const period = usePeriodStore()
 const settings = useSettingsStore()
-const authStore = useAuthStore()
+const viewAs = useViewAsStore()
 const router = useRouter()
 const displayCurrency = useDisplayCurrency()
+const readOnly = computed(() => viewAs.isReadOnly)
 
 const kind = ref<CategoryKind>('expense')
 
 const periodTransactions = computed(() => transactions.forPeriod(period.start, period.end))
 
+// The uid a cross-profile transfer is being judged "sent" vs "received" from
+// — the profile currently being browsed (self by default). In "Всі" mode
+// there's no single perspective left to sort by, so cross-profile transfers
+// are excluded there entirely (they're just money moving within the family,
+// not a real expense/income for the household as a whole).
+const perspectiveUid = computed(() => (viewAs.mode === 'all' ? null : viewAs.effectiveUid))
+
 // Cross-profile transfers count as income/expense here too (same-profile
 // ones stay excluded) — see utils/transferAnalytics.ts.
-const crossProfileTransferExpense = computed(() =>
-  periodTransactions.value
-    .filter((t) => isCrossProfileTransfer(t) && t.ownerId === authStore.uid)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0),
-)
-const crossProfileTransferIncome = computed(() =>
-  periodTransactions.value
-    .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== authStore.uid)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0),
-)
+const crossProfileTransferExpense = computed(() => {
+  if (!perspectiveUid.value) return 0
+  return periodTransactions.value
+    .filter((t) => isCrossProfileTransfer(t) && t.ownerId === perspectiveUid.value)
+    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+})
+const crossProfileTransferIncome = computed(() => {
+  if (!perspectiveUid.value) return 0
+  return periodTransactions.value
+    .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== perspectiveUid.value)
+    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+})
 const transferTileAmount = computed(() =>
   kind.value === 'expense' ? crossProfileTransferExpense.value : crossProfileTransferIncome.value,
 )
@@ -132,6 +144,20 @@ const ringSegments = computed(() => {
 })
 
 const visibleTop = computed(() => categories.topLevel(kind.value))
+
+// Snapshots every tile's rect right before Vue touches the DOM, so
+// pinLeavingRect (see listTransition.ts) has a pre-removal rect to pin a
+// leaving tile to even when several tiles leave in the same patch (e.g.
+// toggling Витрати/Доходи swaps the whole grid at once). This can't be an
+// `onBeforeUpdate` on this component: the `v-for` lives inside
+// TransitionGroup's slot, so the reactive read of `visibleTop` is tracked by
+// TransitionGroup's own render effect, not this component's — this
+// component's `onBeforeUpdate` simply never fires for it. `watch` (default
+// "pre" flush) subscribes directly to the sources instead, so it fires
+// before any DOM patch regardless of which component's render effect ends
+// up owning the dependency.
+const tileGroupRef = ref<ComponentPublicInstance | null>(null)
+watch([visibleTop, transferTileAmount], () => snapshotListRects(tileGroupRef.value?.$el))
 
 // --- modals ---
 const showForm = ref(false)
@@ -231,7 +257,7 @@ function openAddOperation(category: Category) {
     <button :class="{ active: kind === 'income' }" @click="kind = 'income'">Доходи</button>
   </div>
 
-  <TransitionGroup tag="div" name="tile" class="grid">
+  <TransitionGroup ref="tileGroupRef" tag="div" name="tile" class="grid" @before-leave="pinLeavingRect">
     <CategoryTile
       v-for="c in visibleTop"
       :key="c.id"
@@ -263,7 +289,7 @@ function openAddOperation(category: Category) {
        renders at the transformed box's edges before snapping to its real
        viewport-fixed spot once the transition ends. -->
   <Teleport to="body">
-    <button class="fab" aria-label="Додати категорію" @click="openCreate">
+    <button v-if="!readOnly" class="fab" aria-label="Додати категорію" @click="openCreate">
       <MdiIcon name="mdiPlus" :size="26" color="#fff" />
     </button>
   </Teleport>
@@ -284,6 +310,7 @@ function openAddOperation(category: Category) {
     :category="detailCategory"
     :totals="rolledTotals"
     :currency="settings.baseCurrency"
+    :readonly="readOnly"
     @close="detailCategory = null"
     @edit="openEditFromDetail"
     @add-subcategory="openAddSubcategory"
@@ -320,14 +347,9 @@ function openAddOperation(category: Category) {
 .grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(auto-fill, 110px);
+  justify-content: space-between;
   gap: 14px 4px;
-}
-
-@media (min-width: 640px) {
-  .grid {
-    grid-template-columns: repeat(6, 1fr);
-  }
 }
 
 .tile-move,
@@ -341,13 +363,9 @@ function openAddOperation(category: Category) {
   transform: scale(0.85);
 }
 .tile-leave-active {
+  /* position/size are pinned inline by pinLeavingRect() before this class
+     applies — see @before-leave on the TransitionGroup above. */
   position: absolute;
-}
-
-@media (min-width: 900px) {
-  .grid {
-    grid-template-columns: repeat(8, 1fr);
-  }
 }
 
 .fab {

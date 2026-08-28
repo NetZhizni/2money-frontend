@@ -32,9 +32,14 @@ export interface OutboxEntry {
   createdAt: number
 }
 
-/** Per-entity delta-sync cursor (epoch ms of the last successful pull). */
+/**
+ * Per-entity delta-sync cursor (epoch ms of the last successful pull). Key is
+ * usually just the entity name (own records), but a family-wide `?scope=all`
+ * pull (see src/db/sync.ts's pullEntity) tracks its own bookmark under
+ * `"<entity>:all"` so the two never clobber each other's cursor.
+ */
 export interface SyncCursor {
-  entity: SyncableEntity
+  entity: SyncableEntity | `${SyncableEntity}:all`
   since: number
 }
 
