@@ -26,6 +26,14 @@ function isTerminalFailure(error: unknown): boolean {
   return status !== 401 && status < 500
 }
 
+// enqueueUpsert/enqueueDelete each kick off their own `pushOutbox` right
+// after queuing, and fullSync() calls it too — at startup (a bulk seed
+// enqueue racing fullSync's own drain, e.g.) two calls for the same user can
+// overlap, both read the same still-queued entry, and both push it. Coalesce
+// concurrent drains per user so a second call just waits on the one already
+// in flight instead of re-reading and re-pushing the same entries.
+const pushInFlight = new Map<string, Promise<void>>()
+
 /**
  * Drains the outbox in FIFO order, one entry at a time, only for records
  * queued under the currently signed-in user (see OutboxEntry.ownerId).
@@ -34,25 +42,37 @@ function isTerminalFailure(error: unknown): boolean {
  */
 export async function pushOutbox(currentUserId: string | null): Promise<void> {
   if (!currentUserId || !navigator.onLine) return
-  const entries = await db.outbox.where('ownerId').equals(currentUserId).sortBy('localId')
+  const existing = pushInFlight.get(currentUserId)
+  if (existing) return existing
 
-  for (const entry of entries) {
-    const path = RESOURCE_PATH[entry.entity]
-    try {
-      if (entry.op === 'upsert') {
-        await http.post(`/${path}`, entry.payload)
-      } else {
-        await http.delete(`/${path}/${entry.recordId}`)
-      }
-      await db.outbox.delete(entry.localId!)
-    } catch (error) {
-      if (isTerminalFailure(error)) {
-        console.error(`[sync] dropping unrecoverable outbox entry ${entry.entity}/${entry.recordId}`, error)
+  const promise = (async () => {
+    const entries = await db.outbox.where('ownerId').equals(currentUserId).sortBy('localId')
+
+    for (const entry of entries) {
+      const path = RESOURCE_PATH[entry.entity]
+      try {
+        if (entry.op === 'upsert') {
+          await http.post(`/${path}`, entry.payload)
+        } else {
+          await http.delete(`/${path}/${entry.recordId}`)
+        }
         await db.outbox.delete(entry.localId!)
-        continue
+      } catch (error) {
+        if (isTerminalFailure(error)) {
+          console.error(`[sync] dropping unrecoverable outbox entry ${entry.entity}/${entry.recordId}`, error)
+          await db.outbox.delete(entry.localId!)
+          continue
+        }
+        return // offline / server error — retry the rest of the queue later
       }
-      return // offline / server error — retry the rest of the queue later
     }
+  })()
+
+  pushInFlight.set(currentUserId, promise)
+  try {
+    await promise
+  } finally {
+    pushInFlight.delete(currentUserId)
   }
 }
 
@@ -68,21 +88,55 @@ export async function pushOutbox(currentUserId: string | null): Promise<void> {
  * family member's deletion is picked up the same way a local one is, with no
  * separate "sweep records that vanished from a full snapshot" step needed.
  */
-async function pullEntity(entity: SyncableEntity, opts?: { scope: 'all' }): Promise<void> {
-  const path = RESOURCE_PATH[entity]
-  const cursorKey = opts?.scope ? (`${entity}:${opts.scope}` as const) : entity
-  const cursor = await db.syncCursors.get(cursorKey)
-  const { data } = await http.get<{ items: SyncRow[]; syncedAt: number }>(`/${path}`, {
-    params: { ...(opts?.scope ? { scope: opts.scope } : {}), ...(cursor?.since ? { since: cursor.since } : {}) },
-  })
+// Startup fires several independent pulls of the same entity within a short
+// span of each other, not always in the same tick — fullSync() only reaches
+// its own pull phase after awaiting pushOutbox(), while seedDefaultsIfEmpty
+// and each allAccounts/allTemplates/allBudgets store's own load() pull
+// unblocked, right away. So one of them can finish and clear an in-flight-only
+// guard before the other even arrives, and both still end up hitting the
+// network. Every call site has its own good reason to ask for a fresh pull
+// right away rather than wait out the 1min interval, so instead of removing
+// any of them, calls for the same cursorKey within PULL_COALESCE_MS of each
+// other — whether truly concurrent or just close in time — share one
+// request/transaction and its result instead of each firing its own GET.
+// Pure reads with a server-tracked delta cursor, so briefly reusing the last
+// answer costs nothing a caller would notice — unlike pushOutbox below, which
+// must always re-check the outbox table since a new entry can be queued
+// between calls.
+const PULL_COALESCE_MS = 5_000
+const pullCache = new Map<string, { promise: Promise<void>; settledAt: number | null }>()
 
-  const table = db[entity] as unknown as { put: (row: SyncRow) => Promise<unknown>; delete: (id: string) => Promise<void> }
-  await db.transaction('rw', db[entity], db.syncCursors, async () => {
-    for (const item of data.items) {
-      if (item.deletedAt) await table.delete(item.id)
-      else await table.put(item)
-    }
-    await db.syncCursors.put({ entity: cursorKey, since: data.syncedAt })
+function coalescedPull(key: string, run: () => Promise<void>): Promise<void> {
+  const cached = pullCache.get(key)
+  if (cached && (cached.settledAt === null || Date.now() - cached.settledAt < PULL_COALESCE_MS)) {
+    return cached.promise
+  }
+
+  const entry: { promise: Promise<void>; settledAt: number | null } = { promise: null as unknown as Promise<void>, settledAt: null }
+  entry.promise = run().finally(() => {
+    entry.settledAt = Date.now()
+  })
+  pullCache.set(key, entry)
+  return entry.promise
+}
+
+async function pullEntity(entity: SyncableEntity, opts?: { scope: 'all' }): Promise<void> {
+  const cursorKey = opts?.scope ? (`${entity}:${opts.scope}` as const) : entity
+  return coalescedPull(cursorKey, async () => {
+    const path = RESOURCE_PATH[entity]
+    const cursor = await db.syncCursors.get(cursorKey)
+    const { data } = await http.get<{ items: SyncRow[]; syncedAt: number }>(`/${path}`, {
+      params: { ...(opts?.scope ? { scope: opts.scope } : {}), ...(cursor?.since ? { since: cursor.since } : {}) },
+    })
+
+    const table = db[entity] as unknown as { put: (row: SyncRow) => Promise<unknown>; delete: (id: string) => Promise<void> }
+    await db.transaction('rw', db[entity], db.syncCursors, async () => {
+      for (const item of data.items) {
+        if (item.deletedAt) await table.delete(item.id)
+        else await table.put(item)
+      }
+      await db.syncCursors.put({ entity: cursorKey, since: data.syncedAt })
+    })
   })
 }
 
@@ -178,6 +232,14 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
     },
   )
 
+  // Everything was just wiped above — a pull whose *result* is still within
+  // coalescedPull's freshness window from before the wipe must not be reused
+  // here: that would skip the network call entirely and leave these tables
+  // empty until the next unrelated sync tick refills them. Drop those cached
+  // entries so every pull below is guaranteed to actually hit the network.
+  pullCache.delete('users')
+  for (const entity of SYNC_ENTITIES) pullCache.delete(`${entity}:all`)
+
   const userDirectoryOk = await pullUserDirectory()
     .then(() => true)
     .catch((error) => {
@@ -201,12 +263,14 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
  */
 export async function pullUserDirectory(): Promise<void> {
   if (!navigator.onLine) return
-  const { data } = await http.get<UserDirectoryEntry[]>('/users')
-  await db.transaction('rw', db.users, async () => {
-    const freshIds = new Set(data.map((u) => u.id))
-    const staleIds = (await db.users.toCollection().primaryKeys()).filter((id) => !freshIds.has(id as string))
-    if (staleIds.length) await db.users.bulkDelete(staleIds)
-    await db.users.bulkPut(data)
+  return coalescedPull('users', async () => {
+    const { data } = await http.get<UserDirectoryEntry[]>('/users')
+    await db.transaction('rw', db.users, async () => {
+      const freshIds = new Set(data.map((u) => u.id))
+      const staleIds = (await db.users.toCollection().primaryKeys()).filter((id) => !freshIds.has(id as string))
+      if (staleIds.length) await db.users.bulkDelete(staleIds)
+      await db.users.bulkPut(data)
+    })
   })
 }
 
