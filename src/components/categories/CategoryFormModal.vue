@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import IconColorPickerModal from '../common/IconColorPickerModal.vue'
@@ -8,6 +8,7 @@ import { useCategoriesStore } from '../../stores/categories'
 import type { Category, CategoryKind } from '../../types/models'
 
 const props = defineProps<{
+  open: boolean
   category?: Category | null
   defaultKind?: CategoryKind
   defaultParentId?: string | null
@@ -18,15 +19,29 @@ const categories = useCategoriesStore()
 
 const isEdit = computed(() => !!props.category)
 
-const form = reactive({
-  name: props.category?.name ?? '',
-  kind: props.category?.kind ?? props.defaultKind ?? 'expense',
-  parentId: props.category?.parentId ?? props.defaultParentId ?? null,
-  icon: props.category?.icon ?? 'mdiShapeOutline',
-  color: props.category?.color ?? '#2a78d6',
-})
+// Rebuilt fresh on every open (not just once at setup) since this component
+// stays permanently mounted — see the `open` watch below.
+function buildForm() {
+  return {
+    name: props.category?.name ?? '',
+    kind: props.category?.kind ?? props.defaultKind ?? 'expense',
+    parentId: props.category?.parentId ?? props.defaultParentId ?? null,
+    icon: props.category?.icon ?? 'mdiShapeOutline',
+    color: props.category?.color ?? '#2a78d6',
+  }
+}
 
+const form = reactive(buildForm())
 const showIconColorPicker = ref(false)
+
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    Object.assign(form, buildForm())
+    showIconColorPicker.value = false
+  },
+)
 
 const isSubcategory = computed(() => !!form.parentId)
 
@@ -69,7 +84,7 @@ function toggleParent(id: string | null) {
 </script>
 
 <template>
-  <Modal :title="isEdit ? 'Редагувати категорію' : 'Нова категорія'" @close="emit('close')">
+  <Modal :open="open" :title="isEdit ? 'Редагувати категорію' : 'Нова категорія'" @close="emit('close')">
     <button type="button" class="preview" aria-label="Змінити значок і колір" @click="showIconColorPicker = true">
       <span class="preview-inner">
         <IconCircle :icon="form.icon" :color="form.color" :size="72" />
@@ -115,7 +130,7 @@ function toggleParent(id: string | null) {
   </Modal>
 
   <IconColorPickerModal
-    v-if="showIconColorPicker"
+    :open="showIconColorPicker"
     :icon="form.icon"
     :color="form.color"
     @update:icon="(v) => (form.icon = v)"

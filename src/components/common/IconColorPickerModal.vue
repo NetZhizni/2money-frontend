@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from './Modal.vue'
 import IconPicker from './IconPicker.vue'
 import ColorPicker from './ColorPicker.vue'
 import IconCircle from './IconCircle.vue'
 import MdiIcon from './MdiIcon.vue'
 
-const props = defineProps<{ icon: string; color: string }>()
+const props = defineProps<{ open: boolean; icon: string; color: string }>()
 const emit = defineEmits<{ close: []; 'update:icon': [string]; 'update:color': [string] }>()
 
 const tab = ref<'icon' | 'color'>('icon')
@@ -17,6 +17,19 @@ const localIcon = ref(props.icon)
 const localColor = ref(props.color)
 const changed = computed(() => localIcon.value !== props.icon || localColor.value !== props.color)
 
+// This component stays permanently mounted (nested inside the also-permanent
+// Account/CategoryFormModal) — re-stage from the current icon/color every
+// time it's (re)opened instead of only once at setup.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    localIcon.value = props.icon
+    localColor.value = props.color
+    tab.value = 'icon'
+  },
+)
+
 function confirm() {
   emit('update:icon', localIcon.value)
   emit('update:color', localColor.value)
@@ -25,7 +38,7 @@ function confirm() {
 </script>
 
 <template>
-  <Modal title="Значок і колір" @close="emit('close')">
+  <Modal :open="open" title="Значок і колір" @close="emit('close')">
     <div class="preview">
       <IconCircle :icon="localIcon" :color="localColor" :size="88" />
     </div>

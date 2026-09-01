@@ -20,6 +20,7 @@ import { TRANSFER_CATEGORY_COLOR } from '../../utils/transferAnalytics'
 import type { Transaction, TransactionType, RecurringFrequency } from '../../types/models'
 
 const props = defineProps<{
+  open: boolean
   transaction?: Transaction | null
   presetAccountId?: string
   presetCategoryId?: string
@@ -88,32 +89,49 @@ function todayDateInputValue(ts?: number): string {
 
 // A category preset (from "Додати операцію" in the category detail sheet) may
 // itself be a subcategory — resolve it to its top-level parent + sub id.
-const presetCategory = props.presetCategoryId ? categories.byId(props.presetCategoryId) : undefined
-const presetTopCategoryId = presetCategory
-  ? presetCategory.parentId ?? presetCategory.id
-  : undefined
-const presetSubcategoryId = presetCategory?.parentId ? presetCategory.id : undefined
+// Rebuilt fresh (not just once at setup) since this component stays
+// permanently mounted and reused across pages — see the `open` watch below.
+function buildForm() {
+  const presetCategory = props.presetCategoryId ? categories.byId(props.presetCategoryId) : undefined
+  const presetTopCategoryId = presetCategory ? presetCategory.parentId ?? presetCategory.id : undefined
+  const presetSubcategoryId = presetCategory?.parentId ? presetCategory.id : undefined
 
-const form = reactive({
-  type: (props.transaction?.type ?? (presetCategory?.kind === 'income' ? 'income' : 'expense')) as TransactionType,
-  accountId: props.transaction?.accountId ?? props.presetAccountId ?? accounts.active[0]?.id ?? '',
-  toAccountId: props.transaction?.toAccountId ?? '',
-  categoryId: props.transaction?.categoryId ?? presetTopCategoryId ?? '',
-  subcategoryId: props.transaction?.subcategoryId ?? presetSubcategoryId ?? '',
-  amount: props.transaction?.amount ?? undefined as number | undefined,
-  toAmount: props.transaction?.toAmount ?? undefined as number | undefined,
-  exchangeRate: props.transaction?.exchangeRate ?? 1,
-  toExchangeRate: 1,
-  date: todayDateInputValue(props.transaction?.date),
-  note: props.transaction?.note ?? '',
-  makeRecurring: false,
-  frequency: 'monthly' as RecurringFrequency,
-  interval: 1,
-  endDate: '',
-})
+  return {
+    type: (props.transaction?.type ?? (presetCategory?.kind === 'income' ? 'income' : 'expense')) as TransactionType,
+    accountId: props.transaction?.accountId ?? props.presetAccountId ?? accounts.active[0]?.id ?? '',
+    toAccountId: props.transaction?.toAccountId ?? '',
+    categoryId: props.transaction?.categoryId ?? presetTopCategoryId ?? '',
+    subcategoryId: props.transaction?.subcategoryId ?? presetSubcategoryId ?? '',
+    amount: props.transaction?.amount ?? (undefined as number | undefined),
+    toAmount: props.transaction?.toAmount ?? (undefined as number | undefined),
+    exchangeRate: props.transaction?.exchangeRate ?? 1,
+    toExchangeRate: 1,
+    date: todayDateInputValue(props.transaction?.date),
+    note: props.transaction?.note ?? '',
+    makeRecurring: false,
+    frequency: 'monthly' as RecurringFrequency,
+    interval: 1,
+    endDate: '',
+  }
+}
+
+const form = reactive(buildForm())
 
 const creditTouched = ref(false)
 const toAmountTouched = ref(false)
+
+// Reused across pages/openings (see popups store) — re-derive the form from
+// the current props every time it's (re)opened, otherwise a second open would
+// keep showing whatever the first edit left behind.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    Object.assign(form, buildForm())
+    creditTouched.value = false
+    toAmountTouched.value = false
+  },
+)
 
 const sourceAccount = computed(() => accounts.all.find((a) => a.id === form.accountId))
 const destAccount = computed(
@@ -293,7 +311,7 @@ async function handleDuplicate() {
 </script>
 
 <template>
-  <Modal :title="isForeign ? 'Переказ' : isEdit ? 'Редагувати операцію' : 'Нова операція'" @close="emit('close')" wide>
+  <Modal :open="open" :title="isForeign ? 'Переказ' : isEdit ? 'Редагувати операцію' : 'Нова операція'" @close="emit('close')" wide top>
     <div v-if="isForeign && props.transaction" class="foreign-view">
       <div class="foreign-summary">
         <IconCircle icon="mdiSwapHorizontal" :color="TRANSFER_CATEGORY_COLOR" :size="46" />

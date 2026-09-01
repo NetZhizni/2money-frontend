@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import { useCategoriesStore } from '../../stores/categories'
@@ -8,8 +8,13 @@ import { budgetProgress } from '../../utils/budget'
 import { formatMoney } from '../../utils/format'
 import type { Category } from '../../types/models'
 
+// `category` is nullable because this component stays permanently mounted
+// (see the `open` prop / popups pattern) — it's only ever null before the
+// first open, since Modal's own `v-if="open"` never renders the slot content
+// (and so never reads `category`) until a caller has set it.
 const props = defineProps<{
-  category: Category
+  open: boolean
+  category: Category | null
   totals: Record<string, number> // categoryId -> amount for the active period
   currency: string
   readonly?: boolean
@@ -26,16 +31,27 @@ const emit = defineEmits<{
 
 const categories = useCategoriesStore()
 const budgets = useBudgetsStore()
-const children = computed(() => categories.childrenOf(props.category.id, true))
-const total = computed(() => props.totals[props.category.id] ?? 0)
+const children = computed(() => (props.category ? categories.childrenOf(props.category.id, true) : []))
+const total = computed(() => (props.category ? props.totals[props.category.id] ?? 0 : 0))
 
-const existingBudget = computed(() => budgets.forCategory(props.category.id))
-const budgetInput = ref(existingBudget.value?.amount?.toString() ?? '')
-const editingBudget = ref(!existingBudget.value)
+const existingBudget = computed(() => (props.category ? budgets.forCategory(props.category.id) : undefined))
+const budgetInput = ref('')
+const editingBudget = ref(true)
+
+// Reused across categories — re-derive the budget draft every time it's reopened.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    budgetInput.value = existingBudget.value?.amount?.toString() ?? ''
+    editingBudget.value = !existingBudget.value
+  },
+)
 
 const progress = computed(() => budgetProgress(total.value, existingBudget.value?.amount))
 
 async function saveBudget() {
+  if (!props.category) return
   const amount = Number(budgetInput.value)
   if (!amount || amount <= 0) return
   if (existingBudget.value) {
@@ -55,71 +71,73 @@ async function removeBudget() {
 </script>
 
 <template>
-  <Modal title="Категорія" @close="emit('close')">
-    <div class="head">
-      <IconCircle :icon="category.icon" :color="category.color" :size="64" />
-      <div class="head-text">
-        <span class="name">{{ category.name }}</span>
-        <span class="amount" :style="{ color: category.color }">{{ formatMoney(total, currency) }}</span>
-      </div>
-    </div>
-
-    <div class="quick-actions">
-      <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', category)">+ Додати операцію</button>
-      <button class="btn btn-secondary" @click="emit('viewOperations', category)">Операції за період</button>
-    </div>
-    <button v-if="!readonly" class="btn btn-ghost edit-btn" @click="emit('edit', category)">Редагувати категорію</button>
-
-    <div v-if="category.kind === 'expense' && (existingBudget || !readonly)" class="budget-section">
-      <div class="sub-header">
-        <span>Місячний бюджет</span>
-      </div>
-      <div v-if="!editingBudget && existingBudget" class="budget-view">
-        <div class="budget-track">
-          <div
-            class="budget-fill"
-            :class="{ over: progress?.over }"
-            :style="{ width: `${progress?.pct ?? 0}%`, background: progress?.over ? 'var(--expense)' : category.color }"
-          />
+  <Modal :open="open" title="Категорія" @close="emit('close')">
+    <template v-if="category">
+      <div class="head">
+        <IconCircle :icon="category.icon" :color="category.color" :size="64" />
+        <div class="head-text">
+          <span class="name">{{ category.name }}</span>
+          <span class="amount" :style="{ color: category.color }">{{ formatMoney(total, currency) }}</span>
         </div>
-        <div class="budget-row">
-          <span :class="{ over: progress?.over }">
-            {{ formatMoney(total, currency) }} з {{ formatMoney(existingBudget.amount, currency) }}
-          </span>
-          <div v-if="!readonly" class="budget-actions">
-            <button class="link" @click="editingBudget = true">Змінити</button>
-            <button class="link danger" @click="removeBudget">Прибрати</button>
+      </div>
+
+      <div class="quick-actions">
+        <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', category)">+ Додати операцію</button>
+        <button class="btn btn-secondary" @click="emit('viewOperations', category)">Операції за період</button>
+      </div>
+      <button v-if="!readonly" class="btn btn-ghost edit-btn" @click="emit('edit', category)">Редагувати категорію</button>
+
+      <div v-if="category.kind === 'expense' && (existingBudget || !readonly)" class="budget-section">
+        <div class="sub-header">
+          <span>Місячний бюджет</span>
+        </div>
+        <div v-if="!editingBudget && existingBudget" class="budget-view">
+          <div class="budget-track">
+            <div
+              class="budget-fill"
+              :class="{ over: progress?.over }"
+              :style="{ width: `${progress?.pct ?? 0}%`, background: progress?.over ? 'var(--expense)' : category.color }"
+            />
+          </div>
+          <div class="budget-row">
+            <span :class="{ over: progress?.over }">
+              {{ formatMoney(total, currency) }} з {{ formatMoney(existingBudget.amount, currency) }}
+            </span>
+            <div v-if="!readonly" class="budget-actions">
+              <button class="link" @click="editingBudget = true">Змінити</button>
+              <button class="link danger" @click="removeBudget">Прибрати</button>
+            </div>
           </div>
         </div>
+        <div v-else-if="!readonly" class="budget-edit">
+          <input v-model="budgetInput" type="number" min="0" step="1" inputmode="numeric" :placeholder="`Сума в ${currency}`" />
+          <button class="btn btn-secondary" @click="saveBudget">Зберегти</button>
+        </div>
       </div>
-      <div v-else-if="!readonly" class="budget-edit">
-        <input v-model="budgetInput" type="number" min="0" step="1" inputmode="numeric" :placeholder="`Сума в ${currency}`" />
-        <button class="btn btn-secondary" @click="saveBudget">Зберегти</button>
-      </div>
-    </div>
 
-    <div class="sub-section">
-      <div class="sub-header">
-        <span>Підкатегорії</span>
-        <button v-if="!readonly" class="link" @click="emit('addSubcategory', category)">+ Додати</button>
+      <div class="sub-section">
+        <div class="sub-header">
+          <span>Підкатегорії</span>
+          <button v-if="!readonly" class="link" @click="emit('addSubcategory', category)">+ Додати</button>
+        </div>
+        <p v-if="!children.length" class="empty">Підкатегорій ще немає.</p>
+        <ul v-else class="sub-list">
+          <li
+            v-for="child in children"
+            :key="child.id"
+            class="sub-item"
+            :class="{ 'sub-item--static': readonly }"
+            @click="!readonly && emit('editSubcategory', child)"
+          >
+            <IconCircle :icon="child.icon" :color="child.color" :size="36" />
+            <span class="sub-name" :class="{ archived: child.archived }">{{ child.name }}</span>
+            <span class="sub-amount" :style="{ color: child.color }">
+              {{ formatMoney(totals[child.id] ?? 0, currency) }}
+            </span>
+          </li>
+        </ul>
       </div>
-      <p v-if="!children.length" class="empty">Підкатегорій ще немає.</p>
-      <ul v-else class="sub-list">
-        <li
-          v-for="child in children"
-          :key="child.id"
-          class="sub-item"
-          :class="{ 'sub-item--static': readonly }"
-          @click="!readonly && emit('editSubcategory', child)"
-        >
-          <IconCircle :icon="child.icon" :color="child.color" :size="36" />
-          <span class="sub-name" :class="{ archived: child.archived }">{{ child.name }}</span>
-          <span class="sub-amount" :style="{ color: child.color }">
-            {{ formatMoney(totals[child.id] ?? 0, currency) }}
-          </span>
-        </li>
-      </ul>
-    </div>
+    </template>
   </Modal>
 </template>
 

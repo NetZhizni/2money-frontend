@@ -8,13 +8,12 @@ import { useProfilesStore } from '../stores/profiles'
 import { useCategoriesStore } from '../stores/categories'
 import { useViewAsStore } from '../stores/viewAs'
 import { usePeriodStore } from '../stores/period'
+import { usePopupsStore } from '../stores/popups'
 import { useDisplayCurrency } from '../composables/useDisplayCurrency'
 import { useLatestRun } from '../composables/useLatestRun'
 import IconCircle from '../components/common/IconCircle.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
 import OwnerAvatar from '../components/common/OwnerAvatar.vue'
-import TransactionFormModal from '../components/transactions/TransactionFormModal.vue'
-import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import OperationsFilterModal, { type OperationsFilters } from '../components/transactions/OperationsFilterModal.vue'
 import { formatMoney, dayHeader } from '../utils/format'
 import { resolveAccountLabel } from '../utils/accountLabel'
@@ -28,6 +27,7 @@ const profiles = useProfilesStore()
 const categories = useCategoriesStore()
 const viewAs = useViewAsStore()
 const period = usePeriodStore()
+const popups = usePopupsStore()
 const displayCurrency = useDisplayCurrency()
 const route = useRoute()
 const router = useRouter()
@@ -183,9 +183,14 @@ function rowMeta(t: Transaction) {
   if (t.type === 'transfer') {
     const from = resolveAccountLabel(t.accountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
     const to = resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
+    // Shown with the source account's own icon/color, styled the same
+    // (square) way as on the Accounts tab — falls back to the generic swap
+    // icon only if the source account can no longer be resolved.
+    const fromAccount = allAccounts.byId(t.accountId)
     return {
-      icon: 'mdiSwapHorizontal',
-      color: TRANSFER_CATEGORY_COLOR,
+      icon: fromAccount?.icon ?? 'mdiSwapHorizontal',
+      color: fromAccount?.color ?? TRANSFER_CATEGORY_COLOR,
+      square: true,
       title: 'Переказ',
       subtitle: `${from} → ${to}`,
       amountClass: 'transfer',
@@ -202,6 +207,7 @@ function rowMeta(t: Transaction) {
   return {
     icon: sub?.icon ?? category?.icon ?? 'mdiHelpCircleOutline',
     color: sub?.color ?? category?.color ?? '#9a9a9e',
+    square: false,
     title,
     subtitle: account?.name ?? '',
     amountClass: t.type === 'expense' ? 'expense' : 'income',
@@ -219,27 +225,13 @@ function convertedLabel(t: Transaction): string | null {
   return `(${prefix}${formatMoney(Math.abs(displayCurrency.convert(t.baseAmount)), displayCurrency.code)})`
 }
 
-const showForm = ref(false)
-const editingTransaction = ref<Transaction | null>(null)
-const confirmDelete = ref<Transaction | null>(null)
-
 function openCreate() {
-  editingTransaction.value = null
-  showForm.value = true
+  popups.openTransactionForm({
+    presetCategoryId: filterCategoryId.value ?? undefined,
+  })
 }
 function openEdit(t: Transaction) {
-  editingTransaction.value = t
-  showForm.value = true
-}
-function handleDeleteRequest() {
-  if (!editingTransaction.value) return
-  confirmDelete.value = editingTransaction.value
-  showForm.value = false
-}
-async function handleDeleteConfirmed() {
-  if (!confirmDelete.value) return
-  await transactions.remove(confirmDelete.value.id)
-  confirmDelete.value = null
+  popups.openTransactionForm({ transaction: t })
 }
 </script>
 
@@ -251,7 +243,7 @@ async function handleDeleteConfirmed() {
       <button class="clear-filter" aria-label="Прибрати фільтр" @click="clearCategoryFilter">✕</button>
     </div>
     <div v-if="filterAccount" class="filter-chip">
-      <IconCircle :icon="filterAccount.icon" :color="filterAccount.color" :size="24" />
+      <IconCircle :icon="filterAccount.icon" :color="filterAccount.color" :size="24" square />
       <span>Рахунок: {{ filterAccount.name }}</span>
       <button class="clear-filter" aria-label="Прибрати фільтр" @click="clearAccountFilter">✕</button>
     </div>
@@ -312,7 +304,7 @@ async function handleDeleteConfirmed() {
         @click="!readOnly && openEdit(t)"
       >
         <div class="row-icon-wrap">
-          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="44" />
+          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :square="rowMeta(t).square" :size="44" />
           <span v-if="rowMeta(t).owner" class="owner-badge">
             <OwnerAvatar :profile="rowMeta(t).owner!" :size="18" />
           </span>
@@ -352,28 +344,8 @@ async function handleDeleteConfirmed() {
     </button>
   </Teleport>
 
-  <TransactionFormModal
-    v-if="showForm"
-    :transaction="editingTransaction"
-    :preset-category-id="!editingTransaction && filterCategoryId ? filterCategoryId : undefined"
-    @close="showForm = false"
-    @saved="showForm = false"
-    @duplicated="showForm = false"
-    @deleted="handleDeleteRequest"
-  />
-
-  <ConfirmDialog
-    v-if="confirmDelete"
-    title="Видалити операцію?"
-    message="Цю операцію буде видалено безповоротно."
-    confirm-label="Видалити"
-    danger
-    @close="confirmDelete = null"
-    @confirm="handleDeleteConfirmed"
-  />
-
   <OperationsFilterModal
-    v-if="showFilterModal"
+    :open="showFilterModal"
     v-model="filters"
     @close="showFilterModal = false"
   />
@@ -429,7 +401,8 @@ async function handleDeleteConfirmed() {
 }
 
 .balance-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   background: var(--surface);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -438,7 +411,6 @@ async function handleDeleteConfirmed() {
 }
 
 .balance-bar .cell {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -481,14 +453,14 @@ async function handleDeleteConfirmed() {
 }
 
 .day-heading {
-  display: flex;
+  display: grid;
+  grid-template-columns: 30px 1fr auto;
   align-items: center;
   gap: 10px;
   padding: 14px 4px 8px;
 }
 
 .day-num-col {
-  width: 30px;
   text-align: center;
 }
 
@@ -501,7 +473,7 @@ async function handleDeleteConfirmed() {
 .day-label-col {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  min-width: 0;
 }
 
 .weekday {

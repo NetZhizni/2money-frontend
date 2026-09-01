@@ -55,11 +55,11 @@ function onPointerUp() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: 110px;
+  width: 90px;
   gap: 6px;
   background: transparent;
   border: none;
-  padding: 6px 2px;
+  padding: 2px;
   cursor: pointer;
   text-align: center;
 }

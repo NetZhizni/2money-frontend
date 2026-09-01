@@ -1,19 +1,20 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import OwnerAvatar from '../common/OwnerAvatar.vue'
-import TransactionFormModal from '../transactions/TransactionFormModal.vue'
 import { useTransactionsStore } from '../../stores/transactions'
 import { useAllAccountsStore } from '../../stores/allAccounts'
 import { useProfilesStore } from '../../stores/profiles'
 import { useCategoriesStore } from '../../stores/categories'
 import { useViewAsStore } from '../../stores/viewAs'
+import { usePopupsStore } from '../../stores/popups'
 import { formatMoney, fullDateLabel } from '../../utils/format'
 import { resolveAccountLabel } from '../../utils/accountLabel'
 import { TRANSFER_CATEGORY_COLOR } from '../../utils/transferAnalytics'
 import type { Profile, Transaction } from '../../types/models'
 
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const transactions = useTransactionsStore()
@@ -21,17 +22,31 @@ const allAccounts = useAllAccountsStore()
 const profiles = useProfilesStore()
 const categories = useCategoriesStore()
 const viewAs = useViewAsStore()
+const popups = usePopupsStore()
 const readOnly = computed(() => viewAs.isReadOnly)
 
 const query = ref('')
+
+// Stays permanently mounted — always starts from an empty search on reopen.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) query.value = ''
+  },
+)
 
 function rowMeta(t: Transaction) {
   if (t.type === 'transfer') {
     const from = resolveAccountLabel(t.accountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
     const to = resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all)
+    // Shown with the source account's own icon/color, styled the same
+    // (square) way as on the Accounts tab — falls back to the generic swap
+    // icon only if the source account can no longer be resolved.
+    const fromAccount = allAccounts.byId(t.accountId)
     return {
-      icon: 'mdiSwapHorizontal',
-      color: TRANSFER_CATEGORY_COLOR,
+      icon: fromAccount?.icon ?? 'mdiSwapHorizontal',
+      color: fromAccount?.color ?? TRANSFER_CATEGORY_COLOR,
+      square: true,
       title: 'Переказ',
       subtitle: `${from} → ${to}`,
       amountClass: 'transfer',
@@ -49,6 +64,7 @@ function rowMeta(t: Transaction) {
   return {
     icon: sub?.icon ?? category?.icon ?? 'mdiHelpCircleOutline',
     color: sub?.color ?? category?.color ?? '#9a9a9e',
+    square: false,
     title,
     subtitle: account?.name ?? '',
     amountClass: t.type === 'expense' ? 'expense' : 'income',
@@ -72,19 +88,13 @@ const results = computed(() => {
     .slice(0, 60)
 })
 
-const editingTransaction = ref<Transaction | null>(null)
 function openResult(t: Transaction) {
-  editingTransaction.value = t
-}
-async function handleDeleted() {
-  if (!editingTransaction.value) return
-  await transactions.remove(editingTransaction.value.id)
-  editingTransaction.value = null
+  popups.openTransactionForm({ transaction: t })
 }
 </script>
 
 <template>
-  <Modal title="Пошук операцій" @close="emit('close')">
+  <Modal :open="open" title="Пошук операцій" @close="emit('close')">
     <input
       v-model="query"
       type="text"
@@ -107,7 +117,7 @@ async function handleDeleted() {
         @click="!readOnly && openResult(t)"
       >
         <div class="row-icon-wrap">
-          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :size="40" />
+          <IconCircle :icon="rowMeta(t).icon" :color="rowMeta(t).color" :square="rowMeta(t).square" :size="40" />
           <span v-if="rowMeta(t).owner" class="owner-badge">
             <OwnerAvatar :profile="rowMeta(t).owner!" :size="16" />
           </span>
@@ -122,15 +132,6 @@ async function handleDeleted() {
       </button>
     </div>
   </Modal>
-
-  <TransactionFormModal
-    v-if="editingTransaction"
-    :transaction="editingTransaction"
-    @close="editingTransaction = null"
-    @saved="editingTransaction = null"
-    @duplicated="editingTransaction = null"
-    @deleted="handleDeleted"
-  />
 </template>
 
 <style scoped>

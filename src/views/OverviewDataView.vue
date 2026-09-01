@@ -314,12 +314,12 @@ const expenseRanking = computed(() => {
 
 <style scoped>
 .top-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
 
 .stat-tile {
-  flex: 1;
   border-radius: var(--radius-md);
   padding: 14px 16px;
   display: flex;
@@ -358,9 +358,9 @@ const expenseRanking = computed(() => {
 }
 
 .balance-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   background: var(--surface);
   border-radius: var(--radius-md);
@@ -407,7 +407,6 @@ const expenseRanking = computed(() => {
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  flex-shrink: 0;
 }
 
 .savings-ring {
@@ -458,12 +457,12 @@ const expenseRanking = computed(() => {
 }
 
 .avg-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 8px;
 }
 
 .avg-tile {
-  flex: 1;
   background: var(--surface);
   border-radius: var(--radius-md);
   padding: 10px 12px;

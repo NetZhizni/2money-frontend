@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import { useDisplayCurrencyStore } from '../../stores/displayCurrency'
@@ -10,9 +10,18 @@ import { COMMON_CURRENCIES } from '../../utils/currencies'
 const display = useDisplayCurrencyStore()
 const settings = useSettingsStore()
 const favorites = useFavoriteCurrenciesStore()
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const query = ref('')
+
+// Stays permanently mounted — always starts from an empty search on reopen.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) query.value = ''
+  },
+)
 
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
@@ -32,7 +41,7 @@ function choose(code: string) {
 </script>
 
 <template>
-  <Modal title="Показувати суми в…" @close="emit('close')">
+  <Modal :open="open" title="Показувати суми в…" @close="emit('close')">
     <input v-model="query" type="text" placeholder="Пошук валюти…" class="search" />
 
     <template v-if="favoriteList.length">

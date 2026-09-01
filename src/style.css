@@ -24,7 +24,11 @@
   --radius-lg: 22px;
   --radius-pill: 999px;
 
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -101,6 +105,28 @@ textarea {
   font-family: inherit;
 }
 
+/* ---------- Themed scrollbar (matches the dark/light palette instead of
+   the browser's default wide native bar) ---------- */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  border-radius: var(--radius-pill);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
 .scrollbar-none {
   scrollbar-width: none;
 }
@@ -118,7 +144,9 @@ textarea {
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.1s ease;
 }
 .btn:active {
   transform: scale(0.98);
@@ -215,7 +243,9 @@ textarea {
 }
 
 .segmented button {
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 
 /* ---------- Generic tap feedback for interactive list/tile rows (used across many SFCs) ---------- */
@@ -230,4 +260,41 @@ textarea {
 .card-main:active,
 .rank-row:active {
   transform: scale(0.97);
+}
+
+.view {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: 1fr;
+  justify-items: center;
+
+  gap: 6px;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.view-scroll {
+  display: grid;
+  grid-template-rows: 1fr;
+  grid-template-columns: 1fr;
+  width: 100%;
+  justify-items: center;
+
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  padding-bottom: 90px;
+  gap: 12px;
+
+  padding: 8px 16px 0;
+}
+
+.view-scroll-content {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  max-width: 600px;
+  width: 100%;
 }

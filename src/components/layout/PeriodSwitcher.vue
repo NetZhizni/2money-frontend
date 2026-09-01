@@ -56,7 +56,7 @@ const periodLabel = computed(() => {
       <span>{{ periodLabel }}</span>
       <MdiIcon name="mdiChevronDown" :size="16" />
     </button>
-    <PeriodPickerPopover v-if="showPeriodPicker" @close="showPeriodPicker = false" />
+    <PeriodPickerPopover :open="showPeriodPicker" @close="showPeriodPicker = false" />
 
     <button
       v-if="period.granularity !== 'all'"
@@ -75,7 +75,6 @@ const periodLabel = computed(() => {
   align-items: center;
   justify-content: center;
   gap: 24px;
-  padding: 4px 0 14px;
   flex-shrink: 0;
   background: var(--page-bg);
 }

@@ -3,6 +3,7 @@ import Modal from './Modal.vue'
 
 withDefaults(
   defineProps<{
+    open: boolean
     title: string
     message: string
     confirmLabel?: string
@@ -14,7 +15,7 @@ const emit = defineEmits<{ confirm: []; close: [] }>()
 </script>
 
 <template>
-  <Modal :title="title" @close="emit('close')">
+  <Modal :open="open" :title="title" top @close="emit('close')">
     <p class="message">{{ message }}</p>
     <div class="actions">
       <button class="btn btn-ghost" @click="emit('close')">Скасувати</button>

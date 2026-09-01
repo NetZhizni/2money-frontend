@@ -9,15 +9,16 @@ import { useCategoriesStore } from '../../stores/categories'
 import { useTransactionsStore } from '../../stores/transactions'
 import { useAuthStore } from '../../stores/auth'
 import { useViewAsStore } from '../../stores/viewAs'
+import { usePopupsStore } from '../../stores/popups'
 import { COMMON_CURRENCIES } from '../../utils/currencies'
 import { exportData, downloadBackup, importData } from '../../db/backup'
 import { downloadTransactionsCsv } from '../../db/csvExport'
 import { loadDemoData } from '../../db/demoData'
 import { resetAllData } from '../../db/reset'
 import { formatMoney } from '../../utils/format'
-import ConfirmDialog from '../common/ConfirmDialog.vue'
 import { forceCheckForUpdate } from '../../pwa/updateService'
 
+defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const settings = useSettingsStore()
@@ -27,6 +28,7 @@ const categories = useCategoriesStore()
 const transactions = useTransactionsStore()
 const authStore = useAuthStore()
 const viewAs = useViewAsStore()
+const popups = usePopupsStore()
 
 // Демо-дані/резервна копія/скидання read straight off the shared
 // accounts/categories/transactions/budgets stores, which "Переглянути як"
@@ -78,18 +80,25 @@ async function handleLoadDemo() {
   }
 }
 
-const showResetConfirm = ref(false)
 const resetLoading = ref(false)
 
-async function handleResetConfirmed() {
-  resetLoading.value = true
-  try {
-    await resetAllData()
-    status.value = 'Усі дані видалено.'
-  } finally {
-    resetLoading.value = false
-    showResetConfirm.value = false
-  }
+function openResetConfirm() {
+  popups.confirmDialog({
+    title: 'Скинути всі дані?',
+    message: 'Усі рахунки, операції та повторювані операції буде видалено безповоротно. Категорії та налаштування залишаться.',
+    confirmLabel: 'Скинути',
+    danger: true,
+    onConfirm: async () => {
+      resetLoading.value = true
+      try {
+        await resetAllData()
+        status.value = 'Усі дані видалено.'
+      } finally {
+        resetLoading.value = false
+        popups.closeConfirm()
+      }
+    },
+  })
 }
 
 async function handleExport() {
@@ -151,7 +160,7 @@ async function handleSignOut() {
 </script>
 
 <template>
-  <Modal title="Налаштування" wide @close="emit('close')">
+  <Modal :open="open" title="Налаштування" wide @close="emit('close')">
     <div class="field profile-field" v-if="authStore.profile">
       <div class="profile-row">
         <img v-if="authStore.profile.photoURL" :src="authStore.profile.photoURL" class="avatar" alt="" />
@@ -254,20 +263,10 @@ async function handleSignOut() {
           Видаляє всі ваші рахунки, операції та повторювані операції. Категорії та налаштування
           залишаються. Дію не можна скасувати.
         </p>
-        <button class="btn btn-danger reset-btn" @click="showResetConfirm = true">Скинути всі дані</button>
+        <button class="btn btn-danger reset-btn" @click="openResetConfirm">Скинути всі дані</button>
       </template>
     </div>
   </Modal>
-
-  <ConfirmDialog
-    v-if="showResetConfirm"
-    title="Скинути всі дані?"
-    message="Усі рахунки, операції та повторювані операції буде видалено безповоротно. Категорії та налаштування залишаться."
-    confirm-label="Скинути"
-    danger
-    @close="showResetConfirm = false"
-    @confirm="handleResetConfirmed"
-  />
 </template>
 
 <style scoped>

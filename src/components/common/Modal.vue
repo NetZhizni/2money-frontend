@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-const props = withDefaults(defineProps<{ title?: string; wide?: boolean; width?: number }>(), {})
+const props = withDefaults(
+  defineProps<{ open: boolean; title?: string; wide?: boolean; width?: number; top?: boolean }>(),
+  {},
+)
 const emit = defineEmits<{ close: [] }>()
 
 // Swipe-down-to-dismiss on mobile — grabbable from the handle or the header,
@@ -31,14 +34,14 @@ function onTouchEnd() {
   dragOffset.value = 0
 }
 
-// Closing plays a leave transition before the parent actually unmounts this
-// component (via the `close` emit) — without this intermediate state the
-// modal just vanished instantly on close while it nicely animated in on open.
-const closing = ref(false)
+// Visibility is fully owned by the caller via `open` — this component is
+// meant to stay permanently mounted (see the popups store and its call
+// sites), with only this backdrop's `v-if` toggling inside `<Transition>`.
+// That's what makes the enter/leave animation play reliably: toggling a
+// `v-if` at the *call site* instead would unmount this whole component (and
+// its Teleported content) synchronously, skipping the leave transition
+// entirely rather than playing it.
 function requestClose() {
-  closing.value = true
-}
-function afterLeave() {
   emit('close')
 }
 
@@ -54,8 +57,8 @@ const sheetStyle = computed(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="modal" appear @after-leave="afterLeave">
-      <div v-if="!closing" class="backdrop" @mousedown.self="requestClose">
+    <Transition name="modal">
+      <div v-if="open" class="backdrop" :class="{ top }" @mousedown.self="requestClose">
         <div
           class="sheet"
           :class="{ wide, dragging }"
@@ -103,6 +106,16 @@ const sheetStyle = computed(() => {
   transition: opacity 0.2s ease-in-out;
 }
 
+/* `top` is for popups mounted once in App.vue (the confirm dialog, the
+   transaction form) that can be opened *while another page-local Modal is
+   still open* (e.g. "delete?" over Settings, or the transaction form over
+   Search) — both backdrops share this component's default z-index, so
+   without this the one that stacks on top would depend on unpredictable
+   Teleport ordering instead of always winning. */
+.backdrop.top {
+  z-index: 200;
+}
+
 @media (min-width: 640px) {
   .backdrop {
     align-items: center;
@@ -126,8 +139,8 @@ const sheetStyle = computed(() => {
   width: 100%;
   max-width: 480px;
   max-height: 88vh;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
   overflow: hidden;
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   box-shadow: var(--shadow-md);
@@ -160,7 +173,7 @@ const sheetStyle = computed(() => {
 }
 
 .grabber {
-  flex-shrink: 0;
+  grid-row: 1;
   width: 36px;
   height: 4px;
   background: var(--border);
@@ -170,7 +183,7 @@ const sheetStyle = computed(() => {
 }
 
 .sheet-header {
-  flex-shrink: 0;
+  grid-row: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -181,7 +194,8 @@ const sheetStyle = computed(() => {
 }
 
 .sheet-body {
-  flex: 1 1 auto;
+  grid-row: 3;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   /* Per spec, a non-'visible' overflow-y forces overflow-x to 'auto' too,

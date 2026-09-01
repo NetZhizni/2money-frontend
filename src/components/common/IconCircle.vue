@@ -9,6 +9,7 @@ const props = withDefaults(
     color: string
     size?: number
     muted?: boolean // greys out when the category/account has no activity yet
+    square?: boolean // squared, rounded-corner shape (accounts) instead of the default circle (categories)
   }>(),
   { size: 56 },
 )
@@ -19,7 +20,11 @@ const iconSize = computed(() => Math.round(props.size * 0.46))
 </script>
 
 <template>
-  <div class="icon-circle" :style="{ width: `${size}px`, height: `${size}px`, background: bg }">
+  <div
+    class="icon-circle"
+    :class="{ square }"
+    :style="{ width: `${size}px`, height: `${size}px`, background: bg }"
+  >
     <MdiIcon :name="icon" :size="iconSize" :color="iconColor" />
   </div>
 </template>
@@ -31,5 +36,9 @@ const iconSize = computed(() => Math.round(props.size * 0.46))
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+}
+
+.icon-circle.square {
+  border-radius: 8px;
 }
 </style>

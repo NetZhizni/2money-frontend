@@ -84,10 +84,10 @@ const viewingLabel = computed(() => {
     </button>
   </header>
 
-  <CurrencyPickerModal v-if="showCurrencyPicker" @close="showCurrencyPicker = false" />
-  <SearchModal v-if="showSearch" @close="showSearch = false" />
-  <SettingsModal v-if="showSettings" @close="showSettings = false" />
-  <UserSwitcherModal v-if="showUserSwitcher" @close="showUserSwitcher = false" />
+  <CurrencyPickerModal :open="showCurrencyPicker" @close="showCurrencyPicker = false" />
+  <SearchModal :open="showSearch" @close="showSearch = false" />
+  <SettingsModal :open="showSettings" @close="showSettings = false" />
+  <UserSwitcherModal :open="showUserSwitcher" @close="showUserSwitcher = false" />
 </template>
 
 <style scoped>

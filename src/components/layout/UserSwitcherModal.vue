@@ -16,6 +16,7 @@ import { useCountUp } from '../../composables/useCountUp'
 import { formatMoney } from '../../utils/format'
 import type { Account, Profile, Transaction } from '../../types/models'
 
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const authStore = useAuthStore()
@@ -83,6 +84,18 @@ onUnmounted(() => {
   subTransactions?.unsubscribe()
 })
 
+// This component now stays permanently mounted (see the `open` prop), so the
+// mount-time pull above only ever runs once — re-pull on every open too, to
+// keep showing each open with as fresh a sync as before.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    void pullAllAccounts()
+    void pullAllTransactions()
+  },
+)
+
 const totalsByUid = ref(new Map<string, number>())
 const grandTotal = ref(0)
 const computing = ref(false)
@@ -146,7 +159,7 @@ function sharePct(uid: string): number {
 </script>
 
 <template>
-  <Modal title="Переглянути як" @close="emit('close')">
+  <Modal :open="open" title="Переглянути як" @close="emit('close')">
     <p class="hint">
       Оберіть користувача, щоб переглянути Рахунки, Категорії, Операції та Огляд від його імені (лише для читання),
       або «Всі», щоб побачити дані родини разом.

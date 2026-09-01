@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import { useAccountsStore } from '../../stores/accounts'
@@ -16,12 +16,21 @@ export interface OperationsFilters {
   dateTo: string
 }
 
-const props = defineProps<{ modelValue: OperationsFilters }>()
+const props = defineProps<{ open: boolean; modelValue: OperationsFilters }>()
 const emit = defineEmits<{ 'update:modelValue': [OperationsFilters]; close: [] }>()
 
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const form = reactive<OperationsFilters>({ ...props.modelValue })
+
+// Stays permanently mounted — re-stage the draft from the committed filters
+// every time it's reopened, so a dismissed-without-applying edit never lingers.
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) Object.assign(form, props.modelValue)
+  },
+)
 
 const TYPE_OPTIONS: Array<{ value: TransactionType; label: string }> = [
   { value: 'expense', label: 'Витрата' },
@@ -69,7 +78,7 @@ function resetAll() {
 </script>
 
 <template>
-  <Modal title="Фільтри операцій" @close="emit('close')">
+  <Modal :open="open" title="Фільтри операцій" @close="emit('close')">
     <div class="field">
       <label>Рахунки</label>
       <div class="chip-grid">
@@ -80,7 +89,7 @@ function resetAll() {
           :class="{ selected: form.accountIds.includes(a.id) }"
           @click="toggleAccount(a.id)"
         >
-          <IconCircle :icon="a.icon" :color="a.color" :size="28" />
+          <IconCircle :icon="a.icon" :color="a.color" :size="28" square />
           <span>{{ a.name }}</span>
         </button>
       </div>

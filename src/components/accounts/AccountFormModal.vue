@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import IconColorPickerModal from '../common/IconColorPickerModal.vue'
@@ -8,26 +8,39 @@ import { COMMON_CURRENCIES } from '../../utils/currencies'
 import { ACCOUNT_TYPE_OPTIONS, ACCOUNT_TYPE_DEFAULTS, LOAN_DIRECTION_OPTIONS } from '../../utils/accountTypes'
 import type { Account, AccountType, LoanDirection } from '../../types/models'
 
-const props = defineProps<{ account?: Account | null; defaultType?: AccountType }>()
+const props = defineProps<{ open: boolean; account?: Account | null; defaultType?: AccountType }>()
 const emit = defineEmits<{ close: []; save: [Partial<Account>]; deleted: []; archived: [] }>()
 
 const isEdit = computed(() => !!props.account)
 
-const initialType = props.account?.type ?? props.defaultType ?? ('regular' as AccountType)
+// Rebuilt fresh on every open (not just once at setup) since this component
+// stays permanently mounted — see the `open` watch below.
+function buildForm() {
+  const initialType = props.account?.type ?? props.defaultType ?? ('regular' as AccountType)
+  return {
+    name: props.account?.name ?? '',
+    type: initialType,
+    loanDirection: props.account?.loanDirection ?? ('lent' as LoanDirection),
+    currency: props.account?.currency ?? 'UAH',
+    initialBalance: props.account?.initialBalance ?? 0,
+    includeInTotal: props.account?.includeInTotal ?? true,
+    icon: props.account?.icon ?? ACCOUNT_TYPE_DEFAULTS[initialType].icon,
+    color: props.account?.color ?? ACCOUNT_TYPE_DEFAULTS[initialType].color,
+    note: props.account?.note ?? '',
+  }
+}
 
-const form = reactive({
-  name: props.account?.name ?? '',
-  type: initialType,
-  loanDirection: props.account?.loanDirection ?? ('lent' as LoanDirection),
-  currency: props.account?.currency ?? 'UAH',
-  initialBalance: props.account?.initialBalance ?? 0,
-  includeInTotal: props.account?.includeInTotal ?? true,
-  icon: props.account?.icon ?? ACCOUNT_TYPE_DEFAULTS[initialType].icon,
-  color: props.account?.color ?? ACCOUNT_TYPE_DEFAULTS[initialType].color,
-  note: props.account?.note ?? '',
-})
-
+const form = reactive(buildForm())
 const showIconColorPicker = ref(false)
+
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    Object.assign(form, buildForm())
+    showIconColorPicker.value = false
+  },
+)
 
 function selectType(type: AccountType) {
   form.type = type
@@ -56,10 +69,10 @@ function submit() {
 </script>
 
 <template>
-  <Modal :title="isEdit ? 'Редагувати рахунок' : 'Новий рахунок'" @close="emit('close')">
+  <Modal :open="open" :title="isEdit ? 'Редагувати рахунок' : 'Новий рахунок'" @close="emit('close')">
     <button type="button" class="preview" aria-label="Змінити значок і колір" @click="showIconColorPicker = true">
       <span class="preview-inner">
-        <IconCircle :icon="form.icon" :color="form.color" :size="72" />
+        <IconCircle :icon="form.icon" :color="form.color" :size="72" square />
         <span class="preview-edit-badge">
           <MdiIcon name="mdiPencilOutline" :size="14" color="var(--surface)" />
         </span>
@@ -138,7 +151,7 @@ function submit() {
   </Modal>
 
   <IconColorPickerModal
-    v-if="showIconColorPicker"
+    :open="showIconColorPicker"
     :icon="form.icon"
     :color="form.color"
     @update:icon="(v) => (form.icon = v)"

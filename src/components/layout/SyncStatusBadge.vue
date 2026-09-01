@@ -2,13 +2,14 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import Modal from '../common/Modal.vue'
-import ConfirmDialog from '../common/ConfirmDialog.vue'
 import { backendOnline, lastSyncedAt, pendingCount } from '../../db/syncStatus'
 import { resyncFromServer } from '../../db/sync'
 import { useAuthStore } from '../../stores/auth'
+import { usePopupsStore } from '../../stores/popups'
 import { relativeTimeUk } from '../../utils/format'
 
 const authStore = useAuthStore()
+const popups = usePopupsStore()
 const showDetails = ref(false)
 
 // Ticks while the badge is on screen so "N хв тому" doesn't go stale without a re-render.
@@ -32,22 +33,30 @@ const pendingLabel = computed(() => {
   return `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'запис' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'записи' : 'записів'}`
 })
 
-const showResyncConfirm = ref(false)
 const resyncing = ref(false)
 const resyncStatus = ref('')
 
-async function handleResyncConfirmed() {
-  resyncing.value = true
-  resyncStatus.value = ''
-  try {
-    await resyncFromServer(authStore.uid)
-    resyncStatus.value = 'Локальні дані оновлено із сервера.'
-  } catch (error) {
-    resyncStatus.value = (error as Error).message || 'Не вдалося оновити дані.'
-  } finally {
-    resyncing.value = false
-    showResyncConfirm.value = false
-  }
+function openResyncConfirm() {
+  popups.confirmDialog({
+    title: 'Оновити дані із сервера?',
+    message:
+      'Дані на цьому пристрої буде видалено і завантажено заново із сервера. Незбережені локальні зміни, якщо є, спершу буде надіслано на сервер; ті, що надіслати не вдасться, буде втрачено.',
+    confirmLabel: 'Оновити',
+    danger: true,
+    onConfirm: async () => {
+      resyncing.value = true
+      resyncStatus.value = ''
+      try {
+        await resyncFromServer(authStore.uid)
+        resyncStatus.value = 'Локальні дані оновлено із сервера.'
+      } catch (error) {
+        resyncStatus.value = (error as Error).message || 'Не вдалося оновити дані.'
+      } finally {
+        resyncing.value = false
+        popups.closeConfirm()
+      }
+    },
+  })
 }
 </script>
 
@@ -66,7 +75,7 @@ async function handleResyncConfirmed() {
       <span v-if="pendingCount > 0" class="pending-dot">{{ pendingCount > 9 ? '9+' : pendingCount }}</span>
     </button>
 
-    <Modal v-if="showDetails" title="Синхронізація" @close="showDetails = false">
+    <Modal :open="showDetails" title="Синхронізація" @close="showDetails = false">
       <div class="status-row">
         <span class="dot" :class="backendOnline ? 'online' : 'offline'" />
         <span>{{ backendOnline ? 'Сервер онлайн' : 'Немає зв’язку з сервером' }}</span>
@@ -85,7 +94,7 @@ async function handleResyncConfirmed() {
         <button
           class="btn btn-danger resync-btn"
           :disabled="resyncing || !backendOnline"
-          @click="showResyncConfirm = true"
+          @click="openResyncConfirm"
         >
           {{ resyncing ? 'Оновлення…' : 'Оновити дані із сервера' }}
         </button>
@@ -96,16 +105,6 @@ async function handleResyncConfirmed() {
       </div>
     </Modal>
   </div>
-
-  <ConfirmDialog
-    v-if="showResyncConfirm"
-    title="Оновити дані із сервера?"
-    message="Дані на цьому пристрої буде видалено і завантажено заново із сервера. Незбережені локальні зміни, якщо є, спершу буде надіслано на сервер; ті, що надіслати не вдасться, буде втрачено."
-    confirm-label="Оновити"
-    danger
-    @close="showResyncConfirm = false"
-    @confirm="handleResyncConfirmed"
-  />
 </template>
 
 <style scoped>

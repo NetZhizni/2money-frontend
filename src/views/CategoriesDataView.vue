@@ -8,13 +8,12 @@ import { useBudgetsStore } from '../stores/budgets'
 import { usePeriodStore } from '../stores/period'
 import { useSettingsStore } from '../stores/settings'
 import { useViewAsStore } from '../stores/viewAs'
+import { usePopupsStore } from '../stores/popups'
 import { useDisplayCurrency } from '../composables/useDisplayCurrency'
 import SpendingRing from '../components/categories/SpendingRing.vue'
 import CategoryTile from '../components/categories/CategoryTile.vue'
 import CategoryFormModal from '../components/categories/CategoryFormModal.vue'
 import CategoryDetailModal from '../components/categories/CategoryDetailModal.vue'
-import TransactionFormModal from '../components/transactions/TransactionFormModal.vue'
-import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
 import { isCrossProfileTransfer, TRANSFER_CATEGORY_LABEL, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
 import { budgetProgress, type BudgetProgress } from '../utils/budget'
@@ -28,6 +27,7 @@ const budgets = useBudgetsStore()
 const period = usePeriodStore()
 const settings = useSettingsStore()
 const viewAs = useViewAsStore()
+const popups = usePopupsStore()
 const router = useRouter()
 const displayCurrency = useDisplayCurrency()
 const readOnly = computed(() => viewAs.isReadOnly)
@@ -145,6 +145,14 @@ const ringSegments = computed(() => {
 
 const visibleTop = computed(() => categories.topLevel(kind.value))
 
+// Archived top-level categories, shown collapsed below the active grid so
+// they stay reachable (to unarchive or inspect past spend) without cluttering
+// the main list — same pattern as AccountsView's "Архівовані рахунки".
+const showArchived = ref(false)
+const archivedTop = computed(() =>
+  categories.topLevel(kind.value, true).filter((c) => c.archived),
+)
+
 // Snapshots every tile's rect right before Vue touches the DOM, so
 // pinLeavingRect (see listTransition.ts) has a pre-removal rect to pin a
 // leaving tile to even when several tiles leave in the same patch (e.g.
@@ -164,7 +172,6 @@ const showForm = ref(false)
 const formCategory = ref<Category | null>(null)
 const formDefaultParent = ref<string | null>(null)
 const detailCategory = ref<Category | null>(null)
-const confirmDelete = ref<Category | null>(null)
 
 function openCreate() {
   formCategory.value = null
@@ -216,20 +223,21 @@ async function handleArchive() {
 }
 
 function handleDeleteRequest() {
-  if (!formCategory.value) return
-  confirmDelete.value = formCategory.value
+  const category = formCategory.value
+  if (!category) return
   showForm.value = false
+  popups.confirmDialog({
+    title: 'Видалити категорію?',
+    message: `Категорію «${category.name}» та ВСІ пов'язані з нею операції (і підкатегорій) буде видалено безповоротно.`,
+    confirmLabel: 'Видалити',
+    danger: true,
+    onConfirm: async () => {
+      await categories.remove(category.id)
+      await transactions.load()
+      popups.closeConfirm()
+    },
+  })
 }
-
-async function handleDeleteConfirmed() {
-  if (!confirmDelete.value) return
-  await categories.remove(confirmDelete.value.id)
-  await transactions.load()
-  confirmDelete.value = null
-}
-
-const showTxForm = ref(false)
-const txPresetCategoryId = ref<string | undefined>(undefined)
 
 function openOperationsFiltered(category: Category) {
   detailCategory.value = null
@@ -238,8 +246,7 @@ function openOperationsFiltered(category: Category) {
 
 function openAddOperation(category: Category) {
   detailCategory.value = null
-  txPresetCategoryId.value = category.id
-  showTxForm.value = true
+  popups.openTransactionForm({ presetCategoryId: category.id })
 }
 </script>
 
@@ -282,6 +289,27 @@ function openAddOperation(category: Category) {
     />
   </TransitionGroup>
 
+  <div v-if="archivedTop.length" class="archived-section">
+    <button class="archived-toggle" @click="showArchived = !showArchived">
+      <MdiIcon :name="showArchived ? 'mdiChevronUp' : 'mdiChevronDown'" :size="18" />
+      Архівовані категорії ({{ archivedTop.length }})
+    </button>
+    <div v-if="showArchived" class="grid">
+      <CategoryTile
+        v-for="c in archivedTop"
+        :key="c.id"
+        :name="c.name"
+        :icon="c.icon"
+        :color="c.color"
+        :amount="displayRolledTotals[c.id] ?? 0"
+        :currency="displayCurrency.code"
+        :budget="budgetProgressByCategory[c.id] ?? null"
+        :budget-label="budgetLabel(c.id)"
+        @click="openDetail(c)"
+      />
+    </div>
+  </div>
+
   <!-- Teleported to <body>: position:fixed only escapes the page-transition's
        transform (App.vue animates route roots with `transform`) if the fab
        isn't a descendant of the transformed element — otherwise that
@@ -295,7 +323,7 @@ function openAddOperation(category: Category) {
   </Teleport>
 
   <CategoryFormModal
-    v-if="showForm"
+    :open="showForm"
     :category="formCategory"
     :default-kind="kind"
     :default-parent-id="formDefaultParent"
@@ -306,7 +334,7 @@ function openAddOperation(category: Category) {
   />
 
   <CategoryDetailModal
-    v-if="detailCategory"
+    :open="!!detailCategory"
     :category="detailCategory"
     :totals="rolledTotals"
     :currency="settings.baseCurrency"
@@ -317,24 +345,6 @@ function openAddOperation(category: Category) {
     @editSubcategory="openEditFromDetail"
     @view-operations="openOperationsFiltered"
     @add-operation="openAddOperation"
-  />
-
-  <TransactionFormModal
-    v-if="showTxForm"
-    :preset-category-id="txPresetCategoryId"
-    @close="showTxForm = false"
-    @saved="showTxForm = false"
-    @deleted="showTxForm = false"
-  />
-
-  <ConfirmDialog
-    v-if="confirmDelete"
-    title="Видалити категорію?"
-    :message="`Категорію «${confirmDelete.name}» та ВСІ пов'язані з нею операції (і підкатегорій) буде видалено безповоротно.`"
-    confirm-label="Видалити"
-    danger
-    @close="confirmDelete = null"
-    @confirm="handleDeleteConfirmed"
   />
 </template>
 
@@ -347,9 +357,12 @@ function openAddOperation(category: Category) {
 .grid {
   position: relative;
   display: grid;
-  grid-template-columns: repeat(auto-fill, 110px);
-  justify-content: space-between;
-  gap: 14px 4px;
+  grid-template-columns: repeat(auto-fill, 85px);
+  justify-content: space-around;
+  justify-items: center;
+  align-items: center;
+  align-content: center;
+  gap: 14px 3px;
 }
 
 .tile-move,
@@ -366,6 +379,23 @@ function openAddOperation(category: Category) {
   /* position/size are pinned inline by pinLeavingRect() before this class
      applies — see @before-leave on the TransitionGroup above. */
   position: absolute;
+}
+
+.archived-section {
+  margin-top: 24px;
+}
+
+.archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 4px;
 }
 
 .fab {

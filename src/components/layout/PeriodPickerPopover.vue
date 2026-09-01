@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { usePeriodStore, type PeriodGranularity } from '../../stores/period'
 import { dateKey, MONTHS_UK_SHORT } from '../../utils/format'
 import Modal from '../common/Modal.vue'
 
 const period = usePeriodStore()
+const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const pickYear = ref(period.year)
 const pickDate = ref(dateKey(period.anchor))
+
+// Stays permanently mounted — re-sync the local pickers from the store every
+// time it's reopened (not just once at setup).
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (!isOpen) return
+    pickYear.value = period.year
+    pickDate.value = dateKey(period.anchor)
+  },
+)
 
 const today = new Date()
 const currentYear = today.getFullYear()
@@ -72,7 +84,7 @@ const yearGrid = computed(() => {
 </script>
 
 <template>
-  <Modal title="Період" @close="emit('close')">
+  <Modal :open="open" title="Період" @close="emit('close')">
     <div class="segmented granularity-toggle">
       <button
         v-for="g in GRANULARITY_OPTIONS"

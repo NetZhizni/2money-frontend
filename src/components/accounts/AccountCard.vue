@@ -11,7 +11,7 @@ import type { Account, Profile } from '../../types/models'
 // list mixes accounts from every family member — badges whose account each
 // card is. Left unset the rest of the time, since there's only one owner in view.
 const props = defineProps<{ account: Account; balance: number; pending?: boolean; readonly?: boolean; owner?: Profile | null }>()
-defineEmits<{ click: []; addOperation: []; history: [] }>()
+defineEmits<{ click: [] }>()
 
 const typeLabel = computed(() => accountTypeLabel(props.account.type, props.account.loanDirection))
 </script>
@@ -20,7 +20,7 @@ const typeLabel = computed(() => accountTypeLabel(props.account.type, props.acco
   <div class="card">
     <button class="card-main" @click="$emit('click')">
       <div class="icon-wrap">
-        <IconCircle :icon="account.icon" :color="account.color" :size="48" />
+        <IconCircle :icon="account.icon" :color="account.color" :size="48" square />
         <span v-if="owner" class="owner-badge">
           <OwnerAvatar :profile="owner" :size="18" />
         </span>
@@ -36,12 +36,6 @@ const typeLabel = computed(() => accountTypeLabel(props.account.type, props.acco
         </span>
       </div>
       <span class="balance" :class="{ negative: balance < 0 }">{{ formatMoney(balance, account.currency) }}</span>
-    </button>
-    <button class="history-btn" aria-label="Історія балансу" @click="$emit('history')">
-      <MdiIcon name="mdiChartLine" :size="18" color="var(--text-muted)" />
-    </button>
-    <button v-if="!readonly" class="add-op-btn" aria-label="Додати операцію на цей рахунок" @click="$emit('addOperation')">
-      <MdiIcon name="mdiPlus" :size="20" color="var(--accent)" />
     </button>
   </div>
 </template>
@@ -93,29 +87,6 @@ const typeLabel = computed(() => accountTypeLabel(props.account.type, props.acco
   padding: 14px 16px;
   cursor: pointer;
   text-align: left;
-}
-
-.add-op-btn,
-.history-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  flex-shrink: 0;
-  border: none;
-  border-left: 1px solid var(--border);
-  background: none;
-  cursor: pointer;
-  transition: transform 0.12s ease;
-}
-
-.add-op-btn:active,
-.history-btn:active {
-  transform: scale(0.85);
-}
-
-.history-btn {
-  width: 40px;
 }
 
 .info {
