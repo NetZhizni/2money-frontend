@@ -15,6 +15,8 @@ import IconCircle from '../components/common/IconCircle.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
 import OwnerAvatar from '../components/common/OwnerAvatar.vue'
 import OperationsFilterModal, { type OperationsFilters } from '../components/transactions/OperationsFilterModal.vue'
+import ReceiptCaptureModal from '../components/transactions/ReceiptCaptureModal.vue'
+import ReceiptScanReviewModal from '../components/transactions/ReceiptScanReviewModal.vue'
 import { formatMoney, dayHeader } from '../utils/format'
 import { resolveAccountLabel } from '../utils/accountLabel'
 import { isCrossProfileTransfer, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
@@ -233,6 +235,25 @@ function openCreate() {
 function openEdit(t: Transaction) {
   popups.openTransactionForm({ transaction: t })
 }
+
+// ---------- Скан чека ----------
+
+const pickedReceiptFile = ref<File | null>(null)
+const showReceiptCapture = ref(false)
+const showReceiptReview = ref(false)
+
+function openReceiptCapture() {
+  showReceiptCapture.value = true
+}
+function onReceiptPicked(file: File) {
+  showReceiptCapture.value = false
+  pickedReceiptFile.value = file
+  showReceiptReview.value = true
+}
+function closeReceiptReview() {
+  showReceiptReview.value = false
+  pickedReceiptFile.value = null
+}
 </script>
 
 <template>
@@ -339,6 +360,9 @@ function openEdit(t: Transaction) {
        renders at the transformed box's edges before snapping to its real
        viewport-fixed spot once the transition ends. -->
   <Teleport to="body">
+    <button v-if="!readOnly" class="fab fab-scan" aria-label="Сканувати чек" @click="openReceiptCapture">
+      <MdiIcon name="mdiCameraOutline" :size="22" color="#fff" />
+    </button>
     <button v-if="!readOnly" class="fab" aria-label="Додати операцію" @click="openCreate">
       <MdiIcon name="mdiPlus" :size="26" color="#fff" />
     </button>
@@ -348,6 +372,18 @@ function openEdit(t: Transaction) {
     :open="showFilterModal"
     v-model="filters"
     @close="showFilterModal = false"
+  />
+
+  <ReceiptCaptureModal
+    :open="showReceiptCapture"
+    @close="showReceiptCapture = false"
+    @picked="onReceiptPicked"
+  />
+
+  <ReceiptScanReviewModal
+    :open="showReceiptReview"
+    :file="pickedReceiptFile"
+    @close="closeReceiptReview"
   />
 </template>
 
@@ -633,9 +669,22 @@ function openEdit(t: Transaction) {
   transform: scale(0.9);
 }
 
+/* Друга, менша кнопка над основною "+" — той самий right, щоб центри
+   збігались (56px основна, 46px ця -> зсув на половину різниці). */
+.fab-scan {
+  width: 46px;
+  height: 46px;
+  bottom: 150px;
+  right: 29px;
+  background: var(--text-secondary);
+}
+
 @media (min-width: 900px) {
   .fab {
     bottom: 32px;
+  }
+  .fab-scan {
+    bottom: 98px;
   }
 }
 </style>
