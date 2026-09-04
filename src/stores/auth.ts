@@ -6,6 +6,9 @@ import { auth, googleProvider } from '../firebase'
 import http from '../api/http'
 import { db } from '../db/schema'
 import { startAutoSync } from '../db/sync'
+import { t } from '../i18n'
+import { seedFormatSettingsFromBackend } from '../utils/format'
+import { seedLocaleSettingFromBackend } from '../i18n/locale'
 import type { AppSettings, Profile } from '../types/models'
 
 const CACHE_KEY = '2money:profile'
@@ -68,8 +71,23 @@ export const useAuthStore = defineStore('auth', () => {
       const { data } = await http.get('/auth/me')
       profile.value = mapProfile(data.user)
       cacheProfile(profile.value)
-      const s = data.settings as { baseCurrency: string; theme: AppSettings['theme']; onboarded: boolean } | undefined
-      if (s) await db.settings.put({ id: profile.value.uid, baseCurrency: s.baseCurrency, theme: s.theme, onboarded: s.onboarded })
+      const s = data.settings as
+        | Pick<AppSettings, 'baseCurrency' | 'theme' | 'onboarded' | 'language' | 'numberFormat' | 'dateFormat' | 'currencyDisplay'>
+        | undefined
+      if (s) {
+        await db.settings.put({ id: profile.value.uid, baseCurrency: s.baseCurrency, theme: s.theme, onboarded: s.onboarded })
+        // One-time adoption of this profile's synced language/number/date/
+        // currency-display preference on a device that never chose one of
+        // its own (see the seed functions' own doc comments) — a no-op after
+        // the first successful login here, since that already fills in the
+        // localStorage key each one checks for.
+        const changedFormat = seedFormatSettingsFromBackend(s)
+        const changedLocale = seedLocaleSettingFromBackend(s.language)
+        if (changedFormat || changedLocale) {
+          location.reload()
+          return
+        }
+      }
     } catch (error) {
       if (isAxiosError(error) && error.response?.status === 403) {
         deniedEmail.value = firebaseUser.email
@@ -86,7 +104,7 @@ export const useAuthStore = defineStore('auth', () => {
         profile.value = cached
       } else {
         deniedEmail.value = firebaseUser.email
-        deniedMessage.value = 'Немає з’єднання з сервером, і немає збереженого профілю для офлайн-входу.'
+        deniedMessage.value = t('login.noConnectionNoOfflineProfile')
         return
       }
     }

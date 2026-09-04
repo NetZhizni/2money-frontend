@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { updateAvailable, applyUpdate } from '../../pwa/updateService'
+import { t } from '../../i18n'
 
 // "Пізніше" just hides the toast for this tab — updateAvailable itself stays
 // true, and setupServiceWorker's interval keeps the SW waiting, so the app
@@ -17,22 +18,22 @@ async function onUpdateClick() {
 <template>
   <Transition name="toast">
     <div v-if="updateAvailable && !dismissed" class="toast" role="status">
-      <span class="text">Доступна нова версія застосунку</span>
+      <span class="text">{{ t('common.updateAvailable') }}</span>
       <div class="actions">
-        <button class="btn btn-ghost" :disabled="applying" @click="dismissed = true">Пізніше</button>
+        <button class="btn btn-ghost" :disabled="applying" @click="dismissed = true">{{ t('common.later') }}</button>
         <button class="btn btn-primary" :disabled="applying" @click="onUpdateClick">
-          {{ applying ? 'Оновлення…' : 'Оновити' }}
+          {{ applying ? t('common.updating') : t('common.update') }}
         </button>
       </div>
     </div>
   </Transition>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 84px;
+  bottom: 24px;
   transform: translateX(-50%);
   z-index: 200;
   display: flex;
@@ -46,9 +47,9 @@ async function onUpdateClick() {
   width: min(420px, calc(100vw - 24px));
 }
 
-@media (min-width: 900px) {
+@include laptop() {
   .toast {
-    bottom: 24px;
+    bottom: 84px;
   }
 }
 
@@ -70,7 +71,7 @@ async function onUpdateClick() {
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  @include transition();
 }
 .toast-enter-from,
 .toast-leave-to {

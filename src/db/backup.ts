@@ -8,6 +8,7 @@ import { useBudgetsStore } from '../stores/budgets'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import type { Account, Budget, Category, RecurringTemplate, Transaction } from '../types/models'
+import { t } from '../i18n'
 
 export interface BackupPayload {
   version: 1
@@ -59,11 +60,11 @@ export function downloadBackup(payload: BackupPayload): void {
  * profile's own accounts/categories/transactions/templates/budgets).
  */
 export async function importData(payload: BackupPayload): Promise<void> {
-  if (!payload || payload.version !== 1) throw new Error('Непідтримуваний формат файлу резервної копії')
+  if (!payload || payload.version !== 1) throw new Error(t('sync.unsupportedBackupFormat'))
 
   const authStore = useAuthStore()
   const ownerId = authStore.uid
-  if (!ownerId) throw new Error('Потрібно увійти в систему')
+  if (!ownerId) throw new Error(t('sync.mustSignIn'))
 
   const accounts = useAccountsStore()
   const categories = useCategoriesStore()
@@ -87,7 +88,11 @@ export async function importData(payload: BackupPayload): Promise<void> {
     await categories.add(rest)
   }
   for (const t of payload.transactions) {
-    const { id: _id, ownerId: _o, participantIds: _p, createdAt: _c, updatedAt: _u, ...rest } = t
+    // receiptId dropped along with the rest of the relational fields: the
+    // backup doesn't carry the receipts table, so a re-imported id would
+    // either point at nothing or, worse, at some unrelated receipt that
+    // happens to still exist under this profile.
+    const { id: _id, ownerId: _o, participantIds: _p, createdAt: _c, updatedAt: _u, receiptId: _r, ...rest } = t
     await transactions.add(rest)
   }
   for (const t of payload.templates) {

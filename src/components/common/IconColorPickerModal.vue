@@ -5,6 +5,7 @@ import IconPicker from './IconPicker.vue'
 import ColorPicker from './ColorPicker.vue'
 import IconCircle from './IconCircle.vue'
 import MdiIcon from './MdiIcon.vue'
+import { t } from '../../i18n'
 
 const props = defineProps<{ open: boolean; icon: string; color: string }>()
 const emit = defineEmits<{ close: []; 'update:icon': [string]; 'update:color': [string] }>()
@@ -38,7 +39,7 @@ function confirm() {
 </script>
 
 <template>
-  <Modal :open="open" title="Значок і колір" @close="emit('close')">
+  <Modal :open="open" :title="t('common.iconAndColor')" @close="emit('close')">
     <div class="preview">
       <IconCircle :icon="localIcon" :color="localColor" :size="88" />
     </div>
@@ -46,11 +47,11 @@ function confirm() {
     <div class="tab-switch">
       <button class="tab-btn" :class="{ active: tab === 'icon' }" @click="tab = 'icon'">
         <MdiIcon name="mdiStarOutline" :size="18" />
-        <span>Значок</span>
+        <span>{{ t('common.icon') }}</span>
       </button>
       <button class="tab-btn" :class="{ active: tab === 'color' }" @click="tab = 'color'">
         <MdiIcon name="mdiPaletteOutline" :size="18" />
-        <span>Колір</span>
+        <span>{{ t('common.color') }}</span>
       </button>
     </div>
 
@@ -62,11 +63,11 @@ function confirm() {
     />
     <ColorPicker v-else :model-value="localColor" @update:model-value="(v) => (localColor = v)" />
 
-    <button type="button" class="btn btn-primary confirm-btn" :disabled="!changed" @click="confirm">Обрати</button>
+    <button type="button" class="btn btn-primary confirm-btn" :disabled="!changed" @click="confirm">{{ t('common.choose') }}</button>
   </Modal>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .preview {
   display: flex;
   justify-content: center;
@@ -92,7 +93,7 @@ function confirm() {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
+  @include transition();
 }
 
 .tab-btn.active {

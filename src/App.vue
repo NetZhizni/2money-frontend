@@ -1,11 +1,12 @@
 <script setup lang="ts">
-  import { ref, watch, watchEffect } from 'vue'
+  import { nextTick, ref, watch, watchEffect } from 'vue'
   import TopHeader from './components/layout/TopHeader.vue'
   import BottomNav from './components/layout/BottomNav.vue'
   import SideNav from './components/layout/SideNav.vue'
   import LoginView from './views/LoginView.vue'
   import UpdateToast from './components/common/UpdateToast.vue'
   import TransactionFormModal from './components/transactions/TransactionFormModal.vue'
+  import ReceiptEditModal from './components/transactions/ReceiptEditModal.vue'
   import ConfirmDialog from './components/common/ConfirmDialog.vue'
   import { seedDefaultsIfEmpty } from './db/seed'
   import { useAuthStore } from './stores/auth'
@@ -14,13 +15,16 @@
   import { useAllAccountsStore } from './stores/allAccounts'
   import { useAllTemplatesStore } from './stores/allTemplates'
   import { useAllBudgetsStore } from './stores/allBudgets'
+  import { useAllReceiptsStore } from './stores/allReceipts'
   import { useSettingsStore } from './stores/settings'
   import { useAccountsStore } from './stores/accounts'
   import { useCategoriesStore } from './stores/categories'
   import { useTransactionsStore } from './stores/transactions'
   import { useTemplatesStore } from './stores/templates'
   import { useBudgetsStore } from './stores/budgets'
+  import { useReceiptsStore } from './stores/receipts'
   import { usePopupsStore } from './stores/popups'
+  import { t } from './i18n'
 
   const authStore = useAuthStore()
   const viewAs = useViewAsStore()
@@ -28,12 +32,14 @@
   const allAccounts = useAllAccountsStore()
   const allTemplates = useAllTemplatesStore()
   const allBudgets = useAllBudgetsStore()
+  const allReceipts = useAllReceiptsStore()
   const settings = useSettingsStore()
   const accounts = useAccountsStore()
   const categories = useCategoriesStore()
   const transactions = useTransactionsStore()
   const templates = useTemplatesStore()
   const budgets = useBudgetsStore()
+  const receipts = useReceiptsStore()
   const popups = usePopupsStore()
 
   // The transaction form and the confirm dialog are reused across every page
@@ -42,20 +48,38 @@
   // driven by the popups store instead of a per-page `v-if`, so opening either
   // from any page reuses the same Modal instance and its `<Transition>` plays
   // correctly on every open/close (see Modal.vue's `open` prop).
-  function handleTransactionDeleteRequest() {
-    const t = popups.transactionForm.transaction
-    if (!t) return
+  // Closing one Modal and opening another synchronously (same tick) coalesces
+  // both into a single Vue flush and can crash the patcher — see
+  // OperationsDataView.vue's onReceiptPicked for the observed repro. Awaiting
+  // nextTick lets the first modal's close fully flush before the next opens.
+  async function handleTransactionDeleteRequest() {
+    const tx = popups.transactionForm.transaction
+    if (!tx) return
     popups.closeTransactionForm()
+    await nextTick()
     popups.confirmDialog({
-      title: 'Видалити операцію?',
-      message: 'Цю операцію буде видалено безповоротно.',
-      confirmLabel: 'Видалити',
+      title: t('common.deleteTransactionTitle'),
+      message: t('common.deleteTransactionMessage'),
+      confirmLabel: t('common.delete'),
       danger: true,
       onConfirm: async () => {
-        await transactions.remove(t.id)
+        await transactions.remove(tx.id)
         popups.closeConfirm()
       },
     })
+  }
+
+  // "Add to receipt" from the transaction form — if it's already part of a
+  // receipt (even a "lone" one, 1 transaction — see ReceiptGroupCard.vue),
+  // open that one for editing; otherwise start a new one, seeded with this
+  // transaction (ReceiptEditModal.vue only actually creates the receipt row
+  // once "Save" is pressed).
+  async function handleAddToReceiptRequest() {
+    const tx = popups.transactionForm.transaction
+    if (!tx) return
+    popups.closeTransactionForm()
+    await nextTick()
+    popups.openReceiptEdit(tx.receiptId ? { receiptId: tx.receiptId } : { seedTransaction: tx })
   }
 
   const dataReady = ref(false)
@@ -68,10 +92,12 @@
     transactions.reset()
     templates.reset()
     budgets.reset()
+    receipts.reset()
     profiles.reset()
     allAccounts.reset()
     allTemplates.reset()
     allBudgets.reset()
+    allReceipts.reset()
     dataReady.value = false
   }
 
@@ -85,10 +111,12 @@
       transactions.load(),
       templates.load(),
       budgets.load(),
+      receipts.load(),
       profiles.load(),
       allAccounts.load(),
       allTemplates.load(),
       allBudgets.load(),
+      allReceipts.load(),
     ])
     await templates.runDueGeneration()
     dataReady.value = true
@@ -128,7 +156,7 @@
     () => `${viewAs.mode}:${viewAs.effectiveUid ?? ''}`,
     () => {
       if (!dataReady.value) return
-      void Promise.all([accounts.load(), transactions.load(), budgets.load()])
+      void Promise.all([accounts.load(), transactions.load(), budgets.load(), receipts.load()])
     },
   )
 </script>
@@ -138,7 +166,7 @@
     v-if="!authStore.ready"
     class="boot-splash"
   >
-    Завантаження…
+    {{ t('common.loading') }}
   </div>
   <LoginView v-else-if="!authStore.user || !authStore.profile" />
   <div
@@ -158,7 +186,7 @@
     v-else
     class="boot-splash"
   >
-    Завантаження…
+    {{ t('common.loading') }}
   </div>
   <UpdateToast />
 
@@ -171,6 +199,15 @@
     @saved="popups.closeTransactionForm()"
     @duplicated="popups.closeTransactionForm()"
     @deleted="handleTransactionDeleteRequest"
+    @add-to-receipt="handleAddToReceiptRequest"
+  />
+
+  <ReceiptEditModal
+    :open="popups.receiptEdit.open"
+    :receipt-id="popups.receiptEdit.receiptId"
+    :seed-transaction="popups.receiptEdit.seedTransaction"
+    :scan-file="popups.receiptEdit.scanFile"
+    @close="popups.closeReceiptEdit()"
   />
 
   <ConfirmDialog
@@ -184,7 +221,7 @@
   />
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
   .app-shell {
     display: flex;
     height: 100vh;
@@ -208,18 +245,13 @@
     height: 100%;
     justify-content: stretch;
 
-    overflow-y: auto;
+    @include overflow(x);
     overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: 8px;
-    scrollbar-gutter: stable;
   }
 
   .page-enter-active,
   .page-leave-active {
-    transition:
-      opacity 0.16s ease,
-      transform 0.16s ease;
+    @include transition();
   }
   .page-enter-from {
     opacity: 0;
@@ -231,6 +263,10 @@
   }
 
   .side-nav-slot {
+    display: flex;
+  }
+
+  .bottom-nav-slot {
     display: none;
   }
 
@@ -243,12 +279,12 @@
     color: var(--text-muted);
   }
 
-  @media (min-width: 900px) {
+  @include laptop() {
     .side-nav-slot {
-      display: flex;
+      display: none;
     }
     .bottom-nav-slot {
-      display: none;
+      display: flex;
     }
   }
 </style>

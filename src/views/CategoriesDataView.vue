@@ -9,16 +9,19 @@ import { usePeriodStore } from '../stores/period'
 import { useSettingsStore } from '../stores/settings'
 import { useViewAsStore } from '../stores/viewAs'
 import { usePopupsStore } from '../stores/popups'
-import { useDisplayCurrency } from '../composables/useDisplayCurrency'
+import { useBaseCurrency } from '../composables/useBaseCurrency'
 import SpendingRing from '../components/categories/SpendingRing.vue'
 import CategoryTile from '../components/categories/CategoryTile.vue'
 import CategoryFormModal from '../components/categories/CategoryFormModal.vue'
 import CategoryDetailModal from '../components/categories/CategoryDetailModal.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
-import { isCrossProfileTransfer, TRANSFER_CATEGORY_LABEL, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
+import { isCrossProfileTransfer, transferCategoryLabel, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
 import { budgetProgress, type BudgetProgress } from '../utils/budget'
 import { formatMoney } from '../utils/format'
+import { resolveCategoryCurrency } from '../utils/currencies'
+import { categoryCurrencyAmount } from '../utils/transactionAmounts'
 import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
+import { t } from '../i18n'
 import type { Category, CategoryKind } from '../types/models'
 
 const categories = useCategoriesStore()
@@ -29,7 +32,7 @@ const settings = useSettingsStore()
 const viewAs = useViewAsStore()
 const popups = usePopupsStore()
 const router = useRouter()
-const displayCurrency = useDisplayCurrency()
+const baseCurrency = useBaseCurrency()
 const readOnly = computed(() => viewAs.isReadOnly)
 
 const kind = ref<CategoryKind>('expense')
@@ -44,30 +47,43 @@ const periodTransactions = computed(() => transactions.forPeriod(period.start, p
 const perspectiveUid = computed(() => (viewAs.mode === 'all' ? null : viewAs.effectiveUid))
 
 // Cross-profile transfers count as income/expense here too (same-profile
-// ones stay excluded) — see utils/transferAnalytics.ts.
+// ones stay excluded) — see utils/transferAnalytics.ts. A transfer has no
+// category of its own, so there's no "its own currency" to show this in —
+// always normalized live to the base currency, same as expenseTotal/incomeTotal below.
 const crossProfileTransferExpense = computed(() => {
   if (!perspectiveUid.value) return 0
   return periodTransactions.value
     .filter((t) => isCrossProfileTransfer(t) && t.ownerId === perspectiveUid.value)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+    .reduce((s, t) => s + baseCurrency.toBase(Math.abs(t.amount), t.currency), 0)
 })
 const crossProfileTransferIncome = computed(() => {
   if (!perspectiveUid.value) return 0
   return periodTransactions.value
     .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== perspectiveUid.value)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+    .reduce((s, t) => s + baseCurrency.toBase(Math.abs(t.amount), t.currency), 0)
 })
 const transferTileAmount = computed(() =>
   kind.value === 'expense' ? crossProfileTransferExpense.value : crossProfileTransferIncome.value,
 )
 
-/** categoryId/subcategoryId -> summed |baseAmount| for the active period (analytics always run in base currency). */
+/**
+ * categoryId/subcategoryId -> summed amount for the active period, in that
+ * category's OWN currency (not normalized to the base currency — see
+ * utils/transactionAmounts.ts's categoryCurrencyAmount). Every subcategory
+ * shares its top-level parent's currency (see types/models.ts's Category),
+ * so a rolled-up sum below is always one consistent currency.
+ */
 const directTotals = computed(() => {
   const map: Record<string, number> = {}
   for (const t of periodTransactions.value) {
     const id = t.subcategoryId ?? t.categoryId
     if (!id) continue
-    map[id] = (map[id] ?? 0) + Math.abs(t.baseAmount)
+    // Currency resolved from the TOP-LEVEL category (`t.categoryId`) even for
+    // a subcategory total — a subcategory never carries its own currency
+    // (see types/models.ts's Category), so resolving off `id` directly would
+    // wrongly fall back to the base currency for one.
+    const categoryCurrency = resolveCategoryCurrency(categories.byId(t.categoryId), settings.baseCurrency, transactions.all)
+    map[id] = (map[id] ?? 0) + categoryCurrencyAmount(t, categoryCurrency, baseCurrency.toBase)
   }
   return map
 })
@@ -83,27 +99,40 @@ const rolledTotals = computed(() => {
   return map
 })
 
+// Base-currency-normalized counterparts — needed anywhere categories of
+// DIFFERENT currencies must be compared/summed as one figure (the ring's
+// slice proportions, its center total): rolledTotals above is intentionally
+// NOT this, since Categories otherwise shows each category in its own
+// currency (see categoryCurrencyAmount's doc comment).
+const baseDirectTotals = computed(() => {
+  const map: Record<string, number> = {}
+  for (const t of periodTransactions.value) {
+    const id = t.subcategoryId ?? t.categoryId
+    if (!id) continue
+    map[id] = (map[id] ?? 0) + baseCurrency.toBase(Math.abs(t.amount), t.currency)
+  }
+  return map
+})
+const baseRolledTotals = computed(() => {
+  const map: Record<string, number> = { ...baseDirectTotals.value }
+  for (const top of categories.all.filter((c) => c.parentId === null)) {
+    const kids = categories.childrenOf(top.id, true)
+    const kidsSum = kids.reduce((s, k) => s + (baseDirectTotals.value[k.id] ?? 0), 0)
+    map[top.id] = (map[top.id] ?? 0) + kidsSum
+  }
+  return map
+})
+
 const expenseTotal = computed(
   () =>
-    periodTransactions.value.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(t.baseAmount), 0) +
+    periodTransactions.value.filter((t) => t.type === 'expense').reduce((s, t) => s + baseCurrency.toBase(Math.abs(t.amount), t.currency), 0) +
     crossProfileTransferExpense.value,
 )
 const incomeTotal = computed(
   () =>
-    periodTransactions.value.filter((t) => t.type === 'income').reduce((s, t) => s + t.baseAmount, 0) +
+    periodTransactions.value.filter((t) => t.type === 'income').reduce((s, t) => s + baseCurrency.toBase(t.amount, t.currency), 0) +
     crossProfileTransferIncome.value,
 )
-
-// Display-currency-converted counterparts, used only for what's actually
-// rendered — proportions (ring arcs, budget %) stay computed from the raw
-// base-currency totals above, since uniform scaling never changes a ratio.
-const displayRolledTotals = computed(() => {
-  const map: Record<string, number> = {}
-  for (const [id, amount] of Object.entries(rolledTotals.value)) map[id] = displayCurrency.convert(amount)
-  return map
-})
-const displayExpenseTotal = computed(() => displayCurrency.convert(expenseTotal.value))
-const displayIncomeTotal = computed(() => displayCurrency.convert(incomeTotal.value))
 
 // Budgets are always monthly, so a category's spend-vs-budget % only makes
 // sense against a single month's total — comparing a year/all-time total to
@@ -122,7 +151,12 @@ const budgetProgressByCategory = computed<Record<string, BudgetProgress>>(() => 
 function budgetLabel(categoryId: string): string | undefined {
   const p = budgetProgressByCategory.value[categoryId]
   if (!p) return undefined
-  return `Бюджет: ${formatMoney(p.spent, settings.baseCurrency)} з ${formatMoney(p.amount, settings.baseCurrency)}`
+  // Budgets are denominated in the category's own currency (see
+  // CategoryDetailModal.vue's saveBudget), same as `rolledTotals` above.
+  const category = categories.byId(categoryId)
+  const currency = resolveCategoryCurrency(category, settings.baseCurrency, transactions.all)
+  const opts = { currencyDisplay: category?.currencyDisplay }
+  return t('categories.budgetLabel', { spent: formatMoney(p.spent, currency, opts), amount: formatMoney(p.amount, currency, opts) })
 }
 
 // Includes archived categories too (via includeArchived=true) — archiving only
@@ -135,10 +169,10 @@ function budgetLabel(categoryId: string): string | undefined {
 const ringSegments = computed(() => {
   const segs = categories
     .topLevel(kind.value, true)
-    .map((c) => ({ id: c.id, name: c.name, color: c.color, amount: rolledTotals.value[c.id] ?? 0 }))
+    .map((c) => ({ id: c.id, name: c.name, color: c.color, amount: baseRolledTotals.value[c.id] ?? 0 }))
   const transferAmount = kind.value === 'expense' ? crossProfileTransferExpense.value : crossProfileTransferIncome.value
   if (transferAmount > 0) {
-    segs.push({ id: '__transfers__', name: TRANSFER_CATEGORY_LABEL, color: TRANSFER_CATEGORY_COLOR, amount: transferAmount })
+    segs.push({ id: '__transfers__', name: transferCategoryLabel(), color: TRANSFER_CATEGORY_COLOR, amount: transferAmount })
   }
   return segs.sort((a, b) => b.amount - a.amount)
 })
@@ -227,9 +261,9 @@ function handleDeleteRequest() {
   if (!category) return
   showForm.value = false
   popups.confirmDialog({
-    title: 'Видалити категорію?',
-    message: `Категорію «${category.name}» та ВСІ пов'язані з нею операції (і підкатегорій) буде видалено безповоротно.`,
-    confirmLabel: 'Видалити',
+    title: t('categories.deleteTitle'),
+    message: t('categories.deleteMessage', { name: category.name }),
+    confirmLabel: t('common.delete'),
     danger: true,
     onConfirm: async () => {
       await categories.remove(category.id)
@@ -251,18 +285,18 @@ function openAddOperation(category: Category) {
 </script>
 
 <template>
+  <div class="kind-toggle segmented">
+    <button :class="{ active: kind === 'expense' }" @click="kind = 'expense'">{{ t('categories.expense') }}</button>
+    <button :class="{ active: kind === 'income' }" @click="kind = 'income'">{{ t('categories.income') }}</button>
+  </div>
+
   <SpendingRing
     :segments="ringSegments"
-    :expense-total="displayExpenseTotal"
-    :income-total="displayIncomeTotal"
-    :currency="displayCurrency.code"
+    :expense-total="expenseTotal"
+    :income-total="incomeTotal"
+    :currency="settings.baseCurrency"
     :kind="kind"
   />
-
-  <div class="kind-toggle segmented">
-    <button :class="{ active: kind === 'expense' }" @click="kind = 'expense'">Витрати</button>
-    <button :class="{ active: kind === 'income' }" @click="kind = 'income'">Доходи</button>
-  </div>
 
   <TransitionGroup ref="tileGroupRef" tag="div" name="tile" class="grid" @before-leave="pinLeavingRect">
     <CategoryTile
@@ -271,8 +305,9 @@ function openAddOperation(category: Category) {
       :name="c.name"
       :icon="c.icon"
       :color="c.color"
-      :amount="displayRolledTotals[c.id] ?? 0"
-      :currency="displayCurrency.code"
+      :amount="rolledTotals[c.id] ?? 0"
+      :currency="resolveCategoryCurrency(c, settings.baseCurrency, transactions.all)"
+      :currency-display="c.currencyDisplay"
       :budget="budgetProgressByCategory[c.id] ?? null"
       :budget-label="budgetLabel(c.id)"
       @click="openDetail(c)"
@@ -280,11 +315,11 @@ function openAddOperation(category: Category) {
     <CategoryTile
       v-if="transferTileAmount > 0"
       key="__transfers__"
-      :name="TRANSFER_CATEGORY_LABEL"
+      :name="transferCategoryLabel()"
       :icon="TRANSFER_CATEGORY_ICON"
       :color="TRANSFER_CATEGORY_COLOR"
-      :amount="displayCurrency.convert(transferTileAmount)"
-      :currency="displayCurrency.code"
+      :amount="transferTileAmount"
+      :currency="settings.baseCurrency"
       @click="router.push('/operations')"
     />
   </TransitionGroup>
@@ -292,7 +327,7 @@ function openAddOperation(category: Category) {
   <div v-if="archivedTop.length" class="archived-section">
     <button class="archived-toggle" @click="showArchived = !showArchived">
       <MdiIcon :name="showArchived ? 'mdiChevronUp' : 'mdiChevronDown'" :size="18" />
-      Архівовані категорії ({{ archivedTop.length }})
+      {{ t('categories.archivedToggle', { count: archivedTop.length }) }}
     </button>
     <div v-if="showArchived" class="grid">
       <CategoryTile
@@ -301,8 +336,9 @@ function openAddOperation(category: Category) {
         :name="c.name"
         :icon="c.icon"
         :color="c.color"
-        :amount="displayRolledTotals[c.id] ?? 0"
-        :currency="displayCurrency.code"
+        :amount="rolledTotals[c.id] ?? 0"
+        :currency="resolveCategoryCurrency(c, settings.baseCurrency, transactions.all)"
+        :currency-display="c.currencyDisplay"
         :budget="budgetProgressByCategory[c.id] ?? null"
         :budget-label="budgetLabel(c.id)"
         @click="openDetail(c)"
@@ -317,7 +353,7 @@ function openAddOperation(category: Category) {
        renders at the transformed box's edges before snapping to its real
        viewport-fixed spot once the transition ends. -->
   <Teleport to="body">
-    <button v-if="!readOnly" class="fab" aria-label="Додати категорію" @click="openCreate">
+    <button v-if="!readOnly" class="fab" :aria-label="t('categories.addCategoryAria')" @click="openCreate">
       <MdiIcon name="mdiPlus" :size="26" color="#fff" />
     </button>
   </Teleport>
@@ -337,7 +373,7 @@ function openAddOperation(category: Category) {
     :open="!!detailCategory"
     :category="detailCategory"
     :totals="rolledTotals"
-    :currency="settings.baseCurrency"
+    :currency="resolveCategoryCurrency(detailCategory, settings.baseCurrency, transactions.all)"
     :readonly="readOnly"
     @close="detailCategory = null"
     @edit="openEditFromDetail"
@@ -348,10 +384,10 @@ function openAddOperation(category: Category) {
   />
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .kind-toggle {
   max-width: 260px;
-  margin: 20px auto 18px;
+  margin: 0px auto;
 }
 
 .grid {
@@ -368,7 +404,7 @@ function openAddOperation(category: Category) {
 .tile-move,
 .tile-enter-active,
 .tile-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  @include transition();
 }
 .tile-enter-from,
 .tile-leave-to {
@@ -401,7 +437,7 @@ function openAddOperation(category: Category) {
 .fab {
   position: fixed;
   right: 24px;
-  bottom: 84px;
+  bottom: 32px;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -413,16 +449,20 @@ function openAddOperation(category: Category) {
   justify-content: center;
   cursor: pointer;
   z-index: 15;
-  transition: transform 0.12s ease;
+  @include transition();
 }
 
 .fab:active {
   transform: scale(0.9);
 }
 
-@media (min-width: 900px) {
+@include laptop() {
   .fab {
-    bottom: 32px;
+    /* 84px clearance above .bottom-nav, plus the iOS home-indicator inset
+     that .bottom-nav's own padding already grows by — without it the fab
+     sits lower than the nav bar's real (safe-area-inflated) height and its
+     bottom half renders underneath the bar on notched iOS PWAs. */
+    bottom: calc(84px + env(safe-area-inset-bottom, 0px));
   }
 }
 </style>

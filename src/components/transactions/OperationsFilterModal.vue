@@ -2,8 +2,12 @@
 import { reactive, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
+import AmountFieldButton from '../common/AmountFieldButton.vue'
 import { useAccountsStore } from '../../stores/accounts'
 import { useCategoriesStore } from '../../stores/categories'
+import { useSettingsStore } from '../../stores/settings'
+import { t } from '../../i18n'
+import type { MessageKey } from '../../i18n'
 import type { TransactionType } from '../../types/models'
 
 export interface OperationsFilters {
@@ -21,6 +25,7 @@ const emit = defineEmits<{ 'update:modelValue': [OperationsFilters]; close: [] }
 
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
+const settings = useSettingsStore()
 const form = reactive<OperationsFilters>({ ...props.modelValue })
 
 // Stays permanently mounted — re-stage the draft from the committed filters
@@ -32,10 +37,10 @@ watch(
   },
 )
 
-const TYPE_OPTIONS: Array<{ value: TransactionType; label: string }> = [
-  { value: 'expense', label: 'Витрата' },
-  { value: 'income', label: 'Дохід' },
-  { value: 'transfer', label: 'Переказ' },
+const TYPE_OPTIONS: Array<{ value: TransactionType; labelKey: MessageKey }> = [
+  { value: 'expense', labelKey: 'categories.form.expenseType' },
+  { value: 'income', labelKey: 'categories.form.incomeType' },
+  { value: 'transfer', labelKey: 'transactions.form.typeTransfer' },
 ]
 
 // Both kinds (expense + income) — operations aren't scoped to one kind.
@@ -78,9 +83,9 @@ function resetAll() {
 </script>
 
 <template>
-  <Modal :open="open" title="Фільтри операцій" @close="emit('close')">
+  <Modal :open="open" :title="t('transactions.filter.title')" @close="emit('close')">
     <div class="field">
-      <label>Рахунки</label>
+      <label>{{ t('transactions.filter.accounts') }}</label>
       <div class="chip-grid">
         <button
           v-for="a in accounts.all"
@@ -96,7 +101,7 @@ function resetAll() {
     </div>
 
     <div class="field">
-      <label>Категорії</label>
+      <label>{{ t('transactions.filter.categories') }}</label>
       <div class="cat-filter-list scrollbar-none">
         <div v-for="c in topCategories" :key="c.id" class="cat-filter-group">
           <button
@@ -123,32 +128,44 @@ function resetAll() {
     </div>
 
     <div class="field">
-      <label>Тип операції</label>
+      <label>{{ t('transactions.filter.type') }}</label>
       <div class="segmented multi">
         <button
-          v-for="t in TYPE_OPTIONS"
-          :key="t.value"
-          :class="{ active: form.types.includes(t.value) }"
-          @click="toggleType(t.value)"
+          v-for="opt in TYPE_OPTIONS"
+          :key="opt.value"
+          :class="{ active: form.types.includes(opt.value) }"
+          @click="toggleType(opt.value)"
         >
-          {{ t.label }}
+          {{ t(opt.labelKey) }}
         </button>
       </div>
     </div>
 
     <div class="row-2">
       <div class="field">
-        <label>Сума від</label>
-        <input v-model.number="form.minAmount" type="number" min="0" placeholder="0" inputmode="decimal" />
+        <label>{{ t('transactions.filter.amountFrom') }}</label>
+        <AmountFieldButton
+          v-model="form.minAmount"
+          :currency="settings.baseCurrency"
+          :label="t('transactions.filter.amountFrom')"
+          placeholder="0"
+          clearable
+        />
       </div>
       <div class="field">
-        <label>Сума до</label>
-        <input v-model.number="form.maxAmount" type="number" min="0" placeholder="∞" inputmode="decimal" />
+        <label>{{ t('transactions.filter.amountTo') }}</label>
+        <AmountFieldButton
+          v-model="form.maxAmount"
+          :currency="settings.baseCurrency"
+          :label="t('transactions.filter.amountTo')"
+          placeholder="∞"
+          clearable
+        />
       </div>
     </div>
 
     <div class="field">
-      <label>Довільний період (замінює вибір місяця)</label>
+      <label>{{ t('transactions.filter.customPeriod') }}</label>
       <div class="row-2">
         <input v-model="form.dateFrom" type="date" />
         <input v-model="form.dateTo" type="date" />
@@ -156,13 +173,13 @@ function resetAll() {
     </div>
 
     <div class="actions">
-      <button class="btn btn-ghost" @click="resetAll">Скинути все</button>
-      <button class="btn btn-primary" @click="apply">Застосувати</button>
+      <button class="btn btn-ghost" @click="resetAll">{{ t('transactions.filter.resetAll') }}</button>
+      <button class="btn btn-primary" @click="apply">{{ t('transactions.filter.apply') }}</button>
     </div>
   </Modal>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .chip-grid {
   display: flex;
   flex-wrap: wrap;
@@ -193,7 +210,7 @@ function resetAll() {
   flex-direction: column;
   gap: 10px;
   max-height: 260px;
-  overflow-y: auto;
+  @include overflow(y);
   padding-right: 2px;
 }
 

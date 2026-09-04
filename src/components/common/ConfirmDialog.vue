@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import Modal from './Modal.vue'
+import { t } from '../../i18n'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
     open: boolean
     title: string
@@ -9,7 +10,7 @@ withDefaults(
     confirmLabel?: string
     danger?: boolean
   }>(),
-  { confirmLabel: 'Підтвердити', danger: false },
+  { danger: false },
 )
 const emit = defineEmits<{ confirm: []; close: [] }>()
 </script>
@@ -18,9 +19,9 @@ const emit = defineEmits<{ confirm: []; close: [] }>()
   <Modal :open="open" :title="title" top @close="emit('close')">
     <p class="message">{{ message }}</p>
     <div class="actions">
-      <button class="btn btn-ghost" @click="emit('close')">Скасувати</button>
+      <button class="btn btn-ghost" @click="emit('close')">{{ t('common.cancel') }}</button>
       <button :class="['btn', danger ? 'btn-danger' : 'btn-primary']" @click="emit('confirm')">
-        {{ confirmLabel }}
+        {{ props.confirmLabel ?? t('common.confirm') }}
       </button>
     </div>
   </Modal>

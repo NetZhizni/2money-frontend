@@ -6,13 +6,14 @@ import { backendOnline, lastSyncedAt, pendingCount } from '../../db/syncStatus'
 import { resyncFromServer } from '../../db/sync'
 import { useAuthStore } from '../../stores/auth'
 import { usePopupsStore } from '../../stores/popups'
-import { relativeTimeUk } from '../../utils/format'
+import { relativeTime, pluralize } from '../../utils/format'
+import { t } from '../../i18n'
 
 const authStore = useAuthStore()
 const popups = usePopupsStore()
 const showDetails = ref(false)
 
-// Ticks while the badge is on screen so "N хв тому" doesn't go stale without a re-render.
+// Ticks while the badge is on screen so "N min ago" doesn't go stale without a re-render.
 const now = ref(Date.now())
 let tickHandle: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
@@ -25,32 +26,42 @@ onUnmounted(() => {
 })
 
 const lastSyncedLabel = computed(() =>
-  lastSyncedAt.value === null ? 'Ще не синхронізовано' : `Синхронізовано ${relativeTimeUk(lastSyncedAt.value, now.value)}`,
+  lastSyncedAt.value === null ? t('sync.notSyncedYet') : t('sync.syncedAgo', { time: relativeTime(lastSyncedAt.value, now.value) }),
 )
 
 const pendingLabel = computed(() => {
   const n = pendingCount.value
-  return `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'запис' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14) ? 'записи' : 'записів'}`
+  const word = pluralize(n, {
+    one: t('sync.pendingRecords.one'),
+    few: t('sync.pendingRecords.few'),
+    many: t('sync.pendingRecords.many'),
+    other: t('sync.pendingRecords.other'),
+  })
+  return `${n} ${word}`
 })
 
 const resyncing = ref(false)
 const resyncStatus = ref('')
+// Explicit flag, not a sniff of resyncStatus's text — the message is locale-dependent,
+// its wording can't be used to infer success/failure.
+const resyncError = ref(false)
 
 function openResyncConfirm() {
   popups.confirmDialog({
-    title: 'Оновити дані із сервера?',
-    message:
-      'Дані на цьому пристрої буде видалено і завантажено заново із сервера. Незбережені локальні зміни, якщо є, спершу буде надіслано на сервер; ті, що надіслати не вдасться, буде втрачено.',
-    confirmLabel: 'Оновити',
+    title: t('sync.resyncConfirmTitle'),
+    message: t('sync.resyncConfirmMessage'),
+    confirmLabel: t('sync.resyncConfirmButton'),
     danger: true,
     onConfirm: async () => {
       resyncing.value = true
       resyncStatus.value = ''
       try {
         await resyncFromServer(authStore.uid)
-        resyncStatus.value = 'Локальні дані оновлено із сервера.'
+        resyncStatus.value = t('sync.resyncSuccess')
+        resyncError.value = false
       } catch (error) {
-        resyncStatus.value = (error as Error).message || 'Не вдалося оновити дані.'
+        resyncStatus.value = (error as Error).message || t('sync.resyncFailure')
+        resyncError.value = true
       } finally {
         resyncing.value = false
         popups.closeConfirm()
@@ -64,7 +75,7 @@ function openResyncConfirm() {
   <div class="sync-status">
     <button
       class="icon-btn"
-      :aria-label="backendOnline ? 'Статус синхронізації: сервер онлайн' : 'Статус синхронізації: немає зв’язку з сервером'"
+      :aria-label="backendOnline ? t('sync.serverOnlineAria') : t('sync.serverOfflineAria')"
       @click="showDetails = true"
     >
       <MdiIcon
@@ -75,31 +86,27 @@ function openResyncConfirm() {
       <span v-if="pendingCount > 0" class="pending-dot">{{ pendingCount > 9 ? '9+' : pendingCount }}</span>
     </button>
 
-    <Modal :open="showDetails" title="Синхронізація" @close="showDetails = false">
+    <Modal :open="showDetails" :title="t('sync.title')" @close="showDetails = false">
       <div class="status-row">
         <span class="dot" :class="backendOnline ? 'online' : 'offline'" />
-        <span>{{ backendOnline ? 'Сервер онлайн' : 'Немає зв’язку з сервером' }}</span>
+        <span>{{ backendOnline ? t('sync.serverOnline') : t('sync.serverOffline') }}</span>
       </div>
       <p class="line">{{ lastSyncedLabel }}</p>
-      <p v-if="pendingCount > 0" class="line pending">Очікує синхронізації: {{ pendingLabel }}</p>
-      <p v-else class="line ok">Усі дані синхронізовано</p>
+      <p v-if="pendingCount > 0" class="line pending">{{ t('sync.pendingLine', { label: pendingLabel }) }}</p>
+      <p v-else class="line ok">{{ t('sync.allSynced') }}</p>
 
       <div class="field">
-        <label>Перезавантажити дані</label>
-        <p class="hint">
-          Видаляє дані, збережені локально на цьому пристрої, і завантажує їх заново із сервера.
-          На сервері нічого не змінюється — корисно, якщо локальні дані виглядають застарілими або
-          пошкодженими.
-        </p>
+        <label>{{ t('sync.resyncLabel') }}</label>
+        <p class="hint">{{ t('sync.resyncHint') }}</p>
         <button
           class="btn btn-danger resync-btn"
           :disabled="resyncing || !backendOnline"
           @click="openResyncConfirm"
         >
-          {{ resyncing ? 'Оновлення…' : 'Оновити дані із сервера' }}
+          {{ resyncing ? t('sync.resyncing') : t('sync.resyncButton') }}
         </button>
-        <p v-if="!backendOnline" class="hint">Недоступно без з’єднання із сервером.</p>
-        <p v-if="resyncStatus" class="status" :class="{ error: !backendOnline || resyncStatus.startsWith('Не') || resyncStatus.startsWith('Є') }">
+        <p v-if="!backendOnline" class="hint">{{ t('sync.resyncOfflineHint') }}</p>
+        <p v-if="resyncStatus" class="status" :class="{ error: !backendOnline || resyncError }">
           {{ resyncStatus }}
         </p>
       </div>
@@ -107,7 +114,7 @@ function openResyncConfirm() {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .sync-status {
   position: relative;
 }
@@ -125,7 +132,7 @@ function openResyncConfirm() {
   cursor: pointer;
   border-radius: 50%;
   position: relative;
-  transition: transform 0.12s ease;
+  @include transition();
 }
 
 .icon-btn:active {

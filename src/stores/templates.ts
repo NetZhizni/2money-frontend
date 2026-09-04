@@ -4,7 +4,6 @@ import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
 import { generateDueRecurring } from '../db/recurring'
 import { useAuthStore } from './auth'
-import { useSettingsStore } from './settings'
 import type { RecurringTemplate } from '../types/models'
 
 export type NewTemplateInput = Omit<RecurringTemplate, 'id' | 'createdAt' | 'ownerId'>
@@ -43,9 +42,8 @@ export const useTemplatesStore = defineStore('templates', () => {
    * the already-subscribed liveQuery views pick them up with no manual reload.
    */
   async function runDueGeneration(): Promise<number> {
-    const settings = useSettingsStore()
     if (!authStore.uid) return 0
-    return generateDueRecurring(collection.all.value, authStore.uid, Date.now(), settings.baseCurrency)
+    return generateDueRecurring(collection.all.value, authStore.uid, Date.now())
   }
 
   return {

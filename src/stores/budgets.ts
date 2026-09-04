@@ -4,6 +4,7 @@ import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
 import { useAuthStore } from './auth'
 import { useViewAsStore } from './viewAs'
+import { assertWritable } from './guards'
 import type { Budget } from '../types/models'
 
 export type NewBudgetInput = Omit<Budget, 'id' | 'createdAt' | 'ownerId'>
@@ -20,14 +21,6 @@ export const useBudgetsStore = defineStore('budgets', () => {
   function load(): Promise<void> {
     if (!authStore.uid) return Promise.resolve()
     return collection.load()
-  }
-
-  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
-  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
-  // should never actually fire — it's just a loud failure if something slips
-  // through, instead of silently writing under the wrong owner.
-  function assertWritable() {
-    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
   }
 
   async function add(input: NewBudgetInput): Promise<Budget> {

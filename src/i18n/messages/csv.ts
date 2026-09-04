@@ -1,0 +1,26 @@
+export const csvMessages = {
+  uk: {
+    'csv.header.date': 'Дата',
+    'csv.header.type': 'Тип',
+    'csv.header.account': 'Рахунок',
+    'csv.header.destAccount': 'Рахунок отримувача',
+    'csv.header.category': 'Категорія',
+    'csv.header.subcategory': 'Підкатегорія',
+    'csv.header.amount': 'Сума',
+    'csv.header.currency': 'Валюта',
+    'csv.header.baseAmount': 'Сума ({currency})',
+    'csv.header.note': 'Нотатка',
+  },
+  en: {
+    'csv.header.date': 'Date',
+    'csv.header.type': 'Type',
+    'csv.header.account': 'Account',
+    'csv.header.destAccount': 'Destination account',
+    'csv.header.category': 'Category',
+    'csv.header.subcategory': 'Subcategory',
+    'csv.header.amount': 'Amount',
+    'csv.header.currency': 'Currency',
+    'csv.header.baseAmount': 'Amount ({currency})',
+    'csv.header.note': 'Note',
+  },
+}

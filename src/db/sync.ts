@@ -2,6 +2,7 @@ import { isAxiosError } from 'axios'
 import http from '../api/http'
 import { db, type SyncableEntity, type UserDirectoryEntry } from './schema'
 import { backendOnline, markSynced } from './syncStatus'
+import { t } from '../i18n'
 
 const RESOURCE_PATH: Record<SyncableEntity, string> = {
   accounts: 'accounts',
@@ -9,6 +10,7 @@ const RESOURCE_PATH: Record<SyncableEntity, string> = {
   transactions: 'transactions',
   recurringTemplates: 'recurring-templates',
   budgets: 'budgets',
+  receipts: 'receipts',
 }
 
 /** id + optional soft-delete marker — the shape every synced row has, whatever else it carries. */
@@ -152,7 +154,7 @@ async function pullEntity(entity: SyncableEntity, opts?: { scope: 'all' }): Prom
  * feature needs: that data has to already be synced locally, not fetched
  * on demand only when such a view is opened.
  */
-const SYNC_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets']
+const SYNC_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets', 'receipts']
 
 /**
  * Pulls a batch of entities (each via `pullEntity`), tolerating individual
@@ -206,8 +208,8 @@ export async function fullSync(currentUserId: string | null): Promise<void> {
  * members' queued entries on a shared device are left untouched.
  */
 export async function resyncFromServer(currentUserId: string | null): Promise<void> {
-  if (!currentUserId) throw new Error('Не автентифіковано')
-  if (!backendOnline.value) throw new Error('Немає з’єднання із сервером')
+  if (!currentUserId) throw new Error(t('sync.notAuthenticated'))
+  if (!backendOnline.value) throw new Error(t('sync.noServerConnection'))
 
   await pushOutbox(currentUserId)
   const stillPending = await db.outbox.where('ownerId').equals(currentUserId).count()
@@ -217,7 +219,7 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
 
   await db.transaction(
     'rw',
-    [db.accounts, db.categories, db.transactions, db.recurringTemplates, db.budgets, db.syncCursors, db.users, db.outbox],
+    [db.accounts, db.categories, db.transactions, db.recurringTemplates, db.budgets, db.receipts, db.syncCursors, db.users, db.outbox],
     async () => {
       await Promise.all([
         db.accounts.clear(),
@@ -225,6 +227,7 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
         db.transactions.clear(),
         db.recurringTemplates.clear(),
         db.budgets.clear(),
+        db.receipts.clear(),
         db.syncCursors.clear(),
         db.users.clear(),
         db.outbox.where('ownerId').equals(currentUserId).delete(),
@@ -249,7 +252,7 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
   const results = await pullMany(SYNC_ENTITIES, { scope: 'all' }, 'resync')
 
   if (userDirectoryOk && results.every(Boolean)) markSynced()
-  else throw new Error('Частину даних не вдалося завантажити із сервера. Спробуйте ще раз.')
+  else throw new Error(t('sync.partialLoadFailure'))
 }
 
 /**
@@ -345,6 +348,20 @@ export async function pullAllTemplates(): Promise<void> {
 export async function pullAllBudgets(): Promise<void> {
   if (!navigator.onLine) return
   await pullEntity('budgets', { scope: 'all' })
+}
+
+/**
+ * Refreshes every family member's active receipts (own included) into
+ * `receipts` — same reasoning and mechanics as pullAllAccounts/
+ * pullAllBudgets: the per-profile stores/receipts.ts store filters this same
+ * table client-side by `ownerId`, so this is the only network fetch
+ * `receipts` ever needs. Family-wide (not just "my own") so a receipt one
+ * member saved shows its merchant/date to everyone who can see the
+ * transactions it grouped — same trust model as accounts/transactions.
+ */
+export async function pullAllReceipts(): Promise<void> {
+  if (!navigator.onLine) return
+  await pullEntity('receipts', { scope: 'all' })
 }
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null

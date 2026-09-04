@@ -5,6 +5,7 @@ import MdiIcon from '../common/MdiIcon.vue'
 import OwnerAvatar from '../common/OwnerAvatar.vue'
 import { formatMoney } from '../../utils/format'
 import { accountTypeLabel } from '../../utils/accountTypes'
+import { t } from '../../i18n'
 import type { Account, Profile } from '../../types/models'
 
 // `owner` is set only in "view as all" (see stores/viewAs.ts), where this
@@ -24,7 +25,7 @@ const typeLabel = computed(() => accountTypeLabel(props.account.type, props.acco
         <span v-if="owner" class="owner-badge">
           <OwnerAvatar :profile="owner" :size="18" />
         </span>
-        <span v-if="pending" class="pending-badge" title="Очікує синхронізації" aria-label="Очікує синхронізації">
+        <span v-if="pending" class="pending-badge" :title="t('common.pendingSync')" :aria-label="t('common.pendingSync')">
           <MdiIcon name="mdiClockOutline" :size="11" color="#fff" />
         </span>
       </div>
@@ -35,12 +36,12 @@ const typeLabel = computed(() => accountTypeLabel(props.account.type, props.acco
           <MdiIcon v-if="!account.includeInTotal" name="mdiEyeOffOutline" :size="13" color="var(--text-muted)" />
         </span>
       </div>
-      <span class="balance" :class="{ negative: balance < 0 }">{{ formatMoney(balance, account.currency) }}</span>
+      <span class="balance" :class="{ negative: balance < 0 }">{{ formatMoney(balance, account.currency, { currencyDisplay: account.currencyDisplay }) }}</span>
     </button>
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .card {
   display: flex;
   align-items: stretch;
@@ -100,9 +101,7 @@ const typeLabel = computed(() => accountTypeLabel(props.account.type, props.acco
 .name {
   font-size: 15px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  @include lineClamp(1);
 }
 
 .meta {

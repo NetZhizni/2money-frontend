@@ -3,24 +3,52 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTransactionsStore } from '../stores/transactions'
 import { useCategoriesStore } from '../stores/categories'
-import { usePeriodStore } from '../stores/period'
+import { useAllAccountsStore } from '../stores/allAccounts'
+import { useSettingsStore } from '../stores/settings'
+import { usePeriodStore, PERIOD_TOTAL_LABEL_KEY } from '../stores/period'
 import { useViewAsStore } from '../stores/viewAs'
-import { useDisplayCurrency } from '../composables/useDisplayCurrency'
+import { useBaseCurrency } from '../composables/useBaseCurrency'
 import { useCountUp } from '../composables/useCountUp'
 import ExpenseIncomeChart, { type PeriodBar } from '../components/overview/ExpenseIncomeChart.vue'
 import CategoryDonutChart from '../components/overview/CategoryDonutChart.vue'
 import CategoryRankList from '../components/overview/CategoryRankList.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
-import { formatMoney, startOfMonth, endOfMonth, MONTHS_UK_SHORT } from '../utils/format'
-import { isCrossProfileTransfer, TRANSFER_CATEGORY_LABEL, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
+import { formatMoney, startOfMonth, endOfMonth, MONTHS_SHORT } from '../utils/format'
+import { resolveCategoryCurrency } from '../utils/currencies'
+import { otherCurrencyAmount as resolveOtherCurrencyAmount, signedAmountInCurrency } from '../utils/transactionAmounts'
+import { isCrossProfileTransfer, transferCategoryLabel, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
+import { t } from '../i18n'
 import type { Transaction } from '../types/models'
 
 const transactions = useTransactionsStore()
 const categories = useCategoriesStore()
+const allAccounts = useAllAccountsStore()
+const settings = useSettingsStore()
 const period = usePeriodStore()
 const viewAs = useViewAsStore()
-const displayCurrency = useDisplayCurrency()
+const displayCurrency = useBaseCurrency() // name kept: this view fully normalizes to the base currency, same role the old override-aware composable played
 const router = useRouter()
+
+/** See utils/transactionAmounts.ts's otherCurrencyAmount — resolvers are this view's own account/category lookups. */
+function otherCurrencyAmount(t: Transaction): { amount: number; currency: string } | null {
+  return resolveOtherCurrencyAmount(
+    t,
+    (id) => allAccounts.byId(id)?.currency,
+    (id) => resolveCategoryCurrency(categories.byId(id), settings.baseCurrency, transactions.all),
+  )
+}
+
+/**
+ * A transaction's magnitude in the currently shown currency ("Показувати
+ * суми в…") — exact when it matches the transaction's own currency or (via
+ * `toAmount`) its category's/destination's, a live-rate conversion only when
+ * it matches neither (see signedAmountInCurrency). `t.amount` is always
+ * non-negative, so feeding it in directly as "the signed amount" is safe —
+ * there's no sign to preserve here, only the exact-vs-converted choice.
+ */
+function amountInBase(t: Transaction): number {
+  return Math.abs(signedAmountInCurrency(t.amount, t.currency, displayCurrency.code, otherCurrencyAmount(t), displayCurrency.toBase))
+}
 
 // The uid a cross-profile transfer is judged "sent" vs "received" from — the
 // profile currently being browsed (self by default). In "Всі" mode there's
@@ -47,23 +75,23 @@ const crossProfileTransferExpense = computed(() => {
   if (!perspectiveUid.value) return 0
   return periodTransactions.value
     .filter((t) => isCrossProfileTransfer(t) && t.ownerId === perspectiveUid.value)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+    .reduce((s, t) => s + amountInBase(t), 0)
 })
 const crossProfileTransferIncome = computed(() => {
   if (!perspectiveUid.value) return 0
   return periodTransactions.value
     .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== perspectiveUid.value)
-    .reduce((s, t) => s + Math.abs(t.baseAmount), 0)
+    .reduce((s, t) => s + amountInBase(t), 0)
 })
 
 const expenseTotal = computed(
   () =>
-    periodTransactions.value.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(t.baseAmount), 0) +
+    periodTransactions.value.filter((t) => t.type === 'expense').reduce((s, t) => s + amountInBase(t), 0) +
     crossProfileTransferExpense.value,
 )
 const incomeTotal = computed(
   () =>
-    periodTransactions.value.filter((t) => t.type === 'income').reduce((s, t) => s + t.baseAmount, 0) +
+    periodTransactions.value.filter((t) => t.type === 'income').reduce((s, t) => s + amountInBase(t), 0) +
     crossProfileTransferIncome.value,
 )
 const netBalance = computed(() => incomeTotal.value - expenseTotal.value)
@@ -71,15 +99,15 @@ const savingsRatePct = computed(() =>
   incomeTotal.value > 0 ? Math.max(0, Math.min(100, Math.round((netBalance.value / incomeTotal.value) * 100))) : 0,
 )
 
-/** Expense/income for a slice of transactions, folding in cross-profile transfers the same way the period totals do. */
+/** Expense/income (already converted to the shown currency, see amountInBase) for a slice of transactions, folding in cross-profile transfers the same way the period totals do. */
 function expenseIncomeOf(list: Transaction[]): { expense: number; income: number } {
   const uid = perspectiveUid.value
   const expense =
-    list.filter((t) => t.type === 'expense').reduce((s, t) => s + Math.abs(t.baseAmount), 0) +
-    (uid ? list.filter((t) => isCrossProfileTransfer(t) && t.ownerId === uid).reduce((s, t) => s + Math.abs(t.baseAmount), 0) : 0)
+    list.filter((t) => t.type === 'expense').reduce((s, t) => s + amountInBase(t), 0) +
+    (uid ? list.filter((t) => isCrossProfileTransfer(t) && t.ownerId === uid).reduce((s, t) => s + amountInBase(t), 0) : 0)
   const income =
-    list.filter((t) => t.type === 'income').reduce((s, t) => s + t.baseAmount, 0) +
-    (uid ? list.filter((t) => isCrossProfileTransfer(t) && t.ownerId !== uid).reduce((s, t) => s + Math.abs(t.baseAmount), 0) : 0)
+    list.filter((t) => t.type === 'income').reduce((s, t) => s + amountInBase(t), 0) +
+    (uid ? list.filter((t) => isCrossProfileTransfer(t) && t.ownerId !== uid).reduce((s, t) => s + amountInBase(t), 0) : 0)
   return { expense, income }
 }
 
@@ -136,9 +164,9 @@ const periodBars = computed<PeriodBar[]>(() => {
       bars.push({
         key: dayStart,
         label: String(cursor.getDate()),
-        tooltipLabel: `${cursor.getDate()} ${MONTHS_UK_SHORT[cursor.getMonth()]}`,
-        expense: displayCurrency.convert(expense),
-        income: displayCurrency.convert(income),
+        tooltipLabel: `${cursor.getDate()} ${MONTHS_SHORT[cursor.getMonth()]}`,
+        expense,
+        income,
       })
       cursor.setDate(cursor.getDate() + 1)
     }
@@ -154,10 +182,10 @@ const periodBars = computed<PeriodBar[]>(() => {
       const { expense, income } = expenseIncomeOf(monthTx)
       bars.push({
         key: m,
-        label: MONTHS_UK_SHORT[m],
-        tooltipLabel: `${MONTHS_UK_SHORT[m]} ${period.year}`,
-        expense: displayCurrency.convert(expense),
-        income: displayCurrency.convert(income),
+        label: MONTHS_SHORT[m],
+        tooltipLabel: `${MONTHS_SHORT[m]} ${period.year}`,
+        expense,
+        income,
       })
     }
     return bars
@@ -174,34 +202,31 @@ const periodBars = computed<PeriodBar[]>(() => {
       key: y,
       label: String(y),
       tooltipLabel: String(y),
-      expense: displayCurrency.convert(expense),
-      income: displayCurrency.convert(income),
+      expense,
+      income,
     }
   })
 })
 
 const transactionCount = computed(() => periodTransactions.value.length)
 const expenseCount = computed(() => periodTransactions.value.filter((t) => t.type === 'expense').length)
-const avgExpense = computed(() => (expenseCount.value > 0 ? displayCurrency.convert(expenseTotal.value / expenseCount.value) : 0))
+const avgExpense = computed(() => (expenseCount.value > 0 ? expenseTotal.value / expenseCount.value : 0))
 
-const dailyAvg = computed(() => displayCurrency.convert(expenseTotal.value / periodDays.value))
-const weeklyAvg = computed(() => displayCurrency.convert((expenseTotal.value / periodDays.value) * 7))
-const displayExpenseTotal = computed(() => displayCurrency.convert(expenseTotal.value))
-const displayIncomeTotal = computed(() => displayCurrency.convert(incomeTotal.value))
-const displayNetBalance = computed(() => displayCurrency.convert(netBalance.value))
+const dailyAvg = computed(() => expenseTotal.value / periodDays.value)
+const weeklyAvg = computed(() => (expenseTotal.value / periodDays.value) * 7)
+// expenseTotal/incomeTotal/netBalance are already in the shown currency
+// (every per-transaction sum above goes through amountInBase) — kept as
+// their own computed refs (rather than used directly) only because
+// useCountUp needs a distinct ref per animated value.
+const displayExpenseTotal = computed(() => expenseTotal.value)
+const displayIncomeTotal = computed(() => incomeTotal.value)
+const displayNetBalance = computed(() => netBalance.value)
 
 const animatedExpenseTotal = useCountUp(displayExpenseTotal)
 const animatedIncomeTotal = useCountUp(displayIncomeTotal)
 const animatedNetBalance = useCountUp(displayNetBalance)
 
-const PERIOD_TOTAL_LABEL: Record<string, string> = {
-  day: 'День',
-  week: 'Тиждень',
-  month: 'Місяць',
-  year: 'Рік',
-  all: 'Увесь час',
-}
-const periodTotalLabel = computed(() => PERIOD_TOTAL_LABEL[period.granularity] ?? 'Період')
+const periodTotalLabel = computed(() => t(PERIOD_TOTAL_LABEL_KEY[period.granularity]))
 
 const expenseRanking = computed(() => {
   const rows: Record<string, number> = {}
@@ -209,7 +234,7 @@ const expenseRanking = computed(() => {
     if (t.type !== 'expense') continue
     const id = t.categoryId
     if (!id) continue
-    rows[id] = (rows[id] ?? 0) + Math.abs(t.baseAmount)
+    rows[id] = (rows[id] ?? 0) + amountInBase(t)
   }
   const entries = Object.entries(rows).map(([id, amount]) => {
     const c = categories.byId(id)
@@ -218,7 +243,7 @@ const expenseRanking = computed(() => {
       name: c?.name ?? '—',
       icon: c?.icon ?? 'mdiHelpCircleOutline',
       color: c?.color ?? '#9a9a9e',
-      amount: displayCurrency.convert(amount),
+      amount,
     }
   })
   // Transfers have no category of their own, so a cross-profile transfer
@@ -226,10 +251,10 @@ const expenseRanking = computed(() => {
   if (crossProfileTransferExpense.value > 0) {
     entries.push({
       id: '__transfers__',
-      name: TRANSFER_CATEGORY_LABEL,
+      name: transferCategoryLabel(),
       icon: TRANSFER_CATEGORY_ICON,
       color: TRANSFER_CATEGORY_COLOR,
-      amount: displayCurrency.convert(crossProfileTransferExpense.value),
+      amount: crossProfileTransferExpense.value,
     })
   }
   return entries.sort((a, b) => b.amount - a.amount).slice(0, 8)
@@ -239,31 +264,31 @@ const expenseRanking = computed(() => {
 <template>
   <div class="top-row">
     <div class="stat-tile expense">
-      <span class="stat-label">Витрати</span>
+      <span class="stat-label">{{ t('overview.expenses') }}</span>
       <span class="stat-value">{{ formatMoney(animatedExpenseTotal, displayCurrency.code) }}</span>
     </div>
     <div class="stat-tile income">
-      <span class="stat-label">Доходи</span>
+      <span class="stat-label">{{ t('overview.income') }}</span>
       <span class="stat-value">{{ formatMoney(animatedIncomeTotal, displayCurrency.code) }}</span>
     </div>
   </div>
 
   <div class="balance-card">
     <div class="balance-text">
-      <span class="stat-label">Баланс</span>
+      <span class="stat-label">{{ t('overview.balance') }}</span>
       <span class="balance-value" :class="{ negative: netBalance < 0 }">
         {{ formatMoney(animatedNetBalance, displayCurrency.code) }}
       </span>
       <span v-if="balanceDeltaPct !== null" class="balance-delta" :class="balanceDeltaPct >= 0 ? 'up' : 'down'">
         <MdiIcon :name="balanceDeltaPct >= 0 ? 'mdiTrendingUp' : 'mdiTrendingDown'" :size="14" />
-        {{ Math.abs(balanceDeltaPct) }}% від попереднього періоду
+        {{ t('overview.vsPreviousPeriod', { pct: Math.abs(balanceDeltaPct) }) }}
       </span>
     </div>
     <div class="savings-col">
       <div class="savings-ring" :style="{ '--pct': savingsRatePct }">
         <span>{{ savingsRatePct }}%</span>
       </div>
-      <span class="savings-label">Заощадж.</span>
+      <span class="savings-label">{{ t('overview.savings') }}</span>
     </div>
   </div>
 
@@ -273,11 +298,11 @@ const expenseRanking = computed(() => {
 
   <div class="avg-row">
     <div class="avg-tile">
-      <span class="avg-label">День (сер.)</span>
+      <span class="avg-label">{{ t('overview.dayAvg') }}</span>
       <span class="avg-value">{{ formatMoney(dailyAvg, displayCurrency.code) }}</span>
     </div>
     <div class="avg-tile">
-      <span class="avg-label">Тиждень (сер.)</span>
+      <span class="avg-label">{{ t('overview.weekAvg') }}</span>
       <span class="avg-value">{{ formatMoney(weeklyAvg, displayCurrency.code) }}</span>
     </div>
     <div class="avg-tile">
@@ -288,17 +313,17 @@ const expenseRanking = computed(() => {
 
   <div class="avg-row">
     <div class="avg-tile">
-      <span class="avg-label">Операцій</span>
+      <span class="avg-label">{{ t('overview.transactionCount') }}</span>
       <span class="avg-value">{{ transactionCount }}</span>
     </div>
     <div class="avg-tile">
-      <span class="avg-label">Середній чек</span>
+      <span class="avg-label">{{ t('overview.avgReceipt') }}</span>
       <span class="avg-value">{{ formatMoney(avgExpense, displayCurrency.code) }}</span>
     </div>
   </div>
 
   <div class="card">
-    <h3 class="section-title">Витрати за категоріями</h3>
+    <h3 class="section-title">{{ t('overview.expensesByCategory') }}</h3>
     <CategoryDonutChart
       :key="`donut-${period.granularity}-${period.start}`"
       :segments="expenseRanking"
@@ -307,12 +332,12 @@ const expenseRanking = computed(() => {
   </div>
 
   <div class="card">
-    <h3 class="section-title">Топ категорій витрат</h3>
+    <h3 class="section-title">{{ t('overview.topExpenseCategories') }}</h3>
     <CategoryRankList :rows="expenseRanking" :currency="displayCurrency.code" @select="openCategoryOperations" />
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .top-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -366,7 +391,7 @@ const expenseRanking = computed(() => {
   border-radius: var(--radius-md);
   padding: 16px 18px;
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s ease;
+  @include transition();
 }
 
 .balance-text {
@@ -422,7 +447,7 @@ const expenseRanking = computed(() => {
   color: var(--text-primary);
   background: conic-gradient(var(--income) calc(var(--pct) * 1%), var(--surface-2) 0);
   position: relative;
-  transition: --pct 0.6s ease;
+  @include transition();
 }
 
 .savings-ring::after {

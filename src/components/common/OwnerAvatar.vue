@@ -25,7 +25,7 @@ const props = withDefaults(defineProps<{ profile: Profile; size?: number }>(), {
     class="owner-avatar owner-avatar-fallback"
     :style="{ width: `${props.size}px`, height: `${props.size}px`, background: profile.color, fontSize: `${Math.round(props.size * 0.5)}px` }"
     :title="profile.displayName"
-  >{{ profile.displayName.slice(0, 1).toUpperCase() }}</span>
+  >{{ profile.displayName.slice(0, 1) }}</span>
 </template>
 
 <style scoped>
@@ -45,5 +45,6 @@ const props = withDefaults(defineProps<{ profile: Profile; size?: number }>(), {
   color: #fff;
   font-weight: 700;
   line-height: 1;
+  text-transform: uppercase;
 }
 </style>

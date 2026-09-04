@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import { t } from '../../i18n'
+
   const props = defineProps<{ modelValue: string }>()
   const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
@@ -52,7 +54,7 @@
 <template>
   <div class="picker">
     <label class="custom">
-      <span>Інший колір</span>
+      <span>{{ t('common.customColor') }}</span>
       <input
         type="color"
         :value="modelValue"
@@ -72,7 +74,7 @@
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
   .picker {
     display: flex;
     flex-direction: column;
@@ -85,7 +87,7 @@
     justify-items: center;
     gap: 10px;
     height: 220px;
-    overflow-y: auto;
+    @include overflow(y);
     padding: 4px;
   }
 

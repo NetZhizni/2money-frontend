@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Account, AppSettings, Budget, Category, ExchangeRateEntry, RecurringTemplate, Transaction } from '../types/models'
+import type { Account, AppSettings, Budget, Category, ExchangeRateEntry, Receipt, RecurringTemplate, Transaction } from '../types/models'
 
 /** Minimal family-directory row — mirrors GET /api/users (id/displayName/photoUrl/color only, no email/role). */
 export interface UserDirectoryEntry {
@@ -9,7 +9,7 @@ export interface UserDirectoryEntry {
   color: string
 }
 
-export type SyncableEntity = 'accounts' | 'categories' | 'transactions' | 'recurringTemplates' | 'budgets'
+export type SyncableEntity = 'accounts' | 'categories' | 'transactions' | 'recurringTemplates' | 'budgets' | 'receipts'
 
 /**
  * One queued local mutation, replayed against the API once online (see
@@ -57,6 +57,7 @@ export class AppDB extends Dexie {
   transactions!: EntityTable<Transaction, 'id'>
   recurringTemplates!: EntityTable<RecurringTemplate, 'id'>
   budgets!: EntityTable<Budget, 'id'>
+  receipts!: EntityTable<Receipt, 'id'>
   settings!: EntityTable<AppSettings, 'id'>
   users!: EntityTable<UserDirectoryEntry, 'id'>
   outbox!: EntityTable<OutboxEntry, 'localId'>
@@ -77,6 +78,16 @@ export class AppDB extends Dexie {
       outbox: '++localId, entity, ownerId, createdAt',
       syncCursors: 'entity',
       exchangeRates: 'id, dateKey, currency',
+    })
+
+    // Adds `receipts` (see types/models.ts's Receipt) and an index on
+    // transactions.receiptId so a receipt's other operations can be looked
+    // up directly instead of scanning the whole table. Dexie only needs the
+    // stores whose schema actually changed here — accounts/categories/etc.
+    // carry forward unchanged from version(1).
+    this.version(2).stores({
+      transactions: 'id, *participantIds, accountId, toAccountId, date, updatedAt, receiptId',
+      receipts: 'id, ownerId, updatedAt',
     })
   }
 }

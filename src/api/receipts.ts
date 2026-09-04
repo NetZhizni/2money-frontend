@@ -3,7 +3,7 @@ import http from './http'
 /**
  * Один пункт, на які бекенд розбив чек (див. backend/src/services/internal/
  * receipt/scanReceipt.js) — ще НЕ справжня Transaction: без id/рахунку/
- * валюти, поки користувач не збереже її (див. ReceiptScanReviewModal.vue).
+ * валюти, поки користувач не збереже її (див. ReceiptEditModal.vue).
  */
 export interface ScannedOperation {
   type: 'expense' | 'income'

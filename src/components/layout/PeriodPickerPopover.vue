@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { usePeriodStore, type PeriodGranularity } from '../../stores/period'
-import { dateKey, MONTHS_UK_SHORT } from '../../utils/format'
+import {
+  usePeriodStore,
+  PERIOD_GRANULARITY_LABEL_KEY,
+  PERIOD_TODAY_LABEL_KEY,
+  type PeriodGranularity,
+} from '../../stores/period'
+import { dateKey, MONTHS_SHORT } from '../../utils/format'
+import { t } from '../../i18n'
 import Modal from '../common/Modal.vue'
 
 const period = usePeriodStore()
@@ -25,22 +31,9 @@ watch(
 const today = new Date()
 const currentYear = today.getFullYear()
 const currentMonth = today.getMonth()
-const todayShortLabel = `${today.getDate()} ${MONTHS_UK_SHORT[currentMonth]}`
+const todayShortLabel = `${today.getDate()} ${MONTHS_SHORT[currentMonth]}`
 
-const TODAY_LABEL: Record<string, string> = {
-  day: 'Сьогодні',
-  week: 'Цей тиждень',
-  month: 'Поточний місяць',
-  year: 'Поточний рік',
-}
-
-const GRANULARITY_OPTIONS: Array<{ value: PeriodGranularity; label: string }> = [
-  { value: 'day', label: 'День' },
-  { value: 'week', label: 'Тиждень' },
-  { value: 'month', label: 'Місяць' },
-  { value: 'year', label: 'Рік' },
-  { value: 'all', label: 'Все' },
-]
+const GRANULARITY_OPTIONS: PeriodGranularity[] = ['day', 'week', 'month', 'year', 'all']
 
 function chooseGranularity(g: PeriodGranularity) {
   period.setGranularity(g)
@@ -84,20 +77,20 @@ const yearGrid = computed(() => {
 </script>
 
 <template>
-  <Modal :open="open" title="Період" @close="emit('close')">
+  <Modal :open="open" :title="t('layout.periodPicker.title')" @close="emit('close')">
     <div class="segmented granularity-toggle">
       <button
         v-for="g in GRANULARITY_OPTIONS"
-        :key="g.value"
-        :class="{ active: period.granularity === g.value }"
-        @click="chooseGranularity(g.value)"
+        :key="g"
+        :class="{ active: period.granularity === g }"
+        @click="chooseGranularity(g)"
       >
-        {{ g.label }}
+        {{ t(PERIOD_GRANULARITY_LABEL_KEY[g]) }}
       </button>
     </div>
 
     <button v-if="!period.isCurrentPeriod" class="today-btn" @click="chooseToday">
-      {{ TODAY_LABEL[period.granularity] ?? 'Сьогодні' }}
+      {{ period.granularity === 'all' ? t('common.today') : t(PERIOD_TODAY_LABEL_KEY[period.granularity]) }}
     </button>
 
     <template v-if="period.granularity === 'month'">
@@ -108,7 +101,7 @@ const yearGrid = computed(() => {
       </div>
       <div class="month-grid">
         <button
-          v-for="(m, idx) in MONTHS_UK_SHORT"
+          v-for="(m, idx) in MONTHS_SHORT"
           :key="m"
           class="month-cell"
           :class="{
@@ -139,9 +132,9 @@ const yearGrid = computed(() => {
     <template v-else-if="period.granularity === 'day' || period.granularity === 'week'">
       <div class="date-pick-row">
         <input v-model="pickDate" type="date" />
-        <button class="btn btn-primary" @click="chooseDate">Перейти</button>
+        <button class="btn btn-primary" @click="chooseDate">{{ t('layout.periodPicker.go') }}</button>
       </div>
-      <p class="today-hint">Сьогодні: {{ todayShortLabel }}</p>
+      <p class="today-hint">{{ t('layout.periodPicker.todayHint', { date: todayShortLabel }) }}</p>
     </template>
   </Modal>
 </template>

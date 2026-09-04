@@ -17,10 +17,9 @@ function readStored(): string[] {
 
 /**
  * Which currencies the currency picker pins to the top of its list — a
- * per-device display preference, like `displayCurrency`'s override, so it
- * lives in localStorage rather than going through settings/Dexie/the backend.
- * Unlike the override, this one is worth keeping across reloads: it's a
- * one-time setup a user shouldn't have to redo every session.
+ * per-device display preference, so it lives in localStorage rather than
+ * going through settings/Dexie/the backend. Worth keeping across reloads:
+ * it's a one-time setup a user shouldn't have to redo every session.
  */
 export const useFavoriteCurrenciesStore = defineStore('favoriteCurrencies', () => {
   const codes = ref<string[]>(readStored())

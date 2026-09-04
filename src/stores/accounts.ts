@@ -7,7 +7,9 @@ import { convertLatest } from '../db/exchangeRates'
 import { accountDelta } from '../utils/balanceHistory'
 import { useAuthStore } from './auth'
 import { useViewAsStore } from './viewAs'
+import { useSettingsStore } from './settings'
 import { useTransactionsStore } from './transactions'
+import { assertWritable } from './guards'
 import type { Account, Transaction } from '../types/models'
 
 export type NewAccountInput = Omit<Account, 'id' | 'createdAt' | 'order' | 'ownerId'>
@@ -44,20 +46,22 @@ export const useAccountsStore = defineStore('accounts', () => {
   const active = computed(() => collection.all.value.filter((a) => !a.archived))
   const archived = computed(() => collection.all.value.filter((a) => a.archived))
 
-  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
-  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
-  // should never actually fire — it's just a loud failure if something slips
-  // through, instead of silently writing under the wrong owner.
-  function assertWritable() {
-    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
-  }
-
   async function add(input: NewAccountInput): Promise<Account> {
     assertWritable()
     const order = collection.all.value.length ? Math.max(...collection.all.value.map((a) => a.order)) + 1 : 0
-    const account: Account = { ...input, id: newId(), ownerId: authStore.uid!, order, createdAt: Date.now() }
+    // Defense-in-depth — AccountFormModal.vue already always sends a currency
+    // (defaulting to the base one), same as the backend's own fallback (see
+    // upsertAccount.js).
+    const currency = input.currency || useSettingsStore().baseCurrency
+    const account: Account = { ...input, currency, id: newId(), ownerId: authStore.uid!, order, createdAt: Date.now() }
     await collection.put(account)
     return account
+  }
+
+  /** Whether this account has ANY operation against it (as source or destination) — see the server-side twin in AccountModel/upsertAccount.js, which enforces this for real. */
+  async function hasTransactions(id: string): Promise<boolean> {
+    const count = await db.transactions.where('accountId').equals(id).or('toAccountId').equals(id).count()
+    return count > 0
   }
 
   async function update(id: string, patch: Partial<Account>): Promise<void> {
@@ -118,6 +122,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     update,
     setArchived,
     remove,
+    hasTransactions,
     balanceOf,
     totalBalanceInBase,
   }

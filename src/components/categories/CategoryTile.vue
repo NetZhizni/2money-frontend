@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import IconCircle from '../common/IconCircle.vue'
-import { formatMoney } from '../../utils/format'
+import { formatMoney, type CurrencyDisplayStyle } from '../../utils/format'
 import type { BudgetProgress } from '../../utils/budget'
 
 const props = defineProps<{
@@ -10,6 +10,10 @@ const props = defineProps<{
   color: string
   amount: number
   currency: string
+  // The category's own Settings → "Формат валюти" override, if any (see
+  // Category.currencyDisplay) — unset for the synthetic "Перекази" tile
+  // (CategoriesDataView.vue), which has no real category to read one from.
+  currencyDisplay?: CurrencyDisplayStyle | null
   budget?: BudgetProgress | null
   budgetLabel?: string
 }>()
@@ -38,7 +42,7 @@ function onPointerUp() {
     <IconCircle :icon="icon" :color="color" :muted="!hasAmount" :size="56" />
     <span class="name">{{ name }}</span>
     <span class="amount" :style="{ color: hasAmount ? color : 'var(--text-muted)' }">
-      {{ formatMoney(amount, currency) }}
+      {{ formatMoney(amount, currency, { currencyDisplay }) }}
     </span>
     <div class="budget-track" :class="{ 'budget-track--empty': !budget }" :title="budgetLabel">
       <div
@@ -50,7 +54,7 @@ function onPointerUp() {
   </button>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .tile {
   display: flex;
   flex-direction: column;
@@ -67,19 +71,15 @@ function onPointerUp() {
 .name {
   font-size: 12.5px;
   color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
+  @include lineClamp(1);
 }
 
 .amount {
   font-size: 12px;
   font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
+  @include lineClamp(1);
 }
 
 .budget-track {

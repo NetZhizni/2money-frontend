@@ -2,7 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
-import { dateKey, MONTHS_UK, MONTHS_UK_SHORT, MONTHS_UK_GENITIVE } from '../../utils/format'
+import { dateKey, MONTHS, MONTHS_SHORT, MONTHS_GENITIVE, WEEKDAYS_SHORT, isoWeekdayIndex } from '../../utils/format'
+import { t } from '../../i18n'
 
 const props = defineProps<{
   open: boolean
@@ -18,7 +19,7 @@ const yesterdayKey = computed(() => dateKey(Date.now() - 24 * 60 * 60 * 1000))
 
 function shortLabel(key: string): string {
   const [, month, day] = key.split('-').map(Number)
-  return `${day} ${MONTHS_UK_GENITIVE[month - 1]}`
+  return `${day} ${MONTHS_GENITIVE[month - 1]}`
 }
 
 const todayLabel = computed(() => shortLabel(todayKey.value))
@@ -31,10 +32,6 @@ function parseKey(key: string): { year: number; month: number; day: number } {
 
 function keyOf(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-}
-
-function titleCase(s: string): string {
-  return s.charAt(0) + s.slice(1).toLowerCase()
 }
 
 // Which month/year the calendar grid is currently showing — independent of
@@ -58,7 +55,8 @@ watch(
   },
 )
 
-const monthYearLabel = computed(() => `${titleCase(MONTHS_UK[viewMonth.value])} ${viewYear.value}`)
+// MONTHS is lowercase nominative in uk ("січень") — .cal-title's text-transform: capitalize does the rest.
+const monthYearLabel = computed(() => `${MONTHS[viewMonth.value]} ${viewYear.value}`)
 
 function shiftMonth(delta: number) {
   let m = viewMonth.value + delta
@@ -74,14 +72,15 @@ function selectMonth(month: number) {
   pickerMode.value = 'days'
 }
 
-const WEEKDAY_LABELS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Нд']
+// WEEKDAYS_SHORT is Sunday-first (index = Date#getDay()) — re-based to Monday-first for the calendar header.
+const WEEKDAY_LABELS = [...WEEKDAYS_SHORT.slice(1), WEEKDAYS_SHORT[0]]
 
 interface CalendarCell { key: string; day: number; otherMonth: boolean }
 
 const calendarCells = computed<CalendarCell[]>(() => {
   const year = viewYear.value
   const month = viewMonth.value
-  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7 // Monday = 0
+  const firstWeekday = isoWeekdayIndex(new Date(year, month, 1))
   const daysInMonth = new Date(year, month + 1, 0).getDate()
   const daysInPrevMonth = new Date(year, month, 0).getDate()
 
@@ -111,17 +110,17 @@ function pick(key: string) {
 </script>
 
 <template>
-  <Modal :open="open" title="Дата" top @close="emit('close')">
+  <Modal :open="open" :title="t('transactions.dateModal.title')" top @close="emit('close')">
     <div class="calendar">
       <div v-if="pickerMode === 'days'" class="cal-header">
-        <button type="button" class="cal-nav" aria-label="Попередній місяць" @click="shiftMonth(-1)">
+        <button type="button" class="cal-nav" :aria-label="t('transactions.dateModal.prevMonth')" @click="shiftMonth(-1)">
           <MdiIcon name="mdiChevronLeft" :size="22" />
         </button>
         <button type="button" class="cal-title" @click="pickerMode = 'months'">
           {{ monthYearLabel }}
           <MdiIcon name="mdiChevronDown" :size="16" />
         </button>
-        <button type="button" class="cal-nav" aria-label="Наступний місяць" @click="shiftMonth(1)">
+        <button type="button" class="cal-nav" :aria-label="t('transactions.dateModal.nextMonth')" @click="shiftMonth(1)">
           <MdiIcon name="mdiChevronRight" :size="22" />
         </button>
       </div>
@@ -146,17 +145,17 @@ function pick(key: string) {
 
       <template v-else>
         <div class="year-stepper">
-          <button type="button" class="cal-nav" aria-label="Попередній рік" @click="viewYear--">
+          <button type="button" class="cal-nav" :aria-label="t('transactions.dateModal.prevYear')" @click="viewYear--">
             <MdiIcon name="mdiChevronLeft" :size="22" />
           </button>
           <span class="year-label">{{ viewYear }}</span>
-          <button type="button" class="cal-nav" aria-label="Наступний рік" @click="viewYear++">
+          <button type="button" class="cal-nav" :aria-label="t('transactions.dateModal.nextYear')" @click="viewYear++">
             <MdiIcon name="mdiChevronRight" :size="22" />
           </button>
         </div>
         <div class="month-grid">
           <button
-            v-for="(label, idx) in MONTHS_UK_SHORT"
+            v-for="(label, idx) in MONTHS_SHORT"
             :key="label"
             type="button"
             class="month-cell"
@@ -172,20 +171,20 @@ function pick(key: string) {
     <div class="quick-row">
       <button type="button" class="quick-btn" :class="{ active: props.date === yesterdayKey }" @click="pick(yesterdayKey)">
         <MdiIcon name="mdiWeatherNight" :size="18" />
-        <span class="quick-title">Вчора</span>
+        <span class="quick-title">{{ t('common.yesterday') }}</span>
         <span class="quick-sub">{{ yesterdayLabel }}</span>
       </button>
       <button type="button" class="quick-btn" :class="{ active: props.date === todayKey }" @click="pick(todayKey)">
         <MdiIcon name="mdiWhiteBalanceSunny" :size="18" />
-        <span class="quick-title">Сьогодні</span>
+        <span class="quick-title">{{ t('common.today') }}</span>
         <span class="quick-sub">{{ todayLabel }}</span>
       </button>
     </div>
 
     <button v-if="showRecurring" type="button" class="row toggle-row" @click="emit('update:recurring', !recurring)">
       <span class="row-icon"><MdiIcon name="mdiRepeat" :size="20" color="var(--text-secondary)" /></span>
-      <span class="row-label">Повторення</span>
-      <span class="row-value">{{ recurring ? recurringSummary || 'Так' : 'Ні' }}</span>
+      <span class="row-label">{{ t('transactions.dateModal.recurring') }}</span>
+      <span class="row-value">{{ recurring ? recurringSummary || t('transactions.dateModal.recurringYes') : t('transactions.dateModal.recurringNo') }}</span>
     </button>
   </Modal>
 </template>
@@ -228,6 +227,7 @@ function pick(key: string) {
   border-radius: var(--radius-sm);
   padding: 10px 12px 12px;
   margin-bottom: 10px;
+  height: 444px;
 }
 
 .cal-header {
@@ -260,6 +260,7 @@ function pick(key: string) {
   color: var(--text-primary);
   font-size: 14.5px;
   font-weight: 600;
+  text-transform: capitalize;
   cursor: pointer;
   padding: 6px 8px;
   border-radius: var(--radius-sm);

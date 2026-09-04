@@ -8,12 +8,13 @@ import { pullAllAccounts, pullAllTransactions } from '../../db/sync'
 import { useAuthStore } from '../../stores/auth'
 import { useProfilesStore } from '../../stores/profiles'
 import { useViewAsStore } from '../../stores/viewAs'
-import { useDisplayCurrencyStore } from '../../stores/displayCurrency'
+import { useSettingsStore } from '../../stores/settings'
 import { computeAccountBalance } from '../../stores/accounts'
 import { convertLatest } from '../../db/exchangeRates'
 import { useLatestRun } from '../../composables/useLatestRun'
 import { useCountUp } from '../../composables/useCountUp'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 import type { Account, Profile, Transaction } from '../../types/models'
 
 const props = defineProps<{ open: boolean }>()
@@ -22,7 +23,7 @@ const emit = defineEmits<{ close: [] }>()
 const authStore = useAuthStore()
 const profiles = useProfilesStore()
 const viewAs = useViewAsStore()
-const displayCurrency = useDisplayCurrencyStore()
+const settings = useSettingsStore()
 
 // The family directory (profiles.all) already includes the signed-in user
 // themselves — pinned to the top and labeled "Ви" instead of appearing as
@@ -108,12 +109,12 @@ const computing = ref(false)
 const computeGuard = useLatestRun()
 
 watch(
-  [allAccounts, allTransactions, () => displayCurrency.effective, () => profiles.all],
+  [allAccounts, allTransactions, () => settings.baseCurrency, () => profiles.all],
   async () => {
     if (!accountsLoaded.value || !transactionsLoaded.value) return
     const run = computeGuard.start()
     computing.value = true
-    const target = displayCurrency.effective
+    const target = settings.baseCurrency
     const byOwner = new Map<string, Account[]>()
     for (const account of allAccounts.value) {
       if (!account.includeInTotal) continue
@@ -159,11 +160,8 @@ function sharePct(uid: string): number {
 </script>
 
 <template>
-  <Modal :open="open" title="Переглянути як" @close="emit('close')">
-    <p class="hint">
-      Оберіть користувача, щоб переглянути Рахунки, Категорії, Операції та Огляд від його імені (лише для читання),
-      або «Всі», щоб побачити дані родини разом.
-    </p>
+  <Modal :open="open" :title="t('layout.userSwitcher.title')" @close="emit('close')">
+    <p class="hint">{{ t('layout.userSwitcher.hint') }}</p>
 
     <div class="list">
       <button class="row" :class="{ active: viewAs.mode === 'all' }" @click="selectAll">
@@ -172,9 +170,9 @@ function sharePct(uid: string): number {
         </span>
         <span class="row-mid">
           <span class="row-top">
-            <span class="name">Всі</span>
+            <span class="name">{{ t('layout.userSwitcher.all') }}</span>
             <span class="amount" :class="{ negative: grandTotal < 0, computing }">
-              {{ !loaded ? '…' : formatMoney(animatedGrandTotal ?? 0, displayCurrency.effective) }}
+              {{ !loaded ? '…' : formatMoney(animatedGrandTotal ?? 0, settings.baseCurrency) }}
             </span>
           </span>
         </span>
@@ -189,14 +187,14 @@ function sharePct(uid: string): number {
       >
         <img v-if="authStore.profile.photoURL" :src="authStore.profile.photoURL" class="avatar" alt="" />
         <span v-else class="avatar avatar-fallback" :style="{ background: authStore.profile.color }">
-          {{ authStore.profile.displayName.slice(0, 1).toUpperCase() }}
+          {{ authStore.profile.displayName.slice(0, 1) }}
         </span>
         <span class="row-mid">
           <span class="row-top">
             <span class="name">{{ authStore.profile.displayName }}</span>
-            <span class="you-tag">Ви</span>
+            <span class="you-tag">{{ t('layout.userSwitcher.you') }}</span>
             <span class="amount" :class="{ negative: totalFor(authStore.profile.uid) < 0, computing }">
-              {{ !loaded ? '…' : formatMoney(totalFor(authStore.profile.uid), displayCurrency.effective) }}
+              {{ !loaded ? '…' : formatMoney(totalFor(authStore.profile.uid), settings.baseCurrency) }}
             </span>
           </span>
           <span class="row-track">
@@ -212,13 +210,13 @@ function sharePct(uid: string): number {
       <button v-for="p in others" :key="p.uid" class="row" :class="{ active: isSelected(p.uid) }" @click="select(p)">
         <img v-if="p.photoURL" :src="p.photoURL" class="avatar" alt="" />
         <span v-else class="avatar avatar-fallback" :style="{ background: p.color }">
-          {{ p.displayName.slice(0, 1).toUpperCase() }}
+          {{ p.displayName.slice(0, 1) }}
         </span>
         <span class="row-mid">
           <span class="row-top">
             <span class="name">{{ p.displayName }}</span>
             <span class="amount" :class="{ negative: totalFor(p.uid) < 0, computing }">
-              {{ !loaded ? '…' : formatMoney(totalFor(p.uid), displayCurrency.effective) }}
+              {{ !loaded ? '…' : formatMoney(totalFor(p.uid), settings.baseCurrency) }}
             </span>
           </span>
           <span class="row-track">
@@ -228,12 +226,12 @@ function sharePct(uid: string): number {
         <MdiIcon v-if="isSelected(p.uid)" name="mdiCheck" :size="18" color="var(--accent)" />
       </button>
 
-      <p v-if="!others.length" class="empty">Інших учасників родини ще немає.</p>
+      <p v-if="!others.length" class="empty">{{ t('layout.userSwitcher.empty') }}</p>
     </div>
   </Modal>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .hint {
   font-size: 12.5px;
   color: var(--text-muted);
@@ -282,6 +280,7 @@ function sharePct(uid: string): number {
   color: #fff;
   font-weight: 700;
   font-size: 14px;
+  text-transform: uppercase;
 }
 
 .all-icon {
@@ -307,9 +306,7 @@ function sharePct(uid: string): number {
   flex: 1;
   font-size: 14.5px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  @include lineClamp(1);
 }
 
 .you-tag {
@@ -327,7 +324,7 @@ function sharePct(uid: string): number {
   font-weight: 700;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  transition: opacity 0.25s ease;
+  @include transition();
 }
 
 .amount.negative {
@@ -349,7 +346,7 @@ function sharePct(uid: string): number {
   display: block;
   height: 100%;
   border-radius: var(--radius-pill);
-  transition: width 0.5s ease;
+  @include transition();
 }
 
 .empty {

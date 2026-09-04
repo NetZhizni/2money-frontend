@@ -2,37 +2,45 @@ import { db } from './schema'
 import { enqueueUpsertMany, pullAllCategories } from './sync'
 import http from '../api/http'
 import { newId } from '../utils/id'
+import { t } from '../i18n'
 import type { Category } from '../types/models'
 
 /**
  * Default category set shown on first launch (no accounts/transactions are
  * seeded — those start empty per spec). Icons are MDI keys, colors follow the
  * app's decorative badge palette (see utils/color.ts) chosen to match the
- * reference app's look.
+ * reference app's look. Names are resolved through `t()` (not
+ * `db/demoData.ts`'s opt-in sample data, which stays Ukrainian-only by
+ * design) since this is the real, permanent category set every new family
+ * actually starts with.
  */
-const DEFAULT_EXPENSE_CATEGORIES: Array<Pick<Category, 'name' | 'icon' | 'color'>> = [
-  { name: 'Продукти', icon: 'mdiFridgeOutline', color: '#2a78d6' },
-  { name: 'Кафе і ресторани', icon: 'mdiSilverwareForkKnife', color: '#e34948' },
-  { name: 'Дозвілля', icon: 'mdiTicketOutline', color: '#e87ba4' },
-  { name: 'Транспорт', icon: 'mdiBus', color: '#eda100' },
-  { name: 'Покупки', icon: 'mdiShoppingOutline', color: '#8d6e63' },
-  { name: 'Одяг', icon: 'mdiHanger', color: '#8a8d91' },
-  { name: 'Подарунки', icon: 'mdiGiftOutline', color: '#eb6834' },
-  { name: "Зв'язок", icon: 'mdiWeb', color: '#1baf7a' },
-  { name: 'Дім', icon: 'mdiHomeOutline', color: '#008300' },
-  { name: 'Машина', icon: 'mdiCarOutline', color: '#8a8d91' },
-  { name: "Здоров'я", icon: 'mdiMedicalBag', color: '#e34948' },
-  { name: 'Розвиток', icon: 'mdiChartLine', color: '#1baf7a' },
-  { name: 'Краса і чистота', icon: 'mdiEmoticonOutline', color: '#eda100' },
-  { name: 'Домашні тварини', icon: 'mdiPaw', color: '#1baf7a' },
-]
+function defaultExpenseCategories(): Array<Pick<Category, 'name' | 'icon' | 'color'>> {
+  return [
+    { name: t('seed.expense.groceries'), icon: 'mdiFridgeOutline', color: '#2a78d6' },
+    { name: t('seed.expense.cafes'), icon: 'mdiSilverwareForkKnife', color: '#e34948' },
+    { name: t('seed.expense.leisure'), icon: 'mdiTicketOutline', color: '#e87ba4' },
+    { name: t('seed.expense.transport'), icon: 'mdiBus', color: '#eda100' },
+    { name: t('seed.expense.shopping'), icon: 'mdiShoppingOutline', color: '#8d6e63' },
+    { name: t('seed.expense.clothing'), icon: 'mdiHanger', color: '#8a8d91' },
+    { name: t('seed.expense.gifts'), icon: 'mdiGiftOutline', color: '#eb6834' },
+    { name: t('seed.expense.communication'), icon: 'mdiWeb', color: '#1baf7a' },
+    { name: t('seed.expense.home'), icon: 'mdiHomeOutline', color: '#008300' },
+    { name: t('seed.expense.car'), icon: 'mdiCarOutline', color: '#8a8d91' },
+    { name: t('seed.expense.health'), icon: 'mdiMedicalBag', color: '#e34948' },
+    { name: t('seed.expense.selfDevelopment'), icon: 'mdiChartLine', color: '#1baf7a' },
+    { name: t('seed.expense.beautyAndHygiene'), icon: 'mdiEmoticonOutline', color: '#eda100' },
+    { name: t('seed.expense.pets'), icon: 'mdiPaw', color: '#1baf7a' },
+  ]
+}
 
-const DEFAULT_INCOME_CATEGORIES: Array<Pick<Category, 'name' | 'icon' | 'color'>> = [
-  { name: 'Зарплата', icon: 'mdiCashMultiple', color: '#008300' },
-  { name: 'Підробіток', icon: 'mdiBriefcaseOutline', color: '#2a78d6' },
-  { name: 'Подарунки', icon: 'mdiGiftOpenOutline', color: '#e87ba4' },
-  { name: 'Інше', icon: 'mdiDotsHorizontalCircleOutline', color: '#8a8d91' },
-]
+function defaultIncomeCategories(): Array<Pick<Category, 'name' | 'icon' | 'color'>> {
+  return [
+    { name: t('seed.income.salary'), icon: 'mdiCashMultiple', color: '#008300' },
+    { name: t('seed.income.sideJob'), icon: 'mdiBriefcaseOutline', color: '#2a78d6' },
+    { name: t('seed.income.gifts'), icon: 'mdiGiftOpenOutline', color: '#e87ba4' },
+    { name: t('seed.income.other'), icon: 'mdiDotsHorizontalCircleOutline', color: '#8a8d91' },
+  ]
+}
 
 /**
  * Categories are a shared family resource (see stores/categories.ts) — this
@@ -54,7 +62,7 @@ export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
   const categories: Category[] = []
   let order = 0
 
-  for (const c of DEFAULT_EXPENSE_CATEGORIES) {
+  for (const c of defaultExpenseCategories()) {
     categories.push({
       id: newId(),
       ownerId,
@@ -70,7 +78,7 @@ export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
     })
   }
   order = 0
-  for (const c of DEFAULT_INCOME_CATEGORIES) {
+  for (const c of defaultIncomeCategories()) {
     categories.push({
       id: newId(),
       ownerId,

@@ -13,6 +13,7 @@
   import { loadDemoData } from '../db/demoData'
   import { ACCOUNT_TYPE_OPTIONS } from '../utils/accountTypes'
   import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
+  import { t } from '../i18n'
   import type { Account, AccountType } from '../types/models'
   import type { ComponentPublicInstance } from 'vue'
 
@@ -130,9 +131,9 @@
     if (!account) return
     showForm.value = false
     popups.confirmDialog({
-      title: 'Видалити рахунок?',
-      message: `Рахунок «${account.name}» та всі пов'язані з ним операції буде видалено безповоротно.`,
-      confirmLabel: 'Видалити',
+      title: t('accounts.view.deleteTitle'),
+      message: t('accounts.view.deleteMessage', { name: account.name }),
+      confirmLabel: t('common.delete'),
       danger: true,
       onConfirm: async () => {
         await accounts.remove(account.id)
@@ -151,7 +152,7 @@
         :class="{ active: activeTab === tab.value }"
         @click="activeTab = tab.value"
       >
-        {{ tab.label }}
+        {{ t(tab.labelKey) }}
       </button>
     </div>
 
@@ -188,7 +189,7 @@
               :name="showArchived ? 'mdiChevronUp' : 'mdiChevronDown'"
               :size="18"
             />
-            Архівовані рахунки ({{ archivedAccounts.length }})
+            {{ t('accounts.view.archivedToggle', { count: archivedAccounts.length }) }}
           </button>
           <div
             v-if="showArchived"
@@ -211,11 +212,7 @@
           class="empty-state"
         >
           <p class="empty">
-            {{
-              readOnly
-                ? 'У цього користувача ще немає рахунків.'
-                : 'Рахунків ще немає. Додайте перший, щоб почати облік фінансів.'
-            }}
+            {{ readOnly ? t('accounts.view.emptyReadOnly') : t('accounts.view.empty') }}
           </p>
           <button
             v-if="!readOnly"
@@ -223,7 +220,7 @@
             :disabled="demoLoading"
             @click="handleLoadDemo"
           >
-            {{ demoLoading ? 'Додаємо…' : 'Або спробувати на демо-даних' }}
+            {{ demoLoading ? t('accounts.view.loadingDemo') : t('accounts.view.loadDemo') }}
           </button>
         </div>
 
@@ -231,7 +228,7 @@
           v-else-if="!activeAccounts.length && !archivedAccounts.length"
           class="empty-state"
         >
-          <p class="empty">У цій вкладці ще немає рахунків.</p>
+          <p class="empty">{{ t('accounts.view.emptyTab') }}</p>
         </div>
       </div>
     </div>
@@ -246,7 +243,7 @@
       <button
         v-if="!readOnly"
         class="fab"
-        aria-label="Додати рахунок"
+        :aria-label="t('accounts.view.addAccount')"
         @click="openCreate"
       >
         <MdiIcon
@@ -279,7 +276,7 @@
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
   /* Same split as App.vue's `.main-column` (auto header row + scrolling 1fr
    row) and PeriodPageView's `.view`/`.view-scroll`: the type tabs sit in the
    `auto` row so they never scroll away, while `.view-scroll` is its own
@@ -300,9 +297,7 @@
   .account-card-move,
   .account-card-enter-active,
   .account-card-leave-active {
-    transition:
-      opacity 0.2s ease,
-      transform 0.2s ease;
+    @include transition();
   }
   .account-card-enter-from,
   .account-card-leave-to {
@@ -354,7 +349,7 @@
   .fab {
     position: fixed;
     right: 24px;
-    bottom: 84px;
+    bottom: 32px;
     width: 56px;
     height: 56px;
     border-radius: 50%;
@@ -366,16 +361,20 @@
     justify-content: center;
     cursor: pointer;
     z-index: 15;
-    transition: transform 0.12s ease;
+    @include transition();
   }
 
   .fab:active {
     transform: scale(0.9);
   }
 
-  @media (min-width: 900px) {
+  @include laptop() {
     .fab {
-      bottom: 32px;
+      /* 84px clearance above .bottom-nav, plus the iOS home-indicator inset
+       that .bottom-nav's own padding already grows by — without it the fab
+       sits lower than the nav bar's real (safe-area-inflated) height and its
+       bottom half renders underneath the bar on notched iOS PWAs. */
+      bottom: calc(84px + env(safe-area-inset-bottom, 0px));
     }
   }
 </style>

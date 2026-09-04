@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 
 // ApexCharts is a large dependency (~500KB+) — load it only once a chart
 // actually needs to render instead of bundling it into every route that
@@ -31,7 +32,7 @@ const { colors, mode } = useChartColors()
 // The ring's segments always belong to whichever kind is active, so the
 // centered title/primary figure must follow it too — otherwise switching to
 // "Доходи" would still show a big "Витрати" total next to an income-colored ring.
-const title = computed(() => (props.kind === 'income' ? 'Доходи' : 'Витрати'))
+const title = computed(() => (props.kind === 'income' ? t('categories.income') : t('categories.expense')))
 const primaryTotal = computed(() => (props.kind === 'income' ? props.incomeTotal : props.expenseTotal))
 const secondaryTotal = computed(() => (props.kind === 'income' ? props.expenseTotal : props.incomeTotal))
 const hasData = computed(() => props.expenseTotal > 0 || props.incomeTotal > 0)

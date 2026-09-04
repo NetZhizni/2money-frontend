@@ -1,4 +1,5 @@
 import type { Account, Profile } from '../types/models'
+import { t } from '../i18n'
 
 /**
  * Resolves an account's display label from `effectiveUid`'s perspective —
@@ -27,4 +28,9 @@ export function resolveAccountLabel(
   if (effectiveUid !== null && account.ownerId === effectiveUid) return account.name
   const owner = profiles.find((p) => p.uid === account.ownerId)
   return `${owner?.displayName ?? '?'} · ${account.name}`
+}
+
+/** Which picker section an account falls under — "Savings" vs. plain "Accounts" (single source, was copy-pasted at every account-picker call site). */
+export function accountGroupLabel(account: Account): string {
+  return account.type === 'savings' ? t('transactions.picker.groupSavings') : t('transactions.picker.groupAccounts')
 }

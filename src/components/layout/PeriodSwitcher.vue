@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { usePeriodStore } from '../../stores/period'
-import { MONTHS_UK, MONTHS_UK_SHORT, MONTHS_UK_GENITIVE } from '../../utils/format'
+import { MONTHS, MONTHS_SHORT, MONTHS_GENITIVE } from '../../utils/format'
+import { t } from '../../i18n'
 import MdiIcon from '../common/MdiIcon.vue'
 import PeriodPickerPopover from './PeriodPickerPopover.vue'
 
@@ -17,21 +18,21 @@ const periodLabel = computed(() => {
   switch (period.granularity) {
     case 'day': {
       const d = new Date(period.anchor)
-      return `${d.getDate()} ${MONTHS_UK_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
+      return `${d.getDate()} ${MONTHS_GENITIVE[d.getMonth()]} ${d.getFullYear()}`
     }
     case 'week': {
       const s = new Date(period.start)
       const e = new Date(period.end)
       return s.getMonth() === e.getMonth()
-        ? `${s.getDate()}–${e.getDate()} ${MONTHS_UK_SHORT[s.getMonth()]}`
-        : `${s.getDate()} ${MONTHS_UK_SHORT[s.getMonth()]} – ${e.getDate()} ${MONTHS_UK_SHORT[e.getMonth()]}`
+        ? `${s.getDate()}–${e.getDate()} ${MONTHS_SHORT[s.getMonth()]}`
+        : `${s.getDate()} ${MONTHS_SHORT[s.getMonth()]} – ${e.getDate()} ${MONTHS_SHORT[e.getMonth()]}`
     }
     case 'month':
-      return `${MONTHS_UK[period.month]} ${period.year}`
+      return `${MONTHS[period.month]} ${period.year}`
     case 'year':
       return String(period.year)
     case 'all':
-      return 'Весь час'
+      return t('period.allTime')
   }
 })
 </script>
@@ -41,7 +42,7 @@ const periodLabel = computed(() => {
     <button
       v-if="period.granularity !== 'all'"
       class="chevron"
-      aria-label="Попередній період"
+      :aria-label="t('layout.periodSwitcher.prev')"
       @click="period.prev()"
     >
       <MdiIcon name="mdiChevronLeft" :size="22" />
@@ -53,7 +54,7 @@ const periodLabel = computed(() => {
       @click="showPeriodPicker = true"
     >
       <span v-if="period.granularity === 'month'" class="day-badge">{{ daysInCurrentMonth() }}</span>
-      <span>{{ periodLabel }}</span>
+      <span :class="{ 'period-pill__month': period.granularity === 'month' }">{{ periodLabel }}</span>
       <MdiIcon name="mdiChevronDown" :size="16" />
     </button>
     <PeriodPickerPopover :open="showPeriodPicker" @close="showPeriodPicker = false" />
@@ -61,7 +62,7 @@ const periodLabel = computed(() => {
     <button
       v-if="period.granularity !== 'all'"
       class="chevron"
-      aria-label="Наступний період"
+      :aria-label="t('layout.periodSwitcher.next')"
       @click="period.next()"
     >
       <MdiIcon name="mdiChevronRight" :size="22" />
@@ -69,7 +70,7 @@ const periodLabel = computed(() => {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .period-row {
   display: flex;
   align-items: center;
@@ -89,7 +90,7 @@ const periodLabel = computed(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.12s ease;
+  @include transition();
 }
 
 .chevron:active {
@@ -110,7 +111,7 @@ const periodLabel = computed(() => {
   color: var(--text-primary);
   cursor: pointer;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.12s ease;
+  @include transition();
 }
 
 .period-pill:active {
@@ -125,6 +126,10 @@ const periodLabel = computed(() => {
 .period-pill--current .day-badge {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
   color: var(--accent);
+}
+
+.period-pill__month {
+  text-transform: uppercase;
 }
 
 .day-badge {

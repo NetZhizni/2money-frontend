@@ -1,6 +1,5 @@
 import { useAccountsStore } from '../stores/accounts'
 import { useCategoriesStore } from '../stores/categories'
-import { useSettingsStore } from '../stores/settings'
 import { useTransactionsStore } from '../stores/transactions'
 import { useAuthStore } from '../stores/auth'
 import { db } from './schema'
@@ -91,7 +90,6 @@ function randomNote(categoryName: string): string | undefined {
 export async function loadDemoData(): Promise<void> {
   const accounts = useAccountsStore()
   const categories = useCategoriesStore()
-  const settings = useSettingsStore()
   const transactions = useTransactionsStore()
   const authStore = useAuthStore()
   const ownerId = authStore.uid!
@@ -178,11 +176,6 @@ export async function loadDemoData(): Promise<void> {
   const usdAccountId = created['USD готівка'].id
   const savingsAccountId = created['Заощадження'].id
 
-  // Demo transactions never need historical precision, so resolve each
-  // currency's rate to the app's base currency once (pivoting through
-  // UAH rates) and reuse it everywhere instead of one call per transaction.
-  const uahToBaseRate = await convertAmount(1, 'UAH', settings.baseCurrency)
-  const usdToBaseRate = await convertAmount(1, 'USD', settings.baseCurrency)
   // The real UAH<->USD market rate, used only to scale a "UAH-shaped" random
   // amount range down to a realistic USD figure — independent of base currency.
   const uahPerUsd = await convertAmount(1, 'USD', 'UAH')
@@ -219,8 +212,6 @@ export async function loadDemoData(): Promise<void> {
           toAccountId: toId,
           amount,
           currency: 'UAH',
-          exchangeRate: 1,
-          baseAmount: 0,
           createdAt: now,
           updatedAt: now,
         })
@@ -234,7 +225,6 @@ export async function loadDemoData(): Promise<void> {
       const useUsd = Math.random() < 0.08
       const accountId = useUsd ? usdAccountId : pick(uahAccountIds)
       const currency = useUsd ? 'USD' : 'UAH'
-      const rate = useUsd ? usdToBaseRate : uahToBaseRate
       const uahAmount = randFloat(spec.min, spec.max)
       const amount = useUsd ? Math.round((uahAmount / uahPerUsd) * 100) / 100 : uahAmount
 
@@ -252,8 +242,6 @@ export async function loadDemoData(): Promise<void> {
         subcategoryId,
         amount,
         currency,
-        exchangeRate: rate,
-        baseAmount: type === 'expense' ? -amount * rate : amount * rate,
         note: randomNote(spec.name),
         createdAt: now,
         updatedAt: now,

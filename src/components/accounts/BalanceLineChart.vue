@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
-import { formatMoney, MONTHS_UK_SHORT } from '../../utils/format'
+import { formatMoney, MONTHS_SHORT, type CurrencyDisplayStyle } from '../../utils/format'
+import { t } from '../../i18n'
 import type { BalancePoint } from '../../utils/balanceHistory'
 
 // ApexCharts is a large dependency (~500KB+) — load it only once a chart
@@ -13,6 +14,10 @@ const props = withDefaults(
   defineProps<{
     points: BalancePoint[]
     currency: string
+    // The account's own Settings → "Формат валюти" override, if any (see
+    // Account.currencyDisplay) — AccountDetailModal.vue is this chart's only
+    // caller today and always has one to pass through.
+    currencyDisplay?: CurrencyDisplayStyle | null
     color?: string
     height?: number
   }>(),
@@ -23,11 +28,11 @@ const { colors, mode } = useChartColors()
 
 function shortDateLabel(ts: number): string {
   const d = new Date(ts)
-  return `${d.getDate()} ${MONTHS_UK_SHORT[d.getMonth()]}`
+  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 
 const series = computed(() => [
-  { name: 'Баланс', data: props.points.map((p) => ({ x: p.date, y: p.balance })) },
+  { name: t('accounts.balanceChart.seriesName'), data: props.points.map((p) => ({ x: p.date, y: p.balance })) },
 ])
 
 const lineColor = computed(() => props.color ?? colors.value.accent)
@@ -50,19 +55,19 @@ const options = computed(() => ({
     axisTicks: { show: false },
   },
   yaxis: {
-    labels: { style: { colors: colors.value.textMuted }, formatter: (v: number) => formatMoney(v, props.currency) },
+    labels: { style: { colors: colors.value.textMuted }, formatter: (v: number) => formatMoney(v, props.currency, { currencyDisplay: props.currencyDisplay }) },
   },
   tooltip: {
     theme: mode.value,
     x: { formatter: (val: number) => shortDateLabel(val) },
-    y: { formatter: (v: number) => formatMoney(v, props.currency) },
+    y: { formatter: (v: number) => formatMoney(v, props.currency, { currencyDisplay: props.currencyDisplay }) },
   },
 }))
 </script>
 
 <template>
   <div class="chart-wrap">
-    <p v-if="points.length < 2" class="empty">Недостатньо даних</p>
+    <p v-if="points.length < 2" class="empty">{{ t('accounts.balanceChart.notEnoughData') }}</p>
     <VueApexCharts v-else type="area" :height="height" :options="options" :series="series" />
   </div>
 </template>

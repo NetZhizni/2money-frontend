@@ -1,8 +1,35 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { startOfMonth, endOfMonth, startOfDay, endOfDay, startOfWeek, endOfWeek } from '../utils/format'
+import type { MessageKey } from '../i18n'
 
 export type PeriodGranularity = 'day' | 'week' | 'month' | 'year' | 'all'
+
+/** Which `t()` key labels each granularity — single source for `PeriodPickerPopover.vue`'s option list. */
+export const PERIOD_GRANULARITY_LABEL_KEY: Record<PeriodGranularity, MessageKey> = {
+  day: 'period.granularity.day',
+  week: 'period.granularity.week',
+  month: 'period.granularity.month',
+  year: 'period.granularity.year',
+  all: 'period.granularity.all',
+}
+
+/** "Current period" shortcut label per granularity (e.g. "This month") — `all` has no such shortcut. */
+export const PERIOD_TODAY_LABEL_KEY: Record<Exclude<PeriodGranularity, 'all'>, MessageKey> = {
+  day: 'period.today.day',
+  week: 'period.today.week',
+  month: 'period.today.month',
+  year: 'period.today.year',
+}
+
+/** Totals-row label per granularity — wording differs from `PERIOD_GRANULARITY_LABEL_KEY` for `all` ("All time" vs "All"). */
+export const PERIOD_TOTAL_LABEL_KEY: Record<PeriodGranularity, MessageKey> = {
+  day: 'period.total.day',
+  week: 'period.total.week',
+  month: 'period.total.month',
+  year: 'period.total.year',
+  all: 'period.total.all',
+}
 
 function addDays(ts: number, days: number): number {
   const d = new Date(ts)

@@ -4,8 +4,9 @@ import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
 import { useAuthStore } from './auth'
-import { useViewAsStore } from './viewAs'
+import { useSettingsStore } from './settings'
 import { useTransactionsStore } from './transactions'
+import { assertWritable } from './guards'
 import type { Category, CategoryKind } from '../types/models'
 
 export type NewCategoryInput = Omit<Category, 'id' | 'createdAt' | 'order' | 'ownerId'>
@@ -22,7 +23,6 @@ export type NewCategoryInput = Omit<Category, 'id' | 'createdAt' | 'order' | 'ow
  */
 export const useCategoriesStore = defineStore('categories', () => {
   const authStore = useAuthStore()
-  const viewAs = useViewAsStore()
   const collection = useSyncedCollection<Category>('categories', async () => {
     const rows = await db.categories.toArray()
     return rows.sort((a, b) => a.order - b.order)
@@ -48,21 +48,55 @@ export const useCategoriesStore = defineStore('categories', () => {
     return collection.all.value.find((c) => c.id === id)
   }
 
-  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
-  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
-  // should never actually fire — it's just a loud failure if something slips
-  // through, instead of silently writing under the wrong owner.
-  function assertWritable() {
-    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
-  }
-
   async function add(input: NewCategoryInput): Promise<Category> {
     assertWritable()
     const siblings = collection.all.value.filter((c) => c.parentId === (input.parentId ?? null))
     const order = siblings.length ? Math.max(...siblings.map((c) => c.order)) + 1 : 0
-    const category: Category = { ...input, id: newId(), ownerId: authStore.uid!, order, createdAt: Date.now() }
+    // Only a top-level category carries its own currency (a subcategory always
+    // inherits its parent's — see CategoryFormModal.vue) — and it's mandatory
+    // there, defaulting to the base currency when the caller didn't pick one
+    // (covers db/seed.ts's default categories, which pass none at all).
+    const currency = input.parentId ? undefined : input.currency || useSettingsStore().baseCurrency
+    const category: Category = { ...input, currency, id: newId(), ownerId: authStore.uid!, order, createdAt: Date.now() }
     await collection.put(category)
     return category
+  }
+
+  /** Whether ANY family member has an operation against this category (or as its subcategory) — see AccountModel/CategoryModel's server-side twin, which enforces this for real. */
+  async function hasTransactions(id: string): Promise<boolean> {
+    const count = await db.transactions
+      .toCollection()
+      .filter((t) => t.categoryId === id || t.subcategoryId === id)
+      .count()
+    return count > 0
+  }
+
+  /**
+   * The DOMINANT currency among every family member's operations already
+   * recorded against this (top-level) category — used to give a category
+   * saved before currencies were mandatory a sensible currency the first
+   * time it's edited (see CategoryFormModal.vue), instead of blindly
+   * defaulting to the base currency (which would silently turn a category
+   * that's only ever seen e.g. USD operations into a fake cross-currency one
+   * going forward). `undefined` for a category with no history yet.
+   */
+  async function inferCurrency(id: string): Promise<string | undefined> {
+    // `categoryId` is never indexed (see db/schema.ts) — same full-table
+    // filter approach as hasTransactions above. `t.categoryId` always holds
+    // the TOP-LEVEL id (a subcategory's own operations count toward its
+    // parent's currency too), so no separate subcategoryId match is needed here.
+    const rows = await db.transactions.toCollection().filter((t) => t.categoryId === id).toArray()
+    const counts = new Map<string, number>()
+    for (const t of rows) counts.set(t.currency, (counts.get(t.currency) ?? 0) + 1)
+    let best: string | undefined
+    let bestCount = 0
+    for (const [currency, count] of counts) {
+      if (count > bestCount) {
+        bestCount = count
+        best = currency
+      }
+    }
+    return best
   }
 
   async function update(id: string, patch: Partial<Category>): Promise<void> {
@@ -115,6 +149,8 @@ export const useCategoriesStore = defineStore('categories', () => {
     update,
     setArchived,
     remove,
+    hasTransactions,
+    inferCurrency,
     expenseTree,
     incomeTree,
   }

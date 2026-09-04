@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import MdiIcon from '../components/common/MdiIcon.vue'
+import { t } from '../i18n'
 
 const authStore = useAuthStore()
 const signingIn = ref(false)
@@ -13,7 +14,7 @@ async function handleSignIn() {
   try {
     await authStore.signInWithGoogle()
   } catch (e) {
-    error.value = 'Не вдалося увійти. Спробуйте ще раз.'
+    error.value = t('login.signInFailed')
   } finally {
     signingIn.value = false
   }
@@ -25,26 +26,26 @@ async function handleSignIn() {
     <div class="card">
       <MdiIcon name="mdiWalletOutline" :size="48" color="var(--accent)" />
       <h1>2Money</h1>
-      <p class="hint">Увійдіть через Google-акаунт родини.</p>
+      <p class="hint">{{ t('login.signInHint') }}</p>
 
       <button class="btn btn-primary signin-btn" :disabled="signingIn" @click="handleSignIn">
-        {{ signingIn ? 'Вхід…' : 'Увійти через Google' }}
+        {{ signingIn ? t('login.signingIn') : t('login.signInButton') }}
       </button>
 
       <p v-if="authStore.deniedEmail" class="denied">
-        Адреса <strong>{{ authStore.deniedEmail }}</strong>: {{ authStore.deniedMessage ?? 'доступ не надано.' }}
-        Зверніться до адміністратора родини.
+        <strong>{{ authStore.deniedEmail }}</strong>: {{ authStore.deniedMessage ?? t('login.accessNotGranted') }}
+        {{ t('login.deniedSuffix') }}
       </p>
       <p v-if="error" class="denied">{{ error }}</p>
     </div>
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .login-shell {
   min-height: 100vh;
   min-height: 100dvh;
-  overflow-y: auto;
+  @include overflow(y);
   display: flex;
   align-items: center;
   justify-content: center;

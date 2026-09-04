@@ -5,6 +5,7 @@ import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
 import { useAuthStore } from './auth'
 import { useViewAsStore } from './viewAs'
+import { assertWritable } from './guards'
 import type { Transaction } from '../types/models'
 
 /**
@@ -41,14 +42,6 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
   function participantsFor(ownerId: string, toOwnerId?: string): string[] {
     return toOwnerId && toOwnerId !== ownerId ? [ownerId, toOwnerId] : [ownerId]
-  }
-
-  // Belt-and-suspenders: the UI never exposes create/edit/delete affordances
-  // while viewAs.isReadOnly (viewing another profile, or "Всі"), so this
-  // should never actually fire — it's just a loud failure if something slips
-  // through, instead of silently writing under the wrong owner.
-  function assertWritable() {
-    if (viewAs.isReadOnly) throw new Error('Перегляд профілю іншого користувача доступний лише для читання')
   }
 
   async function add(input: NewTransactionInput): Promise<Transaction> {

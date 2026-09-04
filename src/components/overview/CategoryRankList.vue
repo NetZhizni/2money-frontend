@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import IconCircle from '../common/IconCircle.vue'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 
 export interface RankRow {
   id: string
@@ -36,11 +37,11 @@ function pct(amount: number): number {
       </div>
       <span class="rank-pct">{{ pct(row.amount) }}%</span>
     </button>
-    <p v-if="!rows.length" key="empty" class="empty">Немає даних за цей період.</p>
+    <p v-if="!rows.length" key="empty" class="empty">{{ t('overview.noDataForPeriod') }}</p>
   </TransitionGroup>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .rank-list {
   position: relative;
   display: flex;
@@ -51,7 +52,7 @@ function pct(amount: number): number {
 .rank-row-move,
 .rank-row-enter-active,
 .rank-row-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  @include transition();
 }
 .rank-row-enter-from,
 .rank-row-leave-to {
@@ -93,9 +94,7 @@ function pct(amount: number): number {
 
 .rank-name {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  @include lineClamp(1);
 }
 
 .rank-amount {

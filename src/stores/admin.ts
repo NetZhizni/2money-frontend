@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import http from '../api/http'
+import { t } from '../i18n'
 import type { UserRole } from '../types/models'
 
 export interface AdminUserRow {
@@ -76,5 +77,5 @@ export const useAdminStore = defineStore('admin', () => {
 
 function extractMessage(error: unknown): string {
   const data = (error as { response?: { data?: { message?: string } } })?.response?.data
-  return data?.message ?? (error as Error)?.message ?? 'Сталася помилка'
+  return data?.message ?? (error as Error)?.message ?? t('errors.generic')
 }

@@ -37,6 +37,38 @@ export const usePopupsStore = defineStore('popups', () => {
     transactionForm.open = false
   }
 
+  // "Редагувати чек" — тепер це й "Фото чека" (скан + перегляд розпізнаного),
+  // об'єднані в один ReceiptEditModal.vue: рахунок/дата/склад операцій
+  // виглядають і поводяться однаково незалежно від того, як сюди потрапили.
+  // Driven from here (rather than staying local to OperationsDataView.vue, as
+  // it started out) because TransactionFormModal's own "Додати в чек" button
+  // (see App.vue's handleAddToReceiptRequest) needs to open it from wherever
+  // the transaction form happened to be opened from (Accounts, Categories,
+  // Operations, Search), not just the Operations page. Exactly one of
+  // `receiptId`/`seedTransaction`/`scanFile` is meaningful per open — see
+  // ReceiptEditModal.vue's own three-mode doc comment.
+  const receiptEdit = reactive<{
+    open: boolean
+    receiptId: string | null
+    seedTransaction: Transaction | null
+    scanFile: File | null
+  }>({
+    open: false,
+    receiptId: null,
+    seedTransaction: null,
+    scanFile: null,
+  })
+
+  function openReceiptEdit(opts: { receiptId?: string | null; seedTransaction?: Transaction | null; scanFile?: File | null } = {}) {
+    receiptEdit.receiptId = opts.receiptId ?? null
+    receiptEdit.seedTransaction = opts.seedTransaction ?? null
+    receiptEdit.scanFile = opts.scanFile ?? null
+    receiptEdit.open = true
+  }
+  function closeReceiptEdit() {
+    receiptEdit.open = false
+  }
+
   const confirm = reactive<{
     open: boolean
     title: string
@@ -69,6 +101,9 @@ export const usePopupsStore = defineStore('popups', () => {
     transactionForm,
     openTransactionForm,
     closeTransactionForm,
+    receiptEdit,
+    openReceiptEdit,
+    closeReceiptEdit,
     confirm,
     confirmDialog,
     closeConfirm,

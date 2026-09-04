@@ -2,6 +2,8 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Modal from '../common/Modal.vue'
+import CurrencyPickerModal from './CurrencyPickerModal.vue'
+import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { useTemplatesStore } from '../../stores/templates'
 import { useAccountsStore } from '../../stores/accounts'
@@ -10,13 +12,27 @@ import { useTransactionsStore } from '../../stores/transactions'
 import { useAuthStore } from '../../stores/auth'
 import { useViewAsStore } from '../../stores/viewAs'
 import { usePopupsStore } from '../../stores/popups'
-import { COMMON_CURRENCIES } from '../../utils/currencies'
 import { exportData, downloadBackup, importData } from '../../db/backup'
 import { downloadTransactionsCsv } from '../../db/csvExport'
 import { loadDemoData } from '../../db/demoData'
 import { resetAllData } from '../../db/reset'
-import { formatMoney } from '../../utils/format'
+import {
+  formatMoney,
+  formatMoneyAs,
+  formatDateAs,
+  getNumberFormatSetting,
+  setNumberFormatSetting,
+  getDateFormatSetting,
+  setDateFormatSetting,
+  getCurrencyDisplaySetting,
+  setCurrencyDisplaySetting,
+  type NumberFormatStyle,
+  type DateFormatStyle,
+  type CurrencyDisplayStyle,
+} from '../../utils/format'
 import { forceCheckForUpdate } from '../../pwa/updateService'
+import { t, getLocaleSetting, setLocaleSetting } from '../../i18n'
+import type { MessageKey, LocaleSetting } from '../../i18n'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -37,28 +53,115 @@ const popups = usePopupsStore()
 // these stay unavailable until back on "Ви".
 const viewingOther = computed(() => viewAs.isReadOnly)
 
-const FREQ_LABEL: Record<string, string> = { daily: 'щодня', weekly: 'щотижня', monthly: 'щомісяця', yearly: 'щороку' }
+// Per-device, not part of `settings` (see i18n/locale.ts) — reloads the page
+// on change instead of live-updating, so this only needs its initial value.
+const localeSetting = ref<LocaleSetting>(getLocaleSetting())
+function chooseLocale(value: LocaleSetting) {
+  localeSetting.value = value
+  setLocaleSetting(value)
+}
 
-const activeTemplates = computed(() => templates.all.filter((t) => t.active))
+// Number/date/currency-display format pickers (see utils/format.ts) — same
+// per-device, reload-to-apply pattern as the language setting above.
+const showNumberFormatPicker = ref(false)
+const showDateFormatPicker = ref(false)
+const showCurrencyDisplayPicker = ref(false)
+const numberFormatSetting = ref<NumberFormatStyle>(getNumberFormatSetting())
+const dateFormatSetting = ref<DateFormatStyle>(getDateFormatSetting())
+const currencyDisplaySetting = ref<CurrencyDisplayStyle>(getCurrencyDisplaySetting())
+
+const PREVIEW_AMOUNT = 1234.56
+const numberFormatOptions = computed<ListOption[]>(() => [
+  { value: 'auto', label: t('layout.settings.numberFormatAuto'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'auto') },
+  { value: 'uk', label: t('layout.settings.numberFormatUk'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'uk') },
+  { value: 'us', label: t('layout.settings.numberFormatUs'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'us') },
+  { value: 'eu', label: t('layout.settings.numberFormatEu'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'eu') },
+])
+const numberFormatLabel = computed(
+  () => numberFormatOptions.value.find((o) => o.value === numberFormatSetting.value)?.sublabel ?? '',
+)
+
+const PREVIEW_DATE = new Date(2026, 3, 5) // 5 April — a day/month pair that reads unambiguously in every format below
+const dateFormatOptions = computed<ListOption[]>(() => [
+  { value: 'iso', label: t('layout.settings.dateFormatIso'), sublabel: formatDateAs(PREVIEW_DATE, 'iso') },
+  { value: 'dmy', label: t('layout.settings.dateFormatDmy'), sublabel: formatDateAs(PREVIEW_DATE, 'dmy') },
+  { value: 'mdy', label: t('layout.settings.dateFormatMdy'), sublabel: formatDateAs(PREVIEW_DATE, 'mdy') },
+])
+const dateFormatLabel = computed(
+  () => dateFormatOptions.value.find((o) => o.value === dateFormatSetting.value)?.sublabel ?? '',
+)
+
+// Each option previewed at the CURRENT number-format setting — only the
+// currencyDisplay axis varies here, matching what formatMoneyAs's `opts`
+// override actually does (see AccountFormModal.vue/CategoryFormModal.vue for
+// the identical per-entity picker, whose "базовий вигляд" option reads this
+// setting's own preview back via formatMoney's default).
+const currencyDisplayOptions = computed<ListOption[]>(() => [
+  {
+    value: 'narrowSymbol',
+    label: t('layout.settings.currencyDisplayNarrowSymbol'),
+    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'narrowSymbol' }),
+  },
+  {
+    value: 'symbol',
+    label: t('layout.settings.currencyDisplaySymbol'),
+    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'symbol' }),
+  },
+  {
+    value: 'code',
+    label: t('layout.settings.currencyDisplayCode'),
+    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'code' }),
+  },
+  {
+    value: 'name',
+    label: t('layout.settings.currencyDisplayName'),
+    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'name' }),
+  },
+])
+const currencyDisplayLabel = computed(
+  () => currencyDisplayOptions.value.find((o) => o.value === currencyDisplaySetting.value)?.sublabel ?? '',
+)
+
+function chooseNumberFormat(value: string) {
+  setNumberFormatSetting(value as NumberFormatStyle)
+}
+function chooseDateFormat(value: string) {
+  setDateFormatSetting(value as DateFormatStyle)
+}
+function chooseCurrencyDisplay(value: string) {
+  setCurrencyDisplaySetting(value as CurrencyDisplayStyle)
+}
+
+const FREQ_LABEL_KEY: Record<string, MessageKey> = {
+  daily: 'layout.settings.freq.daily',
+  weekly: 'layout.settings.freq.weekly',
+  monthly: 'layout.settings.freq.monthly',
+  yearly: 'layout.settings.freq.yearly',
+}
+
+const activeTemplates = computed(() => templates.all.filter((tpl) => tpl.active))
 
 function describeTemplate(id: string) {
-  const t = templates.all.find((x) => x.id === id)
-  if (!t) return null
-  const account = accounts.all.find((a) => a.id === t.accountId)
-  const category = categories.byId(t.categoryId)
+  const tpl = templates.all.find((x) => x.id === id)
+  if (!tpl) return null
+  const account = accounts.all.find((a) => a.id === tpl.accountId)
+  const category = categories.byId(tpl.categoryId)
+  const every = tpl.interval > 1 ? ` ${t('layout.settings.freq.every', { n: tpl.interval })}` : ''
   return {
     title: category?.name ?? '—',
-    subtitle: `${account?.name ?? ''} · ${FREQ_LABEL[t.frequency]}${t.interval > 1 ? ` (кожні ${t.interval})` : ''}`,
-    amount: formatMoney(t.type === 'expense' ? -t.amount : t.amount, t.currency),
+    subtitle: `${account?.name ?? ''} · ${t(FREQ_LABEL_KEY[tpl.frequency])}${every}`,
+    amount: formatMoney(tpl.type === 'expense' ? -tpl.amount : tpl.amount, tpl.currency, { currencyDisplay: account?.currencyDisplay }),
     color: category?.color ?? '#9a9a9e',
   }
 }
 
 async function removeTemplate(id: string) {
-  if (confirm('Видалити цю повторювану операцію? Вже створені операції залишаться.')) {
+  if (confirm(t('layout.settings.removeTemplateConfirm'))) {
     await templates.remove(id)
   }
 }
+
+const showCurrencyPicker = ref(false)
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const status = ref('')
@@ -74,7 +177,7 @@ async function handleLoadDemo() {
   demoLoading.value = true
   try {
     await loadDemoData()
-    status.value = 'Демо-дані додано: рахунки та операції за поточний місяць.'
+    status.value = t('layout.settings.demoDataAdded')
   } finally {
     demoLoading.value = false
   }
@@ -84,15 +187,15 @@ const resetLoading = ref(false)
 
 function openResetConfirm() {
   popups.confirmDialog({
-    title: 'Скинути всі дані?',
-    message: 'Усі рахунки, операції та повторювані операції буде видалено безповоротно. Категорії та налаштування залишаться.',
-    confirmLabel: 'Скинути',
+    title: t('layout.settings.resetConfirmTitle'),
+    message: t('layout.settings.resetConfirmMessage'),
+    confirmLabel: t('layout.settings.resetConfirmButton'),
     danger: true,
     onConfirm: async () => {
       resetLoading.value = true
       try {
         await resetAllData()
-        status.value = 'Усі дані видалено.'
+        status.value = t('layout.settings.dataReset')
       } finally {
         resetLoading.value = false
         popups.closeConfirm()
@@ -104,12 +207,12 @@ function openResetConfirm() {
 async function handleExport() {
   const payload = await exportData()
   downloadBackup(payload)
-  status.value = 'Резервну копію збережено.'
+  status.value = t('layout.settings.backupSaved')
 }
 
-function handleExportCsv() {
-  downloadTransactionsCsv()
-  status.value = 'CSV з операціями збережено.'
+async function handleExportCsv() {
+  await downloadTransactionsCsv()
+  status.value = t('layout.settings.csvSaved')
 }
 
 function triggerImport() {
@@ -122,11 +225,11 @@ async function handleImportFile(e: Event) {
   try {
     const text = await file.text()
     const payload = JSON.parse(text)
-    if (!confirm('Це замінить усі ваші поточні дані даними з файлу. Продовжити?')) return
+    if (!confirm(t('layout.settings.importConfirm'))) return
     await importData(payload)
-    status.value = 'Дані відновлено.'
+    status.value = t('sync.restoreSuccess')
   } catch (err) {
-    status.value = `Помилка імпорту: ${(err as Error).message}`
+    status.value = t('sync.importError', { message: (err as Error).message })
   }
 }
 
@@ -138,9 +241,9 @@ async function handleCheckUpdate() {
   updateStatus.value = ''
   try {
     const result = await forceCheckForUpdate()
-    if (result === 'up-to-date') updateStatus.value = 'У вас уже остання версія застосунку.'
-    else if (result === 'error') updateStatus.value = 'Не вдалося перевірити оновлення. Перевірте з’єднання.'
-    // 'updated' перезавантажує сторінку самостійно — статус показати не встигне.
+    if (result === 'up-to-date') updateStatus.value = t('layout.settings.upToDate')
+    else if (result === 'error') updateStatus.value = t('layout.settings.updateCheckFailed')
+    // 'updated' reloads the page on its own — there's no time left to show a status.
   } finally {
     updateChecking.value = false
   }
@@ -160,116 +263,218 @@ async function handleSignOut() {
 </script>
 
 <template>
-  <Modal :open="open" title="Налаштування" wide @close="emit('close')">
-    <div class="field profile-field" v-if="authStore.profile">
-      <div class="profile-row">
-        <img v-if="authStore.profile.photoURL" :src="authStore.profile.photoURL" class="avatar" alt="" />
-        <div v-else class="avatar avatar-fallback" :style="{ background: authStore.profile.color }">
-          {{ authStore.profile.displayName.slice(0, 1).toUpperCase() }}
-        </div>
-        <div class="profile-text">
-          <span class="profile-name">{{ authStore.profile.displayName }}</span>
-          <span class="profile-email">{{ authStore.profile.email }}</span>
-        </div>
-        <button class="btn btn-secondary" @click="handleSignOut">Вийти</button>
-      </div>
-    </div>
+  <Modal :open="open" :title="t('layout.settings.title')" wide @close="emit('close')">
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.profile') }}</h3>
 
-    <div class="field" v-if="authStore.isOwner">
-      <label>Учасники родини</label>
-      <p class="hint">Додавайте, вимикайте доступ і призначайте власників у розділі адміністрування.</p>
-      <button class="btn btn-secondary" @click="openAdmin">Керувати учасниками</button>
-    </div>
-
-    <div class="field">
-      <label>Базова валюта</label>
-      <select v-model="settings.baseCurrency" @change="settings.setBaseCurrency(settings.baseCurrency)">
-        <option v-for="c in COMMON_CURRENCIES" :key="c.code" :value="c.code">{{ c.label }}</option>
-      </select>
-      <p class="hint">Використовується для загального балансу та аналітики по всіх рахунках.</p>
-    </div>
-
-    <div class="field">
-      <label>Тема</label>
-      <div class="segmented">
-        <button :class="{ active: settings.theme === 'system' }" @click="settings.setTheme('system')">Системна</button>
-        <button :class="{ active: settings.theme === 'light' }" @click="settings.setTheme('light')">Світла</button>
-        <button :class="{ active: settings.theme === 'dark' }" @click="settings.setTheme('dark')">Темна</button>
-      </div>
-    </div>
-
-    <div class="field">
-      <label>Повторювані операції ({{ activeTemplates.length }})</label>
-      <p v-if="!activeTemplates.length" class="hint">Ще немає жодної повторюваної операції.</p>
-      <ul v-else class="template-list">
-        <li v-for="t in activeTemplates" :key="t.id" class="template-row">
-          <span class="dot" :style="{ background: describeTemplate(t.id)?.color }" />
-          <div class="template-text">
-            <span class="template-title">{{ describeTemplate(t.id)?.title }}</span>
-            <span class="template-sub">{{ describeTemplate(t.id)?.subtitle }}</span>
+      <div class="field profile-field" v-if="authStore.profile">
+        <div class="profile-row">
+          <img v-if="authStore.profile.photoURL" :src="authStore.profile.photoURL" class="avatar" alt="" />
+          <div v-else class="avatar avatar-fallback" :style="{ background: authStore.profile.color }">
+            {{ authStore.profile.displayName.slice(0, 1) }}
           </div>
-          <span class="template-amount">{{ describeTemplate(t.id)?.amount }}</span>
-          <button class="icon-btn" aria-label="Видалити" @click="removeTemplate(t.id)">✕</button>
-        </li>
-      </ul>
-    </div>
-
-    <div class="field">
-      <label>Демо-дані</label>
-      <p v-if="viewingOther" class="hint">Спершу поверніться до свого профілю (кнопка з фото у шапці).</p>
-      <template v-else>
-        <p class="hint">
-          Додає кілька тестових рахунків (у т.ч. заощадження, позику та валютний) і операції за
-          останні 6 місяців — щоб одразу побачити діаграми та аналітику заповненими.
-        </p>
-        <p v-if="hasAnyData" class="hint">
-          Уже є рахунки або операції, тож демо-дані додати не можна — спершу скиньте всі дані нижче.
-        </p>
-        <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData" @click="handleLoadDemo">
-          {{ demoLoading ? 'Додаємо…' : 'Додати демо-дані' }}
-        </button>
-      </template>
-    </div>
-
-    <div class="field">
-      <label>Резервна копія даних</label>
-      <p v-if="viewingOther" class="hint">Спершу поверніться до свого профілю (кнопка з фото у шапці).</p>
-      <template v-else>
-        <p class="hint">Стосується лише вашого профілю (рахунки, категорії, операції).</p>
-        <div class="backup-actions">
-          <button class="btn btn-secondary" @click="handleExport">Експортувати JSON</button>
-          <button class="btn btn-secondary" @click="triggerImport">Імпортувати JSON</button>
-          <button class="btn btn-secondary" @click="handleExportCsv">Експортувати CSV</button>
+          <div class="profile-text">
+            <span class="profile-name">{{ authStore.profile.displayName }}</span>
+            <span class="profile-email">{{ authStore.profile.email }}</span>
+          </div>
+          <button class="btn btn-secondary" @click="handleSignOut">{{ t('layout.settings.signOut') }}</button>
         </div>
-        <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
-        <p v-if="status" class="status">{{ status }}</p>
-      </template>
+      </div>
+
+      <div class="field" v-if="authStore.isOwner">
+        <label>{{ t('layout.settings.familyMembers') }}</label>
+        <p class="hint">{{ t('layout.settings.familyMembersHint') }}</p>
+        <button class="btn btn-secondary" @click="openAdmin">{{ t('layout.settings.manageMembers') }}</button>
+      </div>
     </div>
 
-    <div class="field">
-      <label>Оновлення застосунку</label>
-      <p class="hint">Перевіряє наявність нової версії застосунку та встановлює її негайно.</p>
-      <button class="btn btn-secondary" :disabled="updateChecking" @click="handleCheckUpdate">
-        {{ updateChecking ? 'Перевірка…' : 'Перевірити оновлення' }}
-      </button>
-      <p v-if="updateStatus" class="status">{{ updateStatus }}</p>
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.appearance') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.theme') }}</label>
+        <div class="segmented">
+          <button :class="{ active: settings.theme === 'system' }" @click="settings.setTheme('system')">{{ t('layout.settings.themeSystem') }}</button>
+          <button :class="{ active: settings.theme === 'light' }" @click="settings.setTheme('light')">{{ t('layout.settings.themeLight') }}</button>
+          <button :class="{ active: settings.theme === 'dark' }" @click="settings.setTheme('dark')">{{ t('layout.settings.themeDark') }}</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>{{ t('layout.settings.language') }}</label>
+        <div class="segmented">
+          <button :class="{ active: localeSetting === 'system' }" @click="chooseLocale('system')">{{ t('layout.settings.languageSystem') }}</button>
+          <button :class="{ active: localeSetting === 'uk' }" @click="chooseLocale('uk')">{{ t('layout.settings.languageUk') }}</button>
+          <button :class="{ active: localeSetting === 'en' }" @click="chooseLocale('en')">{{ t('layout.settings.languageEn') }}</button>
+        </div>
+      </div>
     </div>
 
-    <div class="field">
-      <label>Скидання всіх даних</label>
-      <p v-if="viewingOther" class="hint">Спершу поверніться до свого профілю (кнопка з фото у шапці).</p>
-      <template v-else>
-        <p class="hint">
-          Видаляє всі ваші рахунки, операції та повторювані операції. Категорії та налаштування
-          залишаються. Дію не можна скасувати.
-        </p>
-        <button class="btn btn-danger reset-btn" @click="openResetConfirm">Скинути всі дані</button>
-      </template>
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.currencyFormats') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.baseCurrency') }}</label>
+        <button class="btn btn-secondary currency-btn" @click="showCurrencyPicker = true">
+          {{ settings.baseCurrency }}
+        </button>
+        <p class="hint">{{ t('layout.settings.baseCurrencyHint') }}</p>
+      </div>
+
+      <div class="field">
+        <label>{{ t('layout.settings.currencyDisplay') }}</label>
+        <button class="btn btn-secondary currency-btn" @click="showCurrencyDisplayPicker = true">
+          {{ currencyDisplayLabel }}
+        </button>
+        <p class="hint">{{ t('layout.settings.currencyDisplayHint') }}</p>
+      </div>
+
+      <div class="field">
+        <label>{{ t('layout.settings.numberFormat') }}</label>
+        <button class="btn btn-secondary currency-btn" @click="showNumberFormatPicker = true">
+          {{ numberFormatLabel }}
+        </button>
+      </div>
+
+      <div class="field">
+        <label>{{ t('layout.settings.dateFormat') }}</label>
+        <button class="btn btn-secondary currency-btn" @click="showDateFormatPicker = true">
+          {{ dateFormatLabel }}
+        </button>
+        <p class="hint">{{ t('layout.settings.dateFormatHint') }}</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.data') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.recurringLabel', { count: activeTemplates.length }) }}</label>
+        <p v-if="!activeTemplates.length" class="hint">{{ t('layout.settings.recurringEmpty') }}</p>
+        <ul v-else class="template-list">
+          <li v-for="tpl in activeTemplates" :key="tpl.id" class="template-row">
+            <span class="dot" :style="{ background: describeTemplate(tpl.id)?.color }" />
+            <div class="template-text">
+              <span class="template-title">{{ describeTemplate(tpl.id)?.title }}</span>
+              <span class="template-sub">{{ describeTemplate(tpl.id)?.subtitle }}</span>
+            </div>
+            <span class="template-amount">{{ describeTemplate(tpl.id)?.amount }}</span>
+            <button class="icon-btn" :aria-label="t('common.delete')" @click="removeTemplate(tpl.id)">✕</button>
+          </li>
+        </ul>
+      </div>
+
+      <div class="field">
+        <label>{{ t('layout.settings.demoDataLabel') }}</label>
+        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
+        <template v-else>
+          <p class="hint">{{ t('layout.settings.demoDataHint') }}</p>
+          <p v-if="hasAnyData" class="hint">{{ t('layout.settings.demoDataBlocked') }}</p>
+          <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData" @click="handleLoadDemo">
+            {{ demoLoading ? t('layout.settings.addingDemo') : t('layout.settings.addDemoData') }}
+          </button>
+        </template>
+      </div>
+
+      <div class="field">
+        <label>{{ t('layout.settings.backupLabel') }}</label>
+        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
+        <template v-else>
+          <p class="hint">{{ t('layout.settings.backupHint') }}</p>
+          <div class="backup-actions">
+            <button class="btn btn-secondary" @click="handleExport">{{ t('layout.settings.exportJson') }}</button>
+            <button class="btn btn-secondary" @click="triggerImport">{{ t('layout.settings.importJson') }}</button>
+            <button class="btn btn-secondary" @click="handleExportCsv">{{ t('layout.settings.exportCsv') }}</button>
+          </div>
+          <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
+          <p v-if="status" class="status">{{ status }}</p>
+        </template>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.app') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.updateLabel') }}</label>
+        <p class="hint">{{ t('layout.settings.updateHint') }}</p>
+        <button class="btn btn-secondary" :disabled="updateChecking" @click="handleCheckUpdate">
+          {{ updateChecking ? t('layout.settings.checking') : t('layout.settings.checkUpdate') }}
+        </button>
+        <p v-if="updateStatus" class="status">{{ updateStatus }}</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.danger') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.resetLabel') }}</label>
+        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
+        <template v-else>
+          <p class="hint">{{ t('layout.settings.resetHint') }}</p>
+          <button class="btn btn-danger reset-btn" @click="openResetConfirm">{{ t('layout.settings.resetButton') }}</button>
+        </template>
+      </div>
     </div>
   </Modal>
+
+  <CurrencyPickerModal
+    :open="showCurrencyPicker"
+    :selected="settings.baseCurrency"
+    :title="t('layout.settings.currencyModalTitle')"
+    :hint="t('layout.settings.currencyModalHint')"
+    @close="showCurrencyPicker = false"
+    @select="settings.setBaseCurrency"
+  />
+
+  <OptionListModal
+    :open="showCurrencyDisplayPicker"
+    :title="t('layout.settings.currencyDisplay')"
+    :options="currencyDisplayOptions"
+    :selected="currencyDisplaySetting"
+    @close="showCurrencyDisplayPicker = false"
+    @select="chooseCurrencyDisplay"
+  />
+
+  <OptionListModal
+    :open="showNumberFormatPicker"
+    :title="t('layout.settings.numberFormat')"
+    :options="numberFormatOptions"
+    :selected="numberFormatSetting"
+    @close="showNumberFormatPicker = false"
+    @select="chooseNumberFormat"
+  />
+
+  <OptionListModal
+    :open="showDateFormatPicker"
+    :title="t('layout.settings.dateFormat')"
+    :options="dateFormatOptions"
+    :selected="dateFormatSetting"
+    @close="showDateFormatPicker = false"
+    @select="chooseDateFormat"
+  />
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
+.section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.section-title {
+  font-size: 14px;
+  margin: 0 0 12px;
+  color: var(--text-primary);
+}
+
 .hint {
   font-size: 12px;
   color: var(--text-muted);
@@ -302,6 +507,7 @@ async function handleSignOut() {
   justify-content: center;
   color: #fff;
   font-weight: 700;
+  text-transform: uppercase;
 }
 
 .profile-text {
@@ -319,6 +525,10 @@ async function handleSignOut() {
 .profile-email {
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.currency-btn {
+  width: 100%;
 }
 
 .backup-actions {
@@ -380,9 +590,7 @@ async function handleSignOut() {
 .template-title {
   font-size: 13px;
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  @include lineClamp(1);
 }
 
 .template-sub {

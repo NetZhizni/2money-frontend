@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import MdiIcon from '../common/MdiIcon.vue'
+import FieldRow from '../common/FieldRow.vue'
 import AmountKeypad from './AmountKeypad.vue'
 import AccountPickerModal from './AccountPickerModal.vue'
 import CategoryPickerModal from './CategoryPickerModal.vue'
@@ -16,11 +17,15 @@ import { useSettingsStore } from '../../stores/settings'
 import { useTemplatesStore } from '../../stores/templates'
 import { useAuthStore } from '../../stores/auth'
 import { useProfilesStore } from '../../stores/profiles'
-import { getRateForDate, convertAmount } from '../../db/exchangeRates'
+import { useAllReceiptsStore } from '../../stores/allReceipts'
+import { getRateForDate } from '../../db/exchangeRates'
 import { advance } from '../../db/recurring'
 import { dateKey, formatMoney, fullDateLabel } from '../../utils/format'
-import { resolveAccountLabel } from '../../utils/accountLabel'
+import { resolveAccountLabel, accountGroupLabel } from '../../utils/accountLabel'
+import { resolveCategoryCurrency } from '../../utils/currencies'
 import { TRANSFER_CATEGORY_COLOR } from '../../utils/transferAnalytics'
+import { t } from '../../i18n'
+import type { MessageKey } from '../../i18n'
 import type { Transaction, TransactionType, RecurringFrequency } from '../../types/models'
 import type { AccountPickerItem } from '../../types/pickerItems'
 
@@ -31,15 +36,41 @@ const props = defineProps<{
   presetCategoryId?: string
   // Префіл НОВОЇ (ще не збереженої) операції — на відміну від `transaction`
   // (режим редагування, PATCH), ці лише підставляють стартові значення форми
-  // при створенні. Використовується розпізнаванням чека (ReceiptScanReviewModal)
-  // для передачі того, що вже визначив Gemini, залишаючи саме збереження на
-  // користувачі (рахунок все одно обирає він).
+  // при створенні. Використовується розпізнаванням чека (ReceiptEditModal's
+  // scanFile-режим) для передачі того, що вже визначив Gemini, залишаючи саме
+  // збереження на користувачі (рахунок все одно обирає він).
   presetAmount?: number
   presetNote?: string
   presetType?: TransactionType
   presetDate?: number
+  // Разом з presetAmount/presetNote/... — тримає нову операцію в тій самій
+  // групі "чек", якщо форму відкрито через "Редагувати" на розпізнаному
+  // драфті (див. ReceiptEditModal.vue). Може бути ще не заведеним у БД чеком
+  // (`null`) — сама лише локальна ідентифікація для лока полів нижче,
+  // прив'язка ставиться реально лише при фактичному збереженні операції.
+  presetReceiptId?: string | null
+  // Приховує кнопку "Додати в чек" — коли цей примірник форми сам вкладений
+  // всередину ReceiptEditModal.vue (редагування суми/категорії операції, яка
+  // вже є частиною чека, що зараз редагується), відкривати звідти ще один
+  // рівень "додати в чек" нема сенсу.
+  disableAddToReceipt?: boolean
+  // Для ReceiptEditModal.vue's scanFile-режиму: тип/рахунок/дата все одно
+  // локаються так, ніби чек вже існує (навіть якщо presetReceiptId ще null —
+  // сам рядок чека там з'являється лише по "Зберегти"), а submit() НЕ пише
+  // нічого в transactions store — натомість віддає введені поля назовні через
+  // `draftSaved`, щоб викликач сам вирішив, коли (і чи) вони стануть
+  // справжньою операцією. Так розпізнаний, але ще не підтверджений пункт чека
+  // не з'являється в БД просто від того, що йому підібрали категорію.
+  deferSave?: boolean
 }>()
-const emit = defineEmits<{ close: []; saved: []; deleted: []; duplicated: [] }>()
+const emit = defineEmits<{
+  close: []
+  saved: []
+  deleted: []
+  duplicated: []
+  addToReceipt: []
+  draftSaved: [{ type: 'expense' | 'income'; note: string | null; amount: number; categoryId: string; subcategoryId: string | null }]
+}>()
 
 const router = useRouter()
 const accounts = useAccountsStore()
@@ -50,6 +81,7 @@ const settings = useSettingsStore()
 const templates = useTemplatesStore()
 const authStore = useAuthStore()
 const profilesStore = useProfilesStore()
+const allReceiptsStore = useAllReceiptsStore()
 
 // A transfer initiated by another profile (we're only the counterparty) is
 // read-only here: the backend only lets the owning profile PATCH/DELETE it
@@ -59,9 +91,47 @@ const profilesStore = useProfilesStore()
 // foreign account the same way). Show a simple summary instead.
 const isForeign = computed(() => !!props.transaction && props.transaction.ownerId !== authStore.uid)
 
+// The source account's own Settings → "Формат валюти" override, for the
+// read-only foreign-transfer amount below — looked up from the whole-family
+// list since this account (the OTHER profile's) never appears in `accounts`.
+const foreignAmountCurrencyDisplay = computed(() =>
+  props.transaction ? allAccountsStore.byId(props.transaction.accountId)?.currencyDisplay : undefined,
+)
+
 const initiatorName = computed(() =>
   props.transaction ? profilesStore.byId(props.transaction.ownerId)?.displayName ?? '?' : '?',
 )
+
+// Both an already-saved grouped transaction (props.transaction.receiptId) and
+// a not-yet-saved one being created from a receipt-scan draft
+// (props.presetReceiptId — see ReceiptEditModal.vue's scanFile-режим) must
+// keep the same account/date as the rest of their receipt:
+// fin.receipts.account_id/date is the group's single source of truth (same
+// file), so letting
+// this form silently diverge one operation's account/date from it would
+// break the "same account, same day" invariant the whole feature relies on.
+// The Витрата/Дохід/Переказ toggle is locked too — a receipt only ever
+// groups expense/income operations (see scanReceipt.js's normalizeOperation
+// and the "merge" flow in OperationsDataView.vue, both of which already
+// exclude transfers), so switching type here would either silently break
+// that or turn a grouped item into a transfer with nowhere to go.
+// `locallyDetached` lets an explicit "Відв'язати" lift the lock immediately,
+// without waiting for `props.transaction` (a snapshot handed down by the
+// popups store, not itself reactive to this component's own writes) to
+// catch up. `deferSave` locks the same way even with no `presetReceiptId` at
+// all yet — a scan draft's chek may not be a real fin.receipts row until
+// "Зберегти" (see ReceiptEditModal.vue), but its account/date/type are
+// already just as fixed.
+const locallyDetached = ref(false)
+const lockedReceiptId = computed(() => props.transaction?.receiptId ?? props.presetReceiptId ?? null)
+const lockedByReceipt = computed(() => !locallyDetached.value && (!!lockedReceiptId.value || !!props.deferSave))
+const lockedReceipt = computed(() => (lockedReceiptId.value ? allReceiptsStore.byId(lockedReceiptId.value) ?? null : null))
+
+async function detachFromReceipt() {
+  if (!props.transaction) return
+  await transactions.update(props.transaction.id, { receiptId: null })
+  locallyDetached.value = true
+}
 
 const transferDestinations = computed<AccountPickerItem[]>(() => {
   const own = accounts.active
@@ -72,8 +142,9 @@ const transferDestinations = computed<AccountPickerItem[]>(() => {
       icon: a.icon,
       color: a.color,
       currency: a.currency,
+      currencyDisplay: a.currencyDisplay,
       balance: accounts.balanceOf(a),
-      group: a.type === 'savings' ? 'Заощадження' : 'Рахунки',
+      group: accountGroupLabel(a),
     }))
   const foreign = allAccountsStore.all
     .filter((a) => a.ownerId !== authStore.uid && !a.archived)
@@ -83,7 +154,8 @@ const transferDestinations = computed<AccountPickerItem[]>(() => {
       icon: a.icon,
       color: a.color,
       currency: a.currency,
-      group: profilesStore.byId(a.ownerId)?.displayName ?? 'Інший профіль',
+      currencyDisplay: a.currencyDisplay,
+      group: profilesStore.byId(a.ownerId)?.displayName ?? t('transactions.picker.otherProfile'),
     }))
   return [...own, ...foreign]
 })
@@ -97,8 +169,9 @@ const fromPickerItems = computed<AccountPickerItem[]>(() =>
     icon: a.icon,
     color: a.color,
     currency: a.currency,
+    currencyDisplay: a.currencyDisplay,
     balance: accounts.balanceOf(a),
-    group: a.type === 'savings' ? 'Заощадження' : 'Рахунки',
+    group: accountGroupLabel(a),
   })),
 )
 
@@ -152,8 +225,6 @@ function buildForm() {
     subcategoryId: props.transaction?.subcategoryId ?? presetSubcategoryId ?? '',
     amount: props.transaction?.amount ?? props.presetAmount ?? (undefined as number | undefined),
     toAmount: props.transaction?.toAmount ?? (undefined as number | undefined),
-    exchangeRate: props.transaction?.exchangeRate ?? 1,
-    toExchangeRate: 1,
     date: todayDateInputValue(props.transaction?.date ?? props.presetDate),
     note: props.transaction?.note ?? props.presetNote ?? '',
     makeRecurring: false,
@@ -165,8 +236,6 @@ function buildForm() {
 
 const form = reactive(buildForm())
 
-const creditTouched = ref(false)
-const toAmountTouched = ref(false)
 // Set once the user explicitly picks a "from" account in this form session —
 // blocks the category-based auto-guess below from overwriting a deliberate choice.
 const accountTouched = ref(false)
@@ -192,9 +261,8 @@ watch(
   (isOpen) => {
     if (!isOpen) return
     Object.assign(form, buildForm())
-    creditTouched.value = false
-    toAmountTouched.value = false
     accountTouched.value = false
+    locallyDetached.value = false
     showAccountPicker.value = null
     showCategoryPicker.value = false
     showDatePicker.value = false
@@ -210,63 +278,100 @@ const currency = computed(() => sourceAccount.value?.currency ?? settings.baseCu
 const isCrossCurrencyTransfer = computed(
   () => form.type === 'transfer' && !!destAccount.value && destAccount.value.currency !== currency.value,
 )
-const needsRate = computed(() => currency.value !== settings.baseCurrency)
-// A cross-profile transfer is real money leaving/entering a person's own
-// total, so (per the user's decision) it should count as an expense for the
-// sender / income for the receiver in Overview & category analytics — unlike
-// a same-profile transfer, which stays excluded (see utils/transferAnalytics.ts).
-const isCrossProfileTransfer = computed(
-  () => form.type === 'transfer' && !!destAccount.value && destAccount.value.ownerId !== authStore.uid,
-)
 
+// Declared here (rather than down by the rest of the category-picking state)
+// so the dual-currency block right below — including an `immediate: true`
+// watcher that reads it synchronously during setup — can reference it
+// without a temporal-dead-zone error.
+const selectedCategory = computed(() => categories.byId(form.categoryId))
+
+// An expense/income against a category with its own fixed currency
+// (different from the source account's) gets the same two-value calculator
+// as a cross-currency transfer — see AmountKeypad.vue's `dual` mode. A
+// category's currency always resolves to *something* now (defaults to the
+// base currency — see utils/currencies.ts's resolveCategoryCurrency), so this
+// also doubles as the old per-transaction "Сума зарахування" manual-rate
+// override: whenever the account's currency differs from the base currency
+// and the category was left at its default, this fires the same as it used
+// to for "any foreign-currency operation".
+const isCrossCurrencyCategory = computed(
+  () =>
+    form.type !== 'transfer' &&
+    !!selectedCategory.value &&
+    resolveCategoryCurrency(selectedCategory.value, settings.baseCurrency, transactions.all) !== currency.value,
+)
+const isDualCurrency = computed(() => isCrossCurrencyTransfer.value || isCrossCurrencyCategory.value)
+// Income into a fixed-currency category is naturally thought of "amount-first"
+// in the category's own currency (e.g. "$100 from the deposit"), with the
+// account side derived — the opposite order from every other case (expense,
+// and transfers), where the primary tile stays the source/account currency,
+// unchanged from today. When true, the keypad's PRIMARY tile is bound to
+// `form.toAmount` instead of `form.amount`.
+const dualPrimaryIsToAmount = computed(() => isCrossCurrencyCategory.value && form.type === 'income')
+const dualOtherCurrency = computed(() =>
+  isCrossCurrencyTransfer.value
+    ? destAccount.value?.currency
+    : selectedCategory.value
+      ? resolveCategoryCurrency(selectedCategory.value, settings.baseCurrency, transactions.all)
+      : undefined,
+)
+const dualPrimaryCurrency = computed(() => (dualPrimaryIsToAmount.value ? dualOtherCurrency.value : currency.value))
+const dualSecondaryCurrency = computed(() => (dualPrimaryIsToAmount.value ? currency.value : dualOtherCurrency.value))
+
+// Same "which entity actually owns this tile's currency" mapping as
+// dualOtherCurrency/dualPrimaryCurrency/dualSecondaryCurrency above, just
+// reading each entity's own Settings → "Формат валюти" override instead of
+// its currency code — fed into AmountKeypad's `currency-display`/
+// `dual.currencyDisplay` below so the calculator shows the same style
+// AccountCard.vue/CategoryTile.vue etc. already do for that same account/category.
+const accountCurrencyDisplay = computed(() => sourceAccount.value?.currencyDisplay)
+const dualOtherCurrencyDisplay = computed(() =>
+  isCrossCurrencyTransfer.value ? destAccount.value?.currencyDisplay : selectedCategory.value?.currencyDisplay,
+)
+const primaryCurrencyDisplay = computed(() => (dualPrimaryIsToAmount.value ? dualOtherCurrencyDisplay.value : accountCurrencyDisplay.value))
+const secondaryCurrencyDisplay = computed(() => (dualPrimaryIsToAmount.value ? accountCurrencyDisplay.value : dualOtherCurrencyDisplay.value))
+
+// Exchange rate between the dual calculator's two tiles (secondary units per
+// 1 primary unit) — AmountKeypad.vue's `dual` mode uses this to keep the
+// untouched tile tracking the other one; it owns deriving/touching the
+// actual amounts itself (see its `dual.rate` prop).
+const dualRate = ref(1)
 watch(
-  [() => form.type, () => form.date, currency, isCrossProfileTransfer],
+  [() => form.date, dualPrimaryCurrency, dualSecondaryCurrency, isDualCurrency],
   async () => {
-    const shouldCompute = form.type === 'transfer' ? isCrossProfileTransfer.value : needsRate.value
-    if (!shouldCompute || creditTouched.value) return
-    // Rate FROM the transaction's currency TO the app's base currency — pivoted
-    // through UAH rates, so this stays correct even when the base currency
-    // itself isn't UAH (a raw exchange rate is always "UAH per unit").
-    form.exchangeRate = await convertAmount(1, currency.value, settings.baseCurrency, new Date(form.date).getTime())
+    if (!isDualCurrency.value || !dualPrimaryCurrency.value || !dualSecondaryCurrency.value) return
+    const when = new Date(form.date).getTime()
+    const [primaryRate, secondaryRate] = await Promise.all([
+      getRateForDate(dualPrimaryCurrency.value, when),
+      getRateForDate(dualSecondaryCurrency.value, when),
+    ])
+    dualRate.value = secondaryRate > 0 ? primaryRate / secondaryRate : 1
   },
   { immediate: true },
 )
 
-// "Сума зарахування" — the amount in the base currency, shown/edited directly
-// instead of an abstract rate. Editing it only ever derives the internal rate;
-// it must never write back to "Сума (валюта)" (form.amount).
-const creditAmount = computed<number | undefined>({
-  get() {
-    if (form.amount == null) return undefined
-    return Math.round(form.amount * form.exchangeRate * 100) / 100
-  },
-  set(val) {
-    creditTouched.value = true
-    if (val != null && form.amount) {
-      form.exchangeRate = val / form.amount
-    }
-  },
+const dualConfig = computed(() => {
+  if (!isDualCurrency.value || !dualSecondaryCurrency.value) return undefined
+  return {
+    label: t('transactions.form.credited'),
+    currency: dualSecondaryCurrency.value,
+    currencyDisplay: secondaryCurrencyDisplay.value,
+    value: dualPrimaryIsToAmount.value ? form.amount : form.toAmount,
+    rate: dualRate.value,
+  }
 })
 
-watch(
-  [() => form.date, destAccount, sourceAccount, () => form.amount],
-  async () => {
-    if (!isCrossCurrencyTransfer.value || toAmountTouched.value || !destAccount.value) return
-    const when = new Date(form.date).getTime()
-    const [fromRate, toRate] = await Promise.all([
-      getRateForDate(currency.value, when),
-      getRateForDate(destAccount.value.currency, when),
-    ])
-    if (form.amount != null && toRate > 0) {
-      form.toAmount = Math.round(((form.amount * fromRate) / toRate) * 100) / 100
-    }
-  },
-  { immediate: true },
-)
+function setDualPrimary(v?: number) {
+  if (dualPrimaryIsToAmount.value) form.toAmount = v
+  else form.amount = v
+}
+function setDualSecondary(v?: number) {
+  if (dualPrimaryIsToAmount.value) form.amount = v
+  else form.toAmount = v
+}
 
 const kindForCategories = computed(() => (form.type === 'income' ? 'income' : 'expense'))
 const topCategories = computed(() => categories.topLevel(kindForCategories.value))
-const selectedCategory = computed(() => categories.byId(form.categoryId))
 const subcategories = computed(() => (selectedCategory.value ? categories.childrenOf(selectedCategory.value.id) : []))
 
 function pickCategory(id: string) {
@@ -343,11 +448,12 @@ watch(
 
 // ---------- "Від кого / кому" split header ----------
 
-const TYPE_LABELS: Record<TransactionType, string> = { expense: 'Витрата', income: 'Дохід', transfer: 'Переказ' }
-const amountTypeLabel = computed(() => TYPE_LABELS[form.type])
+const amountTypeLabel = computed(() =>
+  form.type === 'expense' ? t('categories.form.expenseType') : form.type === 'income' ? t('categories.form.incomeType') : t('transactions.form.typeTransfer'),
+)
 
-const fromLabel = computed(() => (form.type === 'transfer' ? 'З рахунку' : 'Рахунок'))
-const toLabel = computed(() => (form.type === 'transfer' ? 'На рахунок' : 'Категорія'))
+const fromLabel = computed(() => (form.type === 'transfer' ? t('transactions.form.fromAccount') : t('transactions.form.account')))
+const toLabel = computed(() => (form.type === 'transfer' ? t('transactions.form.toAccount') : t('transactions.form.category')))
 
 const fromIcon = computed(() => sourceAccount.value?.icon ?? 'mdiWalletOutline')
 // Left blank (rather than a CSS-var fallback) when nothing's picked yet —
@@ -355,7 +461,7 @@ const fromIcon = computed(() => sourceAccount.value?.icon ?? 'mdiWalletOutline')
 // always a plain hex from account/category data, never a var() reference, so
 // it's safe to hand straight to an SVG fill attribute.
 const fromColor = computed(() => sourceAccount.value?.color)
-const fromName = computed(() => sourceAccount.value?.name ?? 'Оберіть рахунок')
+const fromName = computed(() => sourceAccount.value?.name ?? t('transactions.form.chooseAccount'))
 
 const toIcon = computed(() =>
   form.type === 'transfer' ? destAccount.value?.icon ?? 'mdiWalletOutline' : selectedCategory.value?.icon ?? 'mdiShapeOutline',
@@ -364,7 +470,7 @@ const toColor = computed(() =>
   form.type === 'transfer' ? destAccount.value?.color : selectedCategory.value?.color,
 )
 const toName = computed(() =>
-  form.type === 'transfer' ? destAccount.value?.name ?? 'Оберіть рахунок' : selectedCategory.value?.name ?? 'Оберіть категорію',
+  form.type === 'transfer' ? destAccount.value?.name ?? t('transactions.form.chooseAccount') : selectedCategory.value?.name ?? t('transactions.form.chooseCategory'),
 )
 
 // The keypad's submit key always wants *some* accent — falls back to the
@@ -376,6 +482,7 @@ const keypadAccent = computed(() => {
 })
 
 function openFromPicker() {
+  if (lockedByReceipt.value) return
   showAccountPicker.value = 'from'
 }
 function openToPicker() {
@@ -398,58 +505,51 @@ function selectCategory(id: string) {
 
 // ---------- Date popup ----------
 
-const FREQUENCY_LABELS: Record<RecurringFrequency, string> = {
-  daily: 'Щодня',
-  weekly: 'Щотижня',
-  monthly: 'Щомісяця',
-  yearly: 'Щороку',
+const FREQUENCY_LABEL_KEYS: Record<RecurringFrequency, MessageKey> = {
+  daily: 'transactions.form.freqDaily',
+  weekly: 'transactions.form.freqWeekly',
+  monthly: 'transactions.form.freqMonthly',
+  yearly: 'transactions.form.freqYearly',
 }
-const recurringSummary = computed(() => FREQUENCY_LABELS[form.frequency])
+const recurringSummary = computed(() => t(FREQUENCY_LABEL_KEYS[form.frequency]))
 const showRecurringInDatePopup = computed(() => !isEdit.value && form.type !== 'transfer')
 
+function openDatePicker() {
+  if (lockedByReceipt.value) return
+  showDatePicker.value = true
+}
+
 const error = computed(() => {
-  if (!form.accountId) return 'Оберіть рахунок'
-  if (form.type === 'transfer' && !form.toAccountId) return 'Оберіть рахунок призначення'
-  if (form.type === 'transfer' && form.toAccountId === form.accountId) return 'Рахунки мають відрізнятись'
-  if (form.type !== 'transfer' && !form.categoryId) return 'Оберіть категорію'
-  if (!form.amount || form.amount <= 0) return 'Вкажіть суму більше нуля'
+  if (!form.accountId) return t('transactions.form.errorChooseAccount')
+  if (form.type === 'transfer' && !form.toAccountId) return t('transactions.form.errorChooseDestAccount')
+  if (form.type === 'transfer' && form.toAccountId === form.accountId) return t('transactions.form.errorAccountsMustDiffer')
+  if (form.type !== 'transfer' && !form.categoryId) return t('transactions.form.errorChooseCategory')
+  if (!form.amount || form.amount <= 0) return t('transactions.form.errorAmountPositive')
   // An emptied native date input becomes '', and `new Date('')` is an
   // Invalid Date — without this guard the operation would still save with a
   // NaN timestamp and then vanish from every date-grouped list (it sorts
   // unpredictably since NaN comparisons are never true/false consistently).
-  if (!form.date) return "Вкажіть дату"
+  if (!form.date) return t('transactions.form.errorChooseDate')
   return ''
 })
 
 async function submit() {
   if (error.value || !form.amount) return
+  // Скан-драфт (ReceiptEditModal.vue) — нічого не пишемо в БД тут: віддаємо
+  // введені поля назовні, а справжньою операцією (чи ні) вони стануть лише по
+  // "Зберегти" самого чека. Тип на цей момент гарантовано не 'transfer' —
+  // toggle заблокований (див. lockedByReceipt), поки deferSave true.
+  if (props.deferSave) {
+    emit('draftSaved', {
+      type: form.type as 'expense' | 'income',
+      note: form.note.trim() || null,
+      amount: form.amount,
+      categoryId: form.categoryId,
+      subcategoryId: form.subcategoryId || null,
+    })
+    return
+  }
   const when = new Date(form.date).getTime()
-  const rate =
-    form.type === 'transfer'
-      ? isCrossProfileTransfer.value
-        ? form.exchangeRate
-        : 1
-      : needsRate.value
-        ? form.exchangeRate
-        : 1
-  // A same-profile transfer nets to 0 (it's not real income/expense). A
-  // cross-profile one is stored as a negative (expense-shaped) baseAmount
-  // from the SENDER's perspective — the receiving profile's Overview/
-  // Categories re-reads this same value as their income magnitude (see
-  // utils/transferAnalytics.ts). NOTE: this is computed in the SENDER's own
-  // base currency; GET /api/settings only ever returns the caller's own row
-  // (see getSettings.js), so there's no way for the sender's client to know
-  // the receiver's base currency to
-  // convert precisely — this is exact when both profiles share one base
-  // currency, approximate otherwise.
-  const baseAmount =
-    form.type === 'expense'
-      ? -form.amount * rate
-      : form.type === 'income'
-        ? form.amount * rate
-        : form.type === 'transfer' && isCrossProfileTransfer.value
-          ? -form.amount * rate
-          : 0
 
   const payload = {
     type: form.type,
@@ -460,17 +560,18 @@ async function submit() {
     categoryId: form.type !== 'transfer' ? form.categoryId : undefined,
     subcategoryId: form.type !== 'transfer' ? form.subcategoryId || null : null,
     amount: form.amount,
-    toAmount: isCrossCurrencyTransfer.value ? form.toAmount : undefined,
+    toAmount: isDualCurrency.value ? form.toAmount : undefined,
     currency: currency.value,
-    exchangeRate: rate,
-    baseAmount,
     note: form.note.trim() || undefined,
   }
 
   if (isEdit.value && props.transaction) {
     await transactions.update(props.transaction.id, payload)
   } else {
-    await transactions.add(payload)
+    // receiptId only ever comes from a preset (new operation created from a
+    // receipt-scan draft) — never spread into the shared `payload` above, so
+    // editing an already-grouped transaction can't have it silently cleared.
+    await transactions.add({ ...payload, receiptId: props.presetReceiptId ?? null })
     if (form.makeRecurring && form.type !== 'transfer') {
       const endDate = form.endDate ? new Date(form.endDate).getTime() : null
       await templates.add({
@@ -502,12 +603,12 @@ async function handleDuplicate() {
 </script>
 
 <template>
-  <Modal :open="open" :title="isForeign ? 'Переказ' : isEdit ? 'Редагувати операцію' : 'Нова операція'" @close="emit('close')" wide top>
+  <Modal :open="open" :title="isForeign ? t('transactions.form.typeTransfer') : isEdit ? t('transactions.form.editTitle') : t('transactions.form.newTitle')" @close="emit('close')" wide top>
     <div v-if="isForeign && props.transaction" class="foreign-view">
       <div class="foreign-summary">
         <IconCircle icon="mdiSwapHorizontal" :color="TRANSFER_CATEGORY_COLOR" :size="46" />
         <div class="foreign-text">
-          <span class="foreign-title">Переказ від {{ initiatorName }}</span>
+          <span class="foreign-title">{{ t('transactions.form.transferFrom', { name: initiatorName }) }}</span>
           <span class="foreign-sub">
             {{ resolveAccountLabel(props.transaction.accountId, authStore.uid, allAccountsStore.all, profilesStore.all) }}
             →
@@ -516,35 +617,37 @@ async function handleDuplicate() {
         </div>
       </div>
 
-      <div class="foreign-amount">{{ formatMoney(props.transaction.amount, props.transaction.currency) }}</div>
+      <div class="foreign-amount">{{ formatMoney(props.transaction.amount, props.transaction.currency, { currencyDisplay: foreignAmountCurrencyDisplay }) }}</div>
       <p class="foreign-date">{{ fullDateLabel(new Date(props.transaction.date)) }}</p>
       <p v-if="props.transaction.note" class="foreign-note">{{ props.transaction.note }}</p>
 
-      <p class="hint foreign-hint">
-        Цей переказ ініціював інший профіль — редагувати його може лише той, хто його створив. Видалення
-        прибере запис в обох профілях.
-      </p>
+      <p class="hint foreign-hint">{{ t('transactions.form.foreignHint') }}</p>
       <button class="footer-btn danger foreign-delete" @click="emit('deleted')">
         <MdiIcon name="mdiTrashCanOutline" :size="20" />
-        Видалити
+        {{ t('common.delete') }}
       </button>
     </div>
 
     <div v-else-if="noAccounts" class="no-accounts">
       <MdiIcon name="mdiWalletOutline" :size="40" color="var(--text-muted)" />
-      <p>Щоб додати операцію, спершу потрібен хоча б один рахунок.</p>
-      <button class="btn btn-primary" @click="goCreateAccount">Створити рахунок</button>
+      <p>{{ t('transactions.form.noAccountsHint') }}</p>
+      <button class="btn btn-primary" @click="goCreateAccount">{{ t('transactions.form.createAccount') }}</button>
     </div>
 
     <template v-else>
-    <div class="segmented type-toggle">
-      <button :class="{ active: form.type === 'expense' }" @click="form.type = 'expense'">Витрата</button>
-      <button :class="{ active: form.type === 'income' }" @click="form.type = 'income'">Дохід</button>
-      <button :class="{ active: form.type === 'transfer' }" @click="form.type = 'transfer'">Переказ</button>
+    <div v-if="!lockedByReceipt" class="segmented type-toggle">
+      <button :class="{ active: form.type === 'expense' }" :disabled="lockedByReceipt" @click="form.type = 'expense'">{{ t('categories.form.expenseType') }}</button>
+      <button :class="{ active: form.type === 'income' }" :disabled="lockedByReceipt" @click="form.type = 'income'">{{ t('categories.form.incomeType') }}</button>
+      <button :class="{ active: form.type === 'transfer' }" :disabled="lockedByReceipt" @click="form.type = 'transfer'">{{ t('transactions.form.typeTransfer') }}</button>
+    </div>
+
+    <div v-if="lockedByReceipt" class="receipt-lock-hint">
+      <MdiIcon name="mdiReceiptTextOutline" :size="14" color="var(--text-muted)" />
+      <span>{{ t('transactions.form.receiptLockHint', { merchant: lockedReceipt?.merchant ? ` «${lockedReceipt.merchant}»` : '' }) }}</span>
     </div>
 
     <div class="op-header">
-      <button type="button" class="op-half" :class="{ placeholder: !fromColor }" :style="fromColor ? { background: fromColor } : undefined" @click="openFromPicker">
+      <button type="button" class="op-half" :class="{ placeholder: !fromColor, locked: lockedByReceipt }" :style="fromColor ? { background: fromColor } : undefined" @click="openFromPicker">
         <span class="op-icon-bubble">
           <MdiIcon :name="fromIcon" :size="19" :color="fromColor" />
         </span>
@@ -580,75 +683,85 @@ async function handleDuplicate() {
 
     <AmountKeypad
       :key="formResetKey"
-      :initial-value="props.transaction?.amount ?? props.presetAmount"
-      :currency="currency"
+      :initial-value="dualPrimaryIsToAmount ? form.toAmount : form.amount"
+      :currency="dualPrimaryIsToAmount ? (dualOtherCurrency ?? currency) : currency"
+      :currency-display="primaryCurrencyDisplay"
       :label="amountTypeLabel"
       :accent-color="keypadAccent"
       :submit-disabled="!!error"
-      @update:model-value="(v) => (form.amount = v)"
+      :dual="dualConfig"
+      @update:model-value="setDualPrimary"
+      @update:dual-value="setDualSecondary"
       @submit="submit"
-      @open-date="showDatePicker = true"
     >
-      <input v-model="form.note" type="text" class="note-input" placeholder="Нотатки…" />
+      <FieldRow icon="mdiNoteTextOutline" :label="t('transactions.form.noteLabel')" class="note-row">
+        <input v-model="form.note" type="text" class="field-row-value" :placeholder="t('transactions.form.notePlaceholder')" />
+      </FieldRow>
     </AmountKeypad>
 
     <span v-if="error" class="field-error submit-error">{{ error }}</span>
 
-    <button type="button" class="date-footer-label" @click="showDatePicker = true">
-      {{ fullDateLabel(new Date(form.date)) }}
-    </button>
+    <FieldRow tag="button" icon="mdiCalendarBlankOutline" :label="t('transactions.dateModal.title')" class="date-row" :disabled="lockedByReceipt" @click="openDatePicker">
+      <span class="field-row-value">{{ fullDateLabel(new Date(form.date)) }}</span>
+      <template #trailing>
+        <MdiIcon name="mdiChevronDown" :size="18" color="var(--text-muted)" />
+      </template>
+    </FieldRow>
 
-    <div v-if="form.type !== 'transfer' && needsRate" class="field">
-      <label>Сума зарахування ({{ settings.baseCurrency }})</label>
-      <input v-model.number="creditAmount" type="number" step="0.01" inputmode="decimal" />
-      <span class="hint">Розраховано за курсом НБУ, можна відредагувати вручну. Впливає лише на аналітику; баланс рахунку рахується у власній валюті.</span>
-    </div>
-
-    <div v-if="isCrossCurrencyTransfer" class="field">
-      <label>Сума зарахування ({{ destAccount?.currency }})</label>
-      <input v-model.number="form.toAmount" type="number" step="0.01" inputmode="decimal" @input="toAmountTouched = true" />
-      <span class="hint">Розраховано за курсом НБУ, можна відредагувати вручну.</span>
-    </div>
-
-    <div v-if="!isEdit && form.type !== 'transfer'" class="field recurring-field">
-      <label class="toggle-label">
-        <input v-model="form.makeRecurring" type="checkbox" />
-        <span>Зробити повторюваною операцією</span>
-      </label>
+    <div v-if="!isEdit && form.type !== 'transfer' && !deferSave" class="recurring-field">
+      <FieldRow tag="label" icon="mdiRepeat">
+        <span class="field-row-value">{{ t('transactions.form.makeRecurring') }}</span>
+        <template #trailing>
+          <input v-model="form.makeRecurring" type="checkbox" class="field-row-toggle" />
+        </template>
+      </FieldRow>
       <div v-if="form.makeRecurring" class="recurring-options">
         <div class="row-2">
-          <div class="field">
-            <label>Періодичність</label>
-            <select v-model="form.frequency">
-              <option value="daily">Щодня</option>
-              <option value="weekly">Щотижня</option>
-              <option value="monthly">Щомісяця</option>
-              <option value="yearly">Щороку</option>
+          <FieldRow icon="mdiCalendarSyncOutline" :label="t('transactions.form.frequencyLabel')">
+            <select v-model="form.frequency" class="field-row-value">
+              <option value="daily">{{ t('transactions.form.freqDaily') }}</option>
+              <option value="weekly">{{ t('transactions.form.freqWeekly') }}</option>
+              <option value="monthly">{{ t('transactions.form.freqMonthly') }}</option>
+              <option value="yearly">{{ t('transactions.form.freqYearly') }}</option>
             </select>
-          </div>
-          <div class="field">
-            <label>Кожні N</label>
-            <input v-model.number="form.interval" type="number" min="1" />
-          </div>
+            <template #trailing>
+              <MdiIcon name="mdiChevronDown" :size="18" color="var(--text-muted)" />
+            </template>
+          </FieldRow>
+          <FieldRow icon="mdiCounter" :label="t('transactions.form.everyN')">
+            <input v-model.number="form.interval" type="number" min="1" class="field-row-value" />
+          </FieldRow>
         </div>
-        <div class="field">
-          <label>Діє до (необов'язково)</label>
-          <input v-model="form.endDate" type="date" />
-        </div>
-        <span class="hint">
-          Наступна операція буде створена автоматично при відкритті додатку після настання дати.
-        </span>
+        <FieldRow icon="mdiCalendarBlankOutline" :label="t('transactions.form.endDateLabel')">
+          <input v-model="form.endDate" type="date" class="field-row-value" />
+        </FieldRow>
+        <span class="hint">{{ t('transactions.form.recurringHint') }}</span>
       </div>
     </div>
 
     <div v-if="isEdit" class="footer-actions">
       <button class="footer-btn danger" @click="emit('deleted')">
         <MdiIcon name="mdiTrashCanOutline" :size="20" />
-        Видалити
+        {{ t('common.delete') }}
       </button>
+      <template v-if="!disableAddToReceipt">
+        <!-- Already in a receipt — the same action that used to live as a text
+             link in .receipt-lock-hint above; this is now the one place to
+             trigger it. Not in a receipt (and not a transfer, which doesn't
+             fit a receipt at all) — the opposite: offer to start a new one
+             (see App.vue's handleAddToReceiptRequest). -->
+        <button v-if="lockedByReceipt" class="footer-btn" @click="detachFromReceipt">
+          <MdiIcon name="mdiLinkOff" :size="20" />
+          {{ t('transactions.form.detach') }}
+        </button>
+        <button v-else-if="form.type !== 'transfer'" class="footer-btn" @click="emit('addToReceipt')">
+          <MdiIcon name="mdiReceiptTextPlusOutline" :size="20" />
+          {{ t('transactions.form.addToReceipt') }}
+        </button>
+      </template>
       <button class="footer-btn" @click="handleDuplicate">
         <MdiIcon name="mdiContentDuplicate" :size="20" />
-        Дублювати
+        {{ t('transactions.form.duplicate') }}
       </button>
     </div>
     </template>
@@ -656,7 +769,7 @@ async function handleDuplicate() {
 
   <AccountPickerModal
     :open="showAccountPicker !== null"
-    :title="showAccountPicker === 'to' ? 'На рахунок' : 'Рахунок'"
+    :title="showAccountPicker === 'to' ? t('transactions.form.toAccount') : t('transactions.form.account')"
     :items="showAccountPicker === 'to' ? transferDestinations : fromPickerItems"
     :selected-id="showAccountPicker === 'to' ? form.toAccountId : form.accountId"
     @close="showAccountPicker = null"
@@ -684,7 +797,7 @@ async function handleDuplicate() {
   />
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .foreign-view {
   display: flex;
   flex-direction: column;
@@ -799,6 +912,11 @@ async function handleDuplicate() {
   border-left-color: var(--border);
 }
 
+.op-half.locked {
+  cursor: default;
+  opacity: 0.72;
+}
+
 .op-icon-bubble {
   flex-shrink: 0;
   width: 36px;
@@ -827,10 +945,8 @@ async function handleDuplicate() {
 .op-value {
   font-size: 14.5px;
   font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   max-width: 100%;
+  @include lineClamp(1);
 }
 
 .op-half.placeholder .op-value {
@@ -841,7 +957,7 @@ async function handleDuplicate() {
 .subcat-row {
   display: flex;
   gap: 8px;
-  overflow-x: auto;
+  @include overflow(x);
   padding: 2px 2px 10px;
 }
 
@@ -864,31 +980,31 @@ async function handleDuplicate() {
   border-color: transparent;
 }
 
-.note-input {
-  width: 100%;
+.note-row {
+  /* AmountKeypad's own flex column already spaces its children (gap: 14px) —
+     drop FieldRow's default bottom margin so it isn't doubled up. */
+  margin-bottom: 0;
+}
+
+.date-row {
+  margin-top: 10px;
+}
+
+.receipt-lock-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   background: var(--surface-2);
-  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 11px 14px;
-  font-size: 14px;
-  color: var(--text-primary);
-  outline: none;
-}
-
-.note-input:focus {
-  border-color: var(--accent);
-}
-
-.date-footer-label {
-  display: block;
-  width: 100%;
-  border: none;
-  background: none;
+  padding: 8px 10px;
+  margin-bottom: 10px;
+  font-size: 11.5px;
   color: var(--text-muted);
-  font-size: 12.5px;
-  text-align: center;
-  padding: 14px 0 4px;
-  cursor: pointer;
+}
+
+.receipt-lock-hint span {
+  flex: 1;
+  min-width: 0;
 }
 
 .row-2 {
@@ -897,18 +1013,8 @@ async function handleDuplicate() {
   gap: 12px;
 }
 
-.toggle-label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  color: var(--text-primary);
-  cursor: pointer;
-}
-
-.toggle-label input {
-  width: 18px;
-  height: 18px;
+.recurring-field {
+  margin-bottom: 16px;
 }
 
 .recurring-options {

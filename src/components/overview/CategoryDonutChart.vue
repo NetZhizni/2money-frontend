@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 
 // ApexCharts is a large dependency (~500KB+) — load it only once a chart
 // actually needs to render instead of bundling it into every route that
@@ -37,7 +38,7 @@ const options = computed(() => ({
 
 <template>
   <div class="chart-wrap">
-    <p v-if="!segments.length" class="empty">Немає витрат за цей період.</p>
+    <p v-if="!segments.length" class="empty">{{ t('overview.noExpensesForPeriod') }}</p>
     <VueApexCharts v-else type="donut" height="260" :options="options" :series="series" />
   </div>
 </template>

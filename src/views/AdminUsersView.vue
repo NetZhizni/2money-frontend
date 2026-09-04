@@ -2,6 +2,7 @@
   import { onMounted, ref } from 'vue'
   import { useAdminStore } from '../stores/admin'
   import { useAuthStore } from '../stores/auth'
+  import { t } from '../i18n'
 
   const admin = useAdminStore()
   const authStore = useAuthStore()
@@ -27,7 +28,7 @@
 
   async function toggleActive(id: string, isActive: boolean) {
     if (id === authStore.uid && !isActive) {
-      if (!confirm('Це вимкне ваш власний доступ. Продовжити?')) return
+      if (!confirm(t('admin.disableSelfConfirm'))) return
     }
     await admin.setActive(id, !isActive).catch(() => {})
   }
@@ -41,20 +42,17 @@
 <template>
   <div class="view">
     <div>
-      <h1 class="page-title">Учасники родини</h1>
+      <h1 class="page-title">{{ t('admin.title') }}</h1>
     </div>
     <div class="view-scroll">
       <div class="view-scroll-content">
-        <p class="hint">
-          Тут ви заводите email члена родини заздалегідь — при першому вході через цю Google-адресу
-          він автоматично отримає доступ під тим профілем, що ви тут створили.
-        </p>
+        <p class="hint">{{ t('admin.hint') }}</p>
 
         <div class="add-row">
           <input
             v-model="newEmail"
             type="email"
-            placeholder="ім'я@gmail.com"
+            :placeholder="t('admin.emailPlaceholder')"
             @keyup.enter="handleAdd"
           />
           <button
@@ -62,7 +60,7 @@
             :disabled="adding"
             @click="handleAdd"
           >
-            Додати
+            {{ t('common.add') }}
           </button>
         </div>
         <p
@@ -93,7 +91,7 @@
               class="avatar avatar-fallback"
               :style="{ background: u.color }"
             >
-              {{ (u.displayName || u.email).slice(0, 1).toUpperCase() }}
+              {{ (u.displayName || u.email).slice(0, 1) }}
             </div>
             <div class="user-text">
               <span class="user-name">
@@ -101,7 +99,7 @@
                 <span
                   v-if="u.id === authStore.uid"
                   class="you-badge"
-                  >ви</span
+                  >{{ t('admin.you') }}</span
                 >
               </span>
               <span class="user-email">{{ u.email }}</span>
@@ -111,14 +109,14 @@
               :class="{ owner: u.role === 'owner' }"
               @click="toggleRole(u.id, u.role)"
             >
-              {{ u.role === 'owner' ? 'Власник' : 'Учасник' }}
+              {{ u.role === 'owner' ? t('admin.owner') : t('admin.member') }}
             </button>
             <button
               class="chip"
               :class="{ active: u.isActive }"
               @click="toggleActive(u.id, u.isActive)"
             >
-              {{ u.isActive ? 'Активний' : 'Вимкнено' }}
+              {{ u.isActive ? t('admin.active') : t('admin.disabled') }}
             </button>
           </li>
         </ul>
@@ -126,14 +124,14 @@
           v-else-if="!admin.loading"
           class="hint"
         >
-          Ще немає жодного учасника, окрім вас.
+          {{ t('admin.empty') }}
         </p>
       </div>
     </div>
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
   .page-title {
     font-size: 20px;
     margin: 8px 0 4px;
@@ -196,6 +194,7 @@
     color: #fff;
     font-weight: 700;
     font-size: 14px;
+    text-transform: uppercase;
   }
   .user-text {
     flex: 1;
@@ -206,9 +205,7 @@
   .user-name {
     font-size: 14px;
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @include lineClamp(1);
   }
   .you-badge {
     font-size: 10px;
@@ -222,9 +219,7 @@
   .user-email {
     font-size: 12px;
     color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    @include lineClamp(1);
   }
   .chip {
     border: none;

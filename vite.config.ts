@@ -76,6 +76,15 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  css: {
+    preprocessorOptions: {
+      scss: {
+        // Every `<style lang="scss">` block gets the shared mixins for free,
+        // so components just `@include` them without a manual `@use` line.
+        additionalData: `@use "@/styles/mixins" as *;`,
+      },
+    },
+  },
   server: {
     port: 8099,
     proxy: {

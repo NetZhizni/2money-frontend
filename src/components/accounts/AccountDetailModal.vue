@@ -1,13 +1,16 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import BalanceLineChart from './BalanceLineChart.vue'
 import { useTransactionsStore } from '../../stores/transactions'
+import { usePeriodStore } from '../../stores/period'
 import { computeAccountBalance } from '../../stores/accounts'
 import { buildBalanceHistory } from '../../utils/balanceHistory'
 import { formatMoney, startOfDay, endOfDay } from '../../utils/format'
 import { accountTypeLabel } from '../../utils/accountTypes'
+import { t } from '../../i18n'
+import type { PeriodGranularity } from '../../stores/period'
 import type { Account } from '../../types/models'
 
 // `account` is nullable because this component stays permanently mounted
@@ -23,6 +26,7 @@ const emit = defineEmits<{
 }>()
 
 const transactions = useTransactionsStore()
+const period = usePeriodStore()
 
 const typeLabel = computed(() =>
   props.account ? accountTypeLabel(props.account.type, props.account.loanDirection) : '',
@@ -33,23 +37,28 @@ const currentBalance = computed(() =>
   props.account ? computeAccountBalance(props.account, accountTransactions.value) : 0,
 )
 
-type RangeKey = '1m' | '3m' | '6m' | '1y' | 'all'
-const RANGE_OPTIONS: Array<{ value: RangeKey; label: string }> = [
-  { value: '1m', label: '1М' },
-  { value: '3m', label: '3М' },
-  { value: '6m', label: '6М' },
-  { value: '1y', label: '1Р' },
-  { value: 'all', label: 'Все' },
-]
-const range = ref<RangeKey>('3m')
+type RangeKey = '1m' | '3m' | '1y' | 'all'
 
-// Reused across accounts — reset to the default range every time it's reopened.
-watch(
-  () => props.open,
-  (isOpen) => {
-    if (isOpen) range.value = '3m'
-  },
-)
+/**
+ * Follows the app's globally selected period (the header's "pill" — see
+ * PeriodSwitcher.vue/stores/period.ts) instead of its own manual toggle, so
+ * this chart stays a trailing window ending TODAY (matching `currentBalance`
+ * above, which is always "right now", never a past/future period's closing
+ * balance) rather than jumping to whatever arbitrary calendar bucket the
+ * pill happens to be on — only the WINDOW WIDTH is taken from it. day/week
+ * are too short to show a real trend, so both collapse to the smallest
+ * useful window; month keeps this component's previous default (3m), so a
+ * fresh session (period store's own initial granularity) looks exactly like
+ * it did with the manual toggle.
+ */
+const GRANULARITY_RANGE: Record<PeriodGranularity, RangeKey> = {
+  day: '1m',
+  week: '1m',
+  month: '3m',
+  year: '1y',
+  all: 'all',
+}
+const range = computed<RangeKey>(() => GRANULARITY_RANGE[period.granularity])
 
 const rangeBounds = computed(() => {
   const to = endOfDay(Date.now())
@@ -60,7 +69,7 @@ const rangeBounds = computed(() => {
     const from = startOfDay(Math.min(earliestTx, account.createdAt))
     return { from, to }
   }
-  const months: Record<Exclude<RangeKey, 'all'>, number> = { '1m': 1, '3m': 3, '6m': 6, '1y': 12 }
+  const months: Record<Exclude<RangeKey, 'all'>, number> = { '1m': 1, '3m': 3, '1y': 12 }
   const fromDate = new Date(to)
   fromDate.setMonth(fromDate.getMonth() - months[range.value])
   return { from: startOfDay(fromDate.getTime()), to }
@@ -81,7 +90,7 @@ const periodDelta = computed(() => {
 </script>
 
 <template>
-  <Modal :open="open" title="Рахунок" @close="emit('close')">
+  <Modal :open="open" :title="t('accounts.detail.title')" @close="emit('close')">
     <template v-if="account">
       <div class="head">
         <IconCircle :icon="account.icon" :color="account.color" :size="64" square />
@@ -89,40 +98,31 @@ const periodDelta = computed(() => {
           <span class="name">{{ account.name }}</span>
           <span class="meta">{{ typeLabel }}</span>
           <span class="amount" :class="{ negative: currentBalance < 0 }">
-            {{ formatMoney(currentBalance, account.currency) }}
+            {{ formatMoney(currentBalance, account.currency, { currencyDisplay: account.currencyDisplay }) }}
           </span>
         </div>
       </div>
 
       <div class="quick-actions">
-        <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', account)">+ Додати операцію</button>
-        <button class="btn btn-secondary" @click="emit('viewOperations', account)">Операції</button>
+        <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', account)">{{ t('accounts.detail.addOperation') }}</button>
+        <button class="btn btn-secondary" @click="emit('viewOperations', account)">{{ t('accounts.detail.operations') }}</button>
       </div>
-      <button v-if="!readonly" class="btn btn-ghost edit-btn" @click="emit('edit', account)">Редагувати рахунок</button>
+      <button v-if="!readonly" class="btn btn-secondary edit-btn" @click="emit('edit', account)">{{ t('accounts.detail.editAccount') }}</button>
 
       <div class="history-section">
-        <h3 class="section-title">Історія балансу</h3>
-        <div class="segmented range-toggle">
-          <button
-            v-for="r in RANGE_OPTIONS"
-            :key="r.value"
-            :class="{ active: range === r.value }"
-            @click="range = r.value"
-          >
-            {{ r.label }}
-          </button>
-        </div>
+        <h3 class="section-title">{{ t('accounts.detail.historyTitle') }}</h3>
 
         <div class="chart-card">
           <BalanceLineChart
             :key="`${account.id}-${range}-${accountTransactions.length}`"
             :points="historyPoints"
             :currency="account.currency"
+            :currency-display="account.currencyDisplay"
             :color="account.color"
           />
 
           <p class="delta" :class="{ negative: periodDelta < 0, positive: periodDelta > 0 }">
-            Зміна за період: {{ formatMoney(periodDelta, account.currency, { signed: true }) }}
+            {{ t('accounts.detail.periodDelta', { amount: formatMoney(periodDelta, account.currency, { signed: true, currencyDisplay: account.currencyDisplay }) }) }}
           </p>
         </div>
       </div>
@@ -182,15 +182,11 @@ const periodDelta = computed(() => {
   color: var(--text-primary);
 }
 
-.range-toggle {
-  max-width: 320px;
-  margin: 0 auto 14px;
-}
-
 .chart-card {
   background: var(--surface-2);
   border-radius: var(--radius-md);
   padding: 16px 12px;
+  height: 292px;
 }
 
 .delta {

@@ -2,10 +2,13 @@
 import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
+import FieldRow from '../common/FieldRow.vue'
+import AmountEntryModal from '../common/AmountEntryModal.vue'
 import { useCategoriesStore } from '../../stores/categories'
 import { useBudgetsStore } from '../../stores/budgets'
 import { budgetProgress } from '../../utils/budget'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 import type { Category } from '../../types/models'
 
 // `category` is nullable because this component stays permanently mounted
@@ -34,17 +37,26 @@ const budgets = useBudgetsStore()
 const children = computed(() => (props.category ? categories.childrenOf(props.category.id, true) : []))
 const total = computed(() => (props.category ? props.totals[props.category.id] ?? 0 : 0))
 
+// The top-level category's own Settings → "Формат валюти" override, if any
+// (see Category.currencyDisplay) — every amount below (this category's
+// total, its budget, and each subcategory's own total) is in `currency`
+// (the top-level category's), so they all share this same override; a
+// subcategory never carries one of its own to read instead.
+const currencyDisplay = computed(() => props.category?.currencyDisplay)
+
 const existingBudget = computed(() => (props.category ? budgets.forCategory(props.category.id) : undefined))
-const budgetInput = ref('')
+const budgetInput = ref<number | null>(null)
 const editingBudget = ref(true)
+const showBudgetEntry = ref(false)
 
 // Reused across categories — re-derive the budget draft every time it's reopened.
 watch(
   () => props.open,
   (isOpen) => {
     if (!isOpen) return
-    budgetInput.value = existingBudget.value?.amount?.toString() ?? ''
+    budgetInput.value = existingBudget.value?.amount ?? null
     editingBudget.value = !existingBudget.value
+    showBudgetEntry.value = false
   },
 )
 
@@ -52,7 +64,7 @@ const progress = computed(() => budgetProgress(total.value, existingBudget.value
 
 async function saveBudget() {
   if (!props.category) return
-  const amount = Number(budgetInput.value)
+  const amount = budgetInput.value
   if (!amount || amount <= 0) return
   if (existingBudget.value) {
     await budgets.update(existingBudget.value.id, { amount, currency: props.currency })
@@ -65,31 +77,31 @@ async function saveBudget() {
 async function removeBudget() {
   if (!existingBudget.value) return
   await budgets.remove(existingBudget.value.id)
-  budgetInput.value = ''
+  budgetInput.value = null
   editingBudget.value = true
 }
 </script>
 
 <template>
-  <Modal :open="open" title="Категорія" @close="emit('close')">
+  <Modal :open="open" :title="t('categories.detail.title')" @close="emit('close')">
     <template v-if="category">
       <div class="head">
         <IconCircle :icon="category.icon" :color="category.color" :size="64" />
         <div class="head-text">
           <span class="name">{{ category.name }}</span>
-          <span class="amount" :style="{ color: category.color }">{{ formatMoney(total, currency) }}</span>
+          <span class="amount" :style="{ color: category.color }">{{ formatMoney(total, currency, { currencyDisplay }) }}</span>
         </div>
       </div>
 
       <div class="quick-actions">
-        <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', category)">+ Додати операцію</button>
-        <button class="btn btn-secondary" @click="emit('viewOperations', category)">Операції за період</button>
+        <button v-if="!readonly" class="btn btn-primary" @click="emit('addOperation', category)">{{ t('categories.detail.addOperation') }}</button>
+        <button class="btn btn-secondary" @click="emit('viewOperations', category)">{{ t('categories.detail.operationsForPeriod') }}</button>
       </div>
-      <button v-if="!readonly" class="btn btn-ghost edit-btn" @click="emit('edit', category)">Редагувати категорію</button>
+      <button v-if="!readonly" class="btn btn-secondary edit-btn" @click="emit('edit', category)">{{ t('categories.detail.editCategory') }}</button>
 
       <div v-if="category.kind === 'expense' && (existingBudget || !readonly)" class="budget-section">
         <div class="sub-header">
-          <span>Місячний бюджет</span>
+          <span>{{ t('categories.detail.monthlyBudget') }}</span>
         </div>
         <div v-if="!editingBudget && existingBudget" class="budget-view">
           <div class="budget-track">
@@ -101,26 +113,30 @@ async function removeBudget() {
           </div>
           <div class="budget-row">
             <span :class="{ over: progress?.over }">
-              {{ formatMoney(total, currency) }} з {{ formatMoney(existingBudget.amount, currency) }}
+              {{ t('categories.detail.spentOf', { spent: formatMoney(total, currency, { currencyDisplay }), budget: formatMoney(existingBudget.amount, currency, { currencyDisplay }) }) }}
             </span>
             <div v-if="!readonly" class="budget-actions">
-              <button class="link" @click="editingBudget = true">Змінити</button>
-              <button class="link danger" @click="removeBudget">Прибрати</button>
+              <button class="link" @click="editingBudget = true">{{ t('categories.detail.change') }}</button>
+              <button class="link danger" @click="removeBudget">{{ t('categories.detail.remove') }}</button>
             </div>
           </div>
         </div>
         <div v-else-if="!readonly" class="budget-edit">
-          <input v-model="budgetInput" type="number" min="0" step="1" inputmode="numeric" :placeholder="`Сума в ${currency}`" />
-          <button class="btn btn-secondary" @click="saveBudget">Зберегти</button>
+          <FieldRow tag="button" icon="mdiCashMultiple" :label="t('categories.detail.monthlyBudget')" @click="showBudgetEntry = true">
+            <span class="field-row-value">
+              {{ budgetInput != null ? formatMoney(budgetInput, currency, { currencyDisplay }) : t('categories.detail.amountIn', { currency }) }}
+            </span>
+          </FieldRow>
+          <button class="btn btn-secondary" :disabled="!budgetInput || budgetInput <= 0" @click="saveBudget">{{ t('common.save') }}</button>
         </div>
       </div>
 
       <div class="sub-section">
         <div class="sub-header">
-          <span>Підкатегорії</span>
-          <button v-if="!readonly" class="link" @click="emit('addSubcategory', category)">+ Додати</button>
+          <span>{{ t('categories.detail.subcategories') }}</span>
+          <button v-if="!readonly" class="link" @click="emit('addSubcategory', category)">{{ t('categories.detail.addSubcategory') }}</button>
         </div>
-        <p v-if="!children.length" class="empty">Підкатегорій ще немає.</p>
+        <p v-if="!children.length" class="empty">{{ t('categories.detail.noSubcategories') }}</p>
         <ul v-else class="sub-list">
           <li
             v-for="child in children"
@@ -132,16 +148,27 @@ async function removeBudget() {
             <IconCircle :icon="child.icon" :color="child.color" :size="36" />
             <span class="sub-name" :class="{ archived: child.archived }">{{ child.name }}</span>
             <span class="sub-amount" :style="{ color: child.color }">
-              {{ formatMoney(totals[child.id] ?? 0, currency) }}
+              {{ formatMoney(totals[child.id] ?? 0, currency, { currencyDisplay }) }}
             </span>
           </li>
         </ul>
       </div>
     </template>
   </Modal>
+
+  <AmountEntryModal
+    :open="showBudgetEntry"
+    :title="t('categories.detail.monthlyBudget')"
+    :initial-value="budgetInput"
+    :currency="currency"
+    :currency-display="currencyDisplay"
+    :label="t('categories.detail.monthlyBudget')"
+    @close="showBudgetEntry = false"
+    @confirm="(v) => (budgetInput = v)"
+  />
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .head {
   display: flex;
   align-items: center;
@@ -213,17 +240,18 @@ async function removeBudget() {
   padding: 8px 4px;
   cursor: pointer;
   border-radius: var(--radius-sm);
-}
-.sub-item:hover {
-  background: var(--surface-2);
+
+  @include hover() {
+    background: var(--surface-2);
+  }
 }
 
 .sub-item--static {
   cursor: default;
-}
 
-.sub-item--static:hover {
-  background: none;
+  @include hover() {
+    background: none;
+  }
 }
 .sub-name {
   flex: 1;
@@ -282,16 +310,11 @@ async function removeBudget() {
 .budget-edit {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
-.budget-edit input {
+.budget-edit :deep(.field-row) {
   flex: 1;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 9px 12px;
-  font-size: 14px;
-  color: var(--text-primary);
-  outline: none;
+  margin-bottom: 0;
 }
 </style>

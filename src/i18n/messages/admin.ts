@@ -1,0 +1,26 @@
+export const admin = {
+  uk: {
+    'admin.title': 'Учасники родини',
+    'admin.hint': 'Тут ви заводите email члена родини заздалегідь — при першому вході через цю Google-адресу він автоматично отримає доступ під тим профілем, що ви тут створили.',
+    'admin.emailPlaceholder': "ім'я@gmail.com",
+    'admin.disableSelfConfirm': 'Це вимкне ваш власний доступ. Продовжити?',
+    'admin.you': 'ви',
+    'admin.owner': 'Власник',
+    'admin.member': 'Учасник',
+    'admin.active': 'Активний',
+    'admin.disabled': 'Вимкнено',
+    'admin.empty': 'Ще немає жодного учасника, окрім вас.',
+  },
+  en: {
+    'admin.title': 'Family members',
+    'admin.hint': 'Add a family member’s email in advance — the first time they sign in with that Google address, they’ll automatically get access under the profile you create here.',
+    'admin.emailPlaceholder': 'name@gmail.com',
+    'admin.disableSelfConfirm': 'This will disable your own access. Continue?',
+    'admin.you': 'you',
+    'admin.owner': 'Owner',
+    'admin.member': 'Member',
+    'admin.active': 'Active',
+    'admin.disabled': 'Disabled',
+    'admin.empty': 'No members yet besides you.',
+  },
+}

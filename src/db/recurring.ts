@@ -1,7 +1,6 @@
 import { db } from './schema'
 import { enqueueUpsertMany } from './sync'
 import { newId } from '../utils/id'
-import { convertAmount, BASE_CURRENCY } from './exchangeRates'
 import type { RecurringTemplate, RecurringFrequency, Transaction } from '../types/models'
 
 export function advance(date: number, frequency: RecurringFrequency, interval: number): number {
@@ -36,7 +35,6 @@ export async function generateDueRecurring(
   templates: RecurringTemplate[],
   ownerId: string,
   now: number = Date.now(),
-  baseCurrency: string = BASE_CURRENCY,
 ): Promise<number> {
   const due = templates.filter((t) => t.active && t.nextDate <= now)
 
@@ -48,10 +46,6 @@ export async function generateDueRecurring(
     let cursor = template.nextDate
     let iterations = 0
     while (cursor <= now && (!template.endDate || cursor <= template.endDate) && iterations < 1000) {
-      const rate = await convertAmount(1, template.currency, baseCurrency, cursor)
-      const signedBase =
-        template.type === 'expense' ? -template.amount * rate : template.type === 'income' ? template.amount * rate : 0
-
       newTransactions.push({
         id: newId(),
         ownerId,
@@ -64,8 +58,6 @@ export async function generateDueRecurring(
         subcategoryId: template.subcategoryId ?? null,
         amount: template.amount,
         currency: template.currency,
-        exchangeRate: rate,
-        baseAmount: signedBase,
         note: template.note,
         templateId: template.id,
         createdAt: now,
@@ -95,5 +87,3 @@ export async function generateDueRecurring(
 export function computeInitialNextDate(startDate: number): number {
   return startDate
 }
-
-export { BASE_CURRENCY }

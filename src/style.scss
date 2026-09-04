@@ -78,7 +78,8 @@
 }
 
 html,
-body {
+body,
+#app {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -89,10 +90,6 @@ body {
 
 body {
   -webkit-font-smoothing: antialiased;
-}
-
-#app {
-  height: 100%;
 }
 
 button {
@@ -144,9 +141,7 @@ textarea {
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition:
-    opacity 0.15s ease,
-    transform 0.1s ease;
+  @include transition();
 }
 .btn:active {
   transform: scale(0.98);
@@ -216,6 +211,62 @@ textarea {
   font-size: 12px;
 }
 
+/* ---------- FieldRow's value typography (components/common/FieldRow.vue) ----------
+   Global, not scoped to FieldRow itself: the value (input/select/textarea/span) is
+   passed in through a slot from the PARENT component, which keeps the parent's own
+   scoped-CSS attribute, not FieldRow's — a scoped rule inside FieldRow.vue would
+   never match it. */
+.field-row-value {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+textarea.field-row-value {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  resize: vertical;
+  min-height: 38px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+select.field-row-value {
+  appearance: none;
+  cursor: pointer;
+}
+
+.field-row-value::placeholder {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.field-row-value:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Trailing checkbox for a `tag="label"` FieldRow acting as a toggle row. */
+.field-row-toggle {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 .segmented {
   display: flex;
   background: var(--surface-2);
@@ -242,10 +293,17 @@ textarea {
   box-shadow: var(--shadow-sm);
 }
 
+.segmented button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.segmented button.active:disabled {
+  opacity: 0.75;
+}
+
 .segmented button {
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  @include transition();
 }
 
 /* ---------- Generic tap feedback for interactive list/tile rows (used across many SFCs) ---------- */
@@ -253,7 +311,7 @@ textarea {
 .row,
 .card-main,
 .rank-row {
-  transition: transform 0.1s ease;
+  @include transition();
 }
 .tile:active,
 .row:active,
@@ -283,8 +341,7 @@ textarea {
   justify-items: center;
 
   height: 100%;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
+  @include overflow(y);
   padding-bottom: 90px;
   gap: 12px;
 

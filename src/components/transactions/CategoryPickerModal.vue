@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
+import { t } from '../../i18n'
 import type { Category, CategoryKind } from '../../types/models'
 
-const props = defineProps<{ open: boolean; kind: CategoryKind; categories: Category[]; selectedId?: string }>()
+// `noneLabel`, when given, adds a leading "no selection" cell (emits `''`
+// on pick) — used by CategoryFormModal's "Батьківська категорія" field,
+// which needs a way back to "не підкатегорія" that a plain category id
+// can't represent. TransactionFormModal's own use (picking the operation's
+// own category) leaves it unset — a transaction always has one.
+const props = defineProps<{ open: boolean; kind: CategoryKind; categories: Category[]; selectedId?: string; noneLabel?: string }>()
 const emit = defineEmits<{ close: []; select: [string] }>()
 
 function choose(id: string) {
@@ -13,9 +19,13 @@ function choose(id: string) {
 </script>
 
 <template>
-  <Modal :open="open" :title="props.kind === 'expense' ? 'Категорія витрат' : 'Категорія доходів'" top @close="emit('close')">
-    <div v-if="!categories.length" class="empty">Категорій ще немає.</div>
+  <Modal :open="open" :title="props.kind === 'expense' ? t('transactions.picker.expenseCategoryTitle') : t('transactions.picker.incomeCategoryTitle')" top @close="emit('close')">
+    <div v-if="!categories.length && !noneLabel" class="empty">{{ t('transactions.picker.noCategories') }}</div>
     <div class="grid">
+      <button v-if="noneLabel" class="cell" :class="{ selected: !selectedId }" @click="choose('')">
+        <IconCircle icon="mdiCancel" color="#9a9a9e" :size="52" muted />
+        <span class="name">{{ noneLabel }}</span>
+      </button>
       <button
         v-for="c in categories"
         :key="c.id"
@@ -30,7 +40,7 @@ function choose(id: string) {
   </Modal>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, 85px);
@@ -61,10 +71,8 @@ function choose(id: string) {
   font-size: 11.5px;
   color: var(--text-secondary);
   text-align: center;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   max-width: 100%;
+  @include lineClamp(1);
 }
 
 .cell.selected .name {

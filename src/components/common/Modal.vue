@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { t } from '../../i18n'
 
 const props = withDefaults(
   defineProps<{ open: boolean; title?: string; wide?: boolean; width?: number; top?: boolean }>(),
@@ -82,7 +83,7 @@ const sheetStyle = computed(() => {
             @touchcancel="onTouchEnd"
           >
             <h2>{{ title }}</h2>
-            <button class="icon-btn" aria-label="Закрити" @click="requestClose">✕</button>
+            <button class="icon-btn" :aria-label="t('common.close')" @click="requestClose">✕</button>
           </header>
           <div class="sheet-body">
             <slot />
@@ -93,17 +94,17 @@ const sheetStyle = computed(() => {
   </Teleport>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .backdrop {
   position: fixed;
   inset: 0;
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   z-index: 100;
-  transition: opacity 0.2s ease-in-out;
+  @include transition();
 }
 
 /* `top` is for popups mounted once in App.vue (the confirm dialog, the
@@ -116,9 +117,9 @@ const sheetStyle = computed(() => {
   z-index: 200;
 }
 
-@media (min-width: 640px) {
+@include tablet() {
   .backdrop {
-    align-items: center;
+    align-items: flex-end;
   }
 }
 
@@ -127,9 +128,10 @@ const sheetStyle = computed(() => {
   opacity: 0;
 }
 
+/* Desktop uses scale in/out instead of the mobile slide-up-from-bottom */
 .modal-enter-from .sheet,
 .modal-leave-to .sheet {
-  transform: translateY(100%);
+  transform: scale(0);
   opacity: 0;
 }
 
@@ -142,10 +144,10 @@ const sheetStyle = computed(() => {
   display: grid;
   grid-template-rows: auto auto 1fr;
   overflow: hidden;
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
   padding: 8px 20px 0;
-  transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.22s ease;
+  @include transition();
   touch-action: pan-y;
 }
 
@@ -157,22 +159,21 @@ const sheetStyle = computed(() => {
   max-width: 640px;
 }
 
-@media (min-width: 640px) {
+@include tablet() {
   .sheet {
-    border-radius: var(--radius-lg);
-    transition: transform 0.2s ease-in-out, opacity 0.2s ease-in-out;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   }
   .grabber {
-    display: none;
+    display: block;
   }
-  /* Desktop uses scale in/out instead of the mobile slide-up-from-bottom */
   .modal-enter-from .sheet,
   .modal-leave-to .sheet {
-    transform: scale(0);
+    transform: translateY(100%);
   }
 }
 
 .grabber {
+  display: none;
   grid-row: 1;
   width: 36px;
   height: 4px;
@@ -196,12 +197,12 @@ const sheetStyle = computed(() => {
 .sheet-body {
   grid-row: 3;
   min-height: 0;
-  overflow-y: auto;
+  /* Per spec, a non-'visible' overflow-y forces overflow-x to 'auto' too, so
+     any child that overflows horizontally (e.g. a grid row before the
+     min-width fix) would silently grow a horizontal scrollbar here — the
+     overflow(y) mixin pins overflow-x back to hidden to guard against that. */
+  @include overflow(y);
   overscroll-behavior: contain;
-  /* Per spec, a non-'visible' overflow-y forces overflow-x to 'auto' too,
-     so any child that overflows horizontally (e.g. a grid row before the
-     min-width fix) would silently grow a horizontal scrollbar here. */
-  overflow-x: hidden;
   padding-bottom: 24px;
 }
 

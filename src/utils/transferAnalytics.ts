@@ -1,4 +1,5 @@
 import type { Transaction } from '../types/models'
+import { t } from '../i18n'
 
 /**
  * A transfer counts toward income/expense analytics (Overview, category
@@ -10,6 +11,9 @@ export function isCrossProfileTransfer(t: Transaction): boolean {
   return t.type === 'transfer' && t.participantIds.length > 1
 }
 
-export const TRANSFER_CATEGORY_LABEL = 'Перекази'
+/** Display name for the transfers pseudo-category — a function, not a constant, since it must follow the current locale. */
+export function transferCategoryLabel(): string {
+  return t('overview.transfers')
+}
 export const TRANSFER_CATEGORY_ICON = 'mdiSwapHorizontal'
 export const TRANSFER_CATEGORY_COLOR = '#4a3aa7'

@@ -4,6 +4,10 @@
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "types": ["vite/client", "vite-plugin-pwa/client"],
     "allowArbitraryExtensions": true,
+    // Bumped from the base ES2022 for Intl.NumberFormat's `trailingZeroDisplay`
+    // (used in formatMoney) — a runtime API surface only, doesn't affect
+    // the actual build target (still ESNext/Vite-controlled).
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
 
     /* Linting */
     "noUnusedLocals": true,

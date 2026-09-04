@@ -1,8 +1,11 @@
+import { t } from '../i18n'
+
 /**
- * Стискає фото на клієнті перед відправкою на POST /api/receipts/scan —
- * фото з камери телефону легко буває 3000×4000px і кілька мегабайтів, а для
- * розпізнавання чека Gemini вистачає набагато меншої роздільності. Менший
- * payload — це і швидший запит, і менший ліміт тіла запиту на бекенді.
+ * Compresses the photo client-side before sending it to POST
+ * /api/receipts/scan — a phone camera photo is easily 3000×4000px and
+ * several megabytes, while Gemini needs a much lower resolution to read a
+ * receipt. A smaller payload means both a faster request and staying under
+ * the backend's request-body limit.
  */
 export async function compressImageToBase64(
   file: File,
@@ -18,7 +21,7 @@ export async function compressImageToBase64(
     canvas.width = width
     canvas.height = height
     const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('Canvas 2D недоступний')
+    if (!ctx) throw new Error(t('receipts.canvasUnavailable'))
     ctx.drawImage(bitmap, 0, 0, width, height)
 
     const dataUrl = canvas.toDataURL('image/jpeg', quality)

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import MdiIcon from './MdiIcon.vue'
 import { ICON_NAMES, POPULAR_ICONS, iconLabel } from '../../utils/icons'
+import { t } from '../../i18n'
 
 const props = defineProps<{ modelValue: string; color: string }>()
 const emit = defineEmits<{ 'update:modelValue': [string] }>()
@@ -21,7 +22,7 @@ function pick(name: string) {
 
 <template>
   <div class="picker">
-    <input v-model="query" type="text" placeholder="Пошук іконки…" class="search" />
+    <input v-model="query" type="text" :placeholder="t('common.searchIcon')" class="search" />
     <div class="grid scrollbar-none">
       <button
         v-for="name in results"
@@ -37,7 +38,7 @@ function pick(name: string) {
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .picker {
   display: flex;
   flex-direction: column;
@@ -59,7 +60,7 @@ function pick(name: string) {
   grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
   gap: 6px;
   max-height: 220px;
-  overflow-y: auto;
+  @include overflow(y);
   padding: 4px;
 }
 

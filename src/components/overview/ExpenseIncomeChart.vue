@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 
 // ApexCharts is a large dependency (~500KB+) — load it only once a chart
 // actually needs to render instead of bundling it into every route that
@@ -76,9 +77,9 @@ watch([() => props.bars, () => props.currency, mode, colors], () => {
 // (a bar chart and a standalone "Динаміка чистого балансу" area chart) with
 // one chart that shows both at a glance.
 const barsSeries = computed(() => [
-  { name: 'Витрати', type: 'column', data: props.bars.map((b) => b.expense) },
-  { name: 'Доходи', type: 'column', data: props.bars.map((b) => b.income) },
-  { name: 'Чистий баланс', type: 'line', data: props.bars.map((b) => b.income - b.expense) },
+  { name: t('overview.expenses'), type: 'column', data: props.bars.map((b) => b.expense) },
+  { name: t('overview.income'), type: 'column', data: props.bars.map((b) => b.income) },
+  { name: t('overview.netBalance'), type: 'line', data: props.bars.map((b) => b.income - b.expense) },
 ])
 
 const barsOptions = computed(() => ({
@@ -119,7 +120,7 @@ const barsOptions = computed(() => ({
 
 // Trend view: net-balance-only area chart, for a cleaner read of the overall
 // direction across the period without the column clutter.
-const trendSeries = computed(() => [{ name: 'Чистий баланс', data: props.bars.map((b) => b.income - b.expense) }])
+const trendSeries = computed(() => [{ name: t('overview.netBalance'), data: props.bars.map((b) => b.income - b.expense) }])
 
 const trendOptions = computed(() => ({
   chart: {
@@ -159,10 +160,10 @@ const trendOptions = computed(() => ({
 <template>
   <div class="chart-wrap">
     <div class="chart-head">
-      <h3 class="section-title">Витрати / Доходи</h3>
+      <h3 class="section-title">{{ t('overview.expenseIncomeTitle') }}</h3>
       <div class="segmented view-toggle">
-        <button :class="{ active: view === 'bars' }" @click="view = 'bars'">Стовпчики</button>
-        <button :class="{ active: view === 'trend' }" @click="view = 'trend'">Лінія</button>
+        <button :class="{ active: view === 'bars' }" @click="view = 'bars'">{{ t('overview.viewBars') }}</button>
+        <button :class="{ active: view === 'trend' }" @click="view = 'trend'">{{ t('overview.viewLine') }}</button>
       </div>
     </div>
     <div class="chart-body">
@@ -188,7 +189,7 @@ const trendOptions = computed(() => ({
   </div>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .chart-wrap {
   width: 100%;
 }
@@ -221,7 +222,7 @@ const trendOptions = computed(() => ({
 
 .chart-fade-enter-active,
 .chart-fade-leave-active {
-  transition: opacity 0.18s ease;
+  @include transition();
 }
 .chart-fade-enter-from,
 .chart-fade-leave-to {

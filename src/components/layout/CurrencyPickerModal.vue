@@ -2,16 +2,19 @@
 import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
-import { useDisplayCurrencyStore } from '../../stores/displayCurrency'
-import { useSettingsStore } from '../../stores/settings'
 import { useFavoriteCurrenciesStore } from '../../stores/favoriteCurrencies'
-import { COMMON_CURRENCIES } from '../../utils/currencies'
+import { COMMON_CURRENCIES, currencyLabel } from '../../utils/currencies'
+import { t } from '../../i18n'
 
-const display = useDisplayCurrencyStore()
-const settings = useSettingsStore()
+// Generic currency picker — search + starred favorites on top. Originally
+// only the base-currency picker behind SettingsModal's "Показувати суми
+// в…"; now also reused for any other "pick one currency" field (account
+// currency, category currency, ...) via `selected`/`select` instead of
+// reading/writing settings.baseCurrency directly — the caller owns what the
+// chosen currency actually means.
 const favorites = useFavoriteCurrenciesStore()
-const props = defineProps<{ open: boolean }>()
-const emit = defineEmits<{ close: [] }>()
+const props = defineProps<{ open: boolean; selected: string; title?: string; hint?: string }>()
+const emit = defineEmits<{ close: []; select: [string] }>()
 
 const query = ref('')
 
@@ -26,7 +29,7 @@ watch(
 const filtered = computed(() => {
   const q = query.value.trim().toLowerCase()
   if (!q) return COMMON_CURRENCIES
-  return COMMON_CURRENCIES.filter((c) => c.code.toLowerCase().includes(q) || c.label.toLowerCase().includes(q))
+  return COMMON_CURRENCIES.filter((c) => c.code.toLowerCase().includes(q) || currencyLabel(c.code).toLowerCase().includes(q))
 })
 
 // Favorites keep the picker usable now that the list runs to 40 currencies —
@@ -35,62 +38,57 @@ const favoriteList = computed(() => filtered.value.filter((c) => favorites.isFav
 const otherList = computed(() => filtered.value.filter((c) => !favorites.isFavorite(c.code)))
 
 function choose(code: string) {
-  display.set(code === settings.baseCurrency ? null : code)
+  emit('select', code)
   emit('close')
 }
 </script>
 
 <template>
-  <Modal :open="open" title="Показувати суми в…" @close="emit('close')">
-    <input v-model="query" type="text" placeholder="Пошук валюти…" class="search" />
+  <Modal :open="open" :title="title ?? t('currencyPicker.title')" @close="emit('close')">
+    <input v-model="query" type="text" :placeholder="t('currencyPicker.search')" class="search" />
 
     <template v-if="favoriteList.length">
-      <p class="group-label">Обрані</p>
+      <p class="group-label">{{ t('currencyPicker.favorites') }}</p>
       <div
         v-for="c in favoriteList"
         :key="c.code"
         class="option"
-        :class="{ active: c.code === display.effective }"
+        :class="{ active: c.code === selected }"
         role="button"
         tabindex="0"
         @click="choose(c.code)"
         @keydown.enter="choose(c.code)"
       >
-        <button class="star" aria-label="Прибрати з обраних" @click.stop="favorites.toggle(c.code)">
+        <button class="star" :aria-label="t('currencyPicker.removeFavorite')" @click.stop="favorites.toggle(c.code)">
           <MdiIcon name="mdiStar" :size="18" color="var(--accent)" />
         </button>
-        <span class="option-label">{{ c.label }}</span>
-        <span v-if="c.code === settings.baseCurrency" class="badge">базова</span>
+        <span class="option-label">{{ currencyLabel(c.code) }}</span>
       </div>
     </template>
 
-    <p class="group-label">{{ favoriteList.length ? 'Усі валюти' : 'Валюти' }}</p>
+    <p class="group-label">{{ favoriteList.length ? t('currencyPicker.allCurrencies') : t('currencyPicker.currencies') }}</p>
     <div
       v-for="c in otherList"
       :key="c.code"
       class="option"
-      :class="{ active: c.code === display.effective }"
+      :class="{ active: c.code === selected }"
       role="button"
       tabindex="0"
       @click="choose(c.code)"
       @keydown.enter="choose(c.code)"
     >
-      <button class="star" aria-label="Додати в обрані" @click.stop="favorites.toggle(c.code)">
+      <button class="star" :aria-label="t('currencyPicker.addFavorite')" @click.stop="favorites.toggle(c.code)">
         <MdiIcon name="mdiStarOutline" :size="18" color="var(--text-muted)" />
       </button>
-      <span class="option-label">{{ c.label }}</span>
-      <span v-if="c.code === settings.baseCurrency" class="badge">базова</span>
+      <span class="option-label">{{ currencyLabel(c.code) }}</span>
     </div>
-    <p v-if="!filtered.length" class="hint">Нічого не знайдено.</p>
+    <p v-if="!filtered.length" class="hint">{{ t('currencyPicker.notFound') }}</p>
 
-    <p class="hint footer-hint">
-      Впливає лише на відображення — не змінює базову валюту в Налаштуваннях. Зірочкою позначайте
-      валюти, які мають бути першими у списку.
-    </p>
+    <p v-if="hint" class="hint footer-hint">{{ hint }}</p>
   </Modal>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .search {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -128,10 +126,10 @@ function choose(code: string) {
   color: var(--text-primary);
   cursor: pointer;
   text-align: left;
-}
 
-.option:hover {
-  background: var(--surface-2);
+  @include hover() {
+    background: var(--surface-2);
+  }
 }
 
 .option.active {
@@ -154,12 +152,6 @@ function choose(code: string) {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  flex-shrink: 0;
-}
-
-.badge {
-  font-size: 10px;
-  color: var(--text-muted);
   flex-shrink: 0;
 }
 

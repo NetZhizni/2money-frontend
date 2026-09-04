@@ -2,13 +2,15 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
+import { t } from '../../i18n'
 
 /**
  * Три способи дістати фото чека для розпізнавання (див.
- * ReceiptScanReviewModal.vue, яке отримує готовий File і шле його далі в
- * POST /api/receipts/scan): з галереї/файлів, "наживо" через камеру пристрою
- * (getUserMedia, знімок кадром у canvas — без переходу у нативний застосунок
- * камери), або з буфера обміну (скріншот чи скопійоване десь зображення).
+ * ReceiptEditModal.vue, яке в scanFile-режимі отримує готовий File і шле його
+ * далі в POST /api/receipts/scan): з галереї/файлів, "наживо" через камеру
+ * пристрою (getUserMedia, знімок кадром у canvas — без переходу у нативний
+ * застосунок камери), або з буфера обміну (скріншот чи скопійоване десь
+ * зображення).
  */
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: []; picked: [File] }>()
@@ -17,9 +19,9 @@ type Mode = 'menu' | 'camera' | 'clipboard'
 const mode = ref<Mode>('menu')
 
 const title = computed(() => {
-  if (mode.value === 'camera') return 'Камера'
-  if (mode.value === 'clipboard') return 'З буфера обміну'
-  return 'Фото чека'
+  if (mode.value === 'camera') return t('receipts.capture.cameraTitle')
+  if (mode.value === 'clipboard') return t('receipts.capture.clipboardTitle')
+  return t('receipts.capture.photoTitle')
 })
 
 function emitPicked(file: File) {
@@ -67,7 +69,7 @@ async function startCamera() {
     }
   } catch (error) {
     console.error('[receipt-capture] camera failed', error)
-    cameraError.value = 'Не вдалося увімкнути камеру. Перевірте дозвіл у браузері або оберіть фото з галереї.'
+    cameraError.value = t('receipts.capture.cameraFailed')
   }
 }
 
@@ -138,7 +140,7 @@ async function tryReadClipboard() {
         return
       }
     }
-    clipboardError.value = 'У буфері обміну немає зображення.'
+    clipboardError.value = t('receipts.capture.noImageInClipboard')
     clipboardManualFallback.value = true
   } catch (error) {
     // Найчастіше — відмова в дозволі, або браузер узагалі не підтримує
@@ -159,7 +161,7 @@ async function openClipboard() {
 function onManualPaste(e: ClipboardEvent) {
   e.preventDefault()
   const handled = handlePasteEventItems(e.clipboardData?.items)
-  if (!handled) clipboardError.value = 'У буфері обміну немає зображення.'
+  if (!handled) clipboardError.value = t('receipts.capture.noImageInClipboard')
 }
 
 // ---------- Спільне ----------
@@ -199,24 +201,24 @@ onUnmounted(stopCamera)
       <button type="button" class="source-btn" @click="openGallery">
         <span class="source-icon"><MdiIcon name="mdiImageMultipleOutline" :size="22" /></span>
         <span class="source-text">
-          <span class="source-title">Обрати фото</span>
-          <span class="source-sub">Із галереї чи файлів пристрою</span>
+          <span class="source-title">{{ t('receipts.capture.choosePhoto') }}</span>
+          <span class="source-sub">{{ t('receipts.capture.fromGallery') }}</span>
         </span>
       </button>
 
       <button type="button" class="source-btn" :class="{ disabled: !cameraSupported }" @click="cameraSupported && openCamera()">
         <span class="source-icon"><MdiIcon name="mdiCameraOutline" :size="22" /></span>
         <span class="source-text">
-          <span class="source-title">Зробити фото</span>
-          <span class="source-sub">{{ cameraSupported ? 'Увімкнути камеру' : 'Камера недоступна в цьому браузері' }}</span>
+          <span class="source-title">{{ t('receipts.capture.takePhoto') }}</span>
+          <span class="source-sub">{{ cameraSupported ? t('receipts.capture.enableCamera') : t('receipts.capture.cameraUnavailable') }}</span>
         </span>
       </button>
 
       <button type="button" class="source-btn" @click="openClipboard">
         <span class="source-icon"><MdiIcon name="mdiClipboardOutline" :size="22" /></span>
         <span class="source-text">
-          <span class="source-title">Вставити з буфера обміну</span>
-          <span class="source-sub">Скріншот або скопійоване зображення</span>
+          <span class="source-title">{{ t('receipts.capture.pasteFromClipboard') }}</span>
+          <span class="source-sub">{{ t('receipts.capture.screenshotHint') }}</span>
         </span>
       </button>
     </div>
@@ -227,13 +229,13 @@ onUnmounted(stopCamera)
         <p v-if="cameraError" class="camera-error">{{ cameraError }}</p>
       </div>
       <div class="camera-controls">
-        <button type="button" class="ctrl-btn" aria-label="Назад" @click="backToMenu">
+        <button type="button" class="ctrl-btn" :aria-label="t('receipts.capture.back')" @click="backToMenu">
           <MdiIcon name="mdiArrowLeft" :size="20" />
         </button>
-        <button type="button" class="shutter-btn" :disabled="!!cameraError" aria-label="Зняти" @click="shoot">
+        <button type="button" class="shutter-btn" :disabled="!!cameraError" :aria-label="t('receipts.capture.shoot')" @click="shoot">
           <span class="shutter-inner" />
         </button>
-        <button type="button" class="ctrl-btn" aria-label="Змінити камеру" @click="flipCamera">
+        <button type="button" class="ctrl-btn" :aria-label="t('receipts.capture.flipCamera')" @click="flipCamera">
           <MdiIcon name="mdiCameraFlipOutline" :size="20" />
         </button>
       </div>
@@ -242,7 +244,7 @@ onUnmounted(stopCamera)
     <div v-else class="clipboard-view">
       <button type="button" class="back-link" @click="backToMenu">
         <MdiIcon name="mdiArrowLeft" :size="16" />
-        Назад
+        {{ t('receipts.capture.back') }}
       </button>
 
       <div
@@ -254,15 +256,15 @@ onUnmounted(stopCamera)
         @paste="onManualPaste"
       >
         <MdiIcon name="mdiContentPaste" :size="26" color="var(--text-muted)" />
-        <span>Натисніть тут і вставте (Ctrl+V), або утримуйте для вставки на телефоні</span>
+        <span>{{ t('receipts.capture.pasteHint') }}</span>
       </div>
       <div v-else class="paste-waiting">
         <span class="spinner" />
-        <span>Читаємо буфер обміну…</span>
+        <span>{{ t('receipts.capture.readingClipboard') }}</span>
       </div>
 
       <p v-if="clipboardError" class="clipboard-error">{{ clipboardError }}</p>
-      <button type="button" class="btn btn-secondary retry-btn" @click="tryReadClipboard">Спробувати ще раз</button>
+      <button type="button" class="btn btn-secondary retry-btn" @click="tryReadClipboard">{{ t('receipts.capture.retryPaste') }}</button>
     </div>
   </Modal>
 

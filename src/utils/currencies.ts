@@ -7,6 +7,27 @@
  * (offshore-market duplicate of CNY), and SLL/ZWL/HRK (currencies their own
  * countries have already replaced — with SLE, ZWG, and EUR respectively).
  */
+import { locale } from '../i18n/locale'
+
+/** Built once — stateless per locale, same hoist-out-of-the-hot-path reasoning as format.ts's genitiveMonthFormatter. */
+const enCurrencyNames = new Intl.DisplayNames(['en'], { type: 'currency' })
+
+/**
+ * Display label for a currency in the current locale. uk keeps the curated
+ * `COMMON_CURRENCIES` text below (already reviewed, no reason to regenerate
+ * it) — every other locale (currently just en) is generated from CLDR via
+ * `Intl.DisplayNames`, which covers all ~160 codes without hand-translating
+ * them, at the cost of sometimes reading slightly differently in wording
+ * than a bespoke translation would (e.g. the CLDR long name vs. a shorter
+ * common one). Falls back to the bare code if a locale has no CLDR entry
+ * for it (a handful of exotic/regional codes).
+ */
+export function currencyLabel(code: string): string {
+  if (locale === 'uk') return COMMON_CURRENCIES.find((c) => c.code === code)?.label ?? code
+  const name = enCurrencyNames.of(code)
+  return name ? `${name} (${code})` : code
+}
+
 export const COMMON_CURRENCIES = [
   { code: 'UAH', label: 'Гривня (UAH)' },
   { code: 'USD', label: 'Долар США (USD)' },
@@ -168,3 +189,49 @@ export const COMMON_CURRENCIES = [
   { code: 'ZMW', label: 'Замбійська квача (ZMW)' },
   { code: 'ZWG', label: 'Зімбабвійський золотий (ZWG)' },
 ]
+
+/**
+ * A category's currency is mandatory going forward (CategoryFormModal.vue
+ * always saves one) — but the field stays nullable in Category itself to
+ * tolerate rows saved before that was true. Use this instead of reading
+ * `category.currency` directly wherever "this category's own currency" is
+ * needed (CategoriesDataView.vue, OperationsDataView.vue's per-row
+ * dual-amount check, TransactionFormModal.vue's isCrossCurrencyCategory, ...).
+ *
+ * When there's no currency saved yet, guess from the DOMINANT currency among
+ * `transactions` already recorded against this category, rather than
+ * blindly assuming the base currency — a category that's only ever seen USD
+ * operations should keep looking like USD, not silently become
+ * "base-currency" and turn every future USD entry into a fake cross-currency
+ * operation. Only actually falls back to `baseCurrency` for a category with
+ * no matching history at all (a genuinely new one, or `transactions` omitted).
+ */
+export function resolveCategoryCurrency(
+  category: { id?: string; currency?: string | null } | null | undefined,
+  baseCurrency: string,
+  transactions?: { categoryId?: string; currency: string }[],
+): string {
+  if (category?.currency) return category.currency
+  if (category?.id && transactions?.length) {
+    const guess = dominantCurrencyForCategory(transactions, category.id)
+    if (guess) return guess
+  }
+  return baseCurrency
+}
+
+function dominantCurrencyForCategory(transactions: { categoryId?: string; currency: string }[], categoryId: string): string | undefined {
+  const counts = new Map<string, number>()
+  for (const t of transactions) {
+    if (t.categoryId !== categoryId) continue
+    counts.set(t.currency, (counts.get(t.currency) ?? 0) + 1)
+  }
+  let best: string | undefined
+  let bestCount = 0
+  for (const [currency, count] of counts) {
+    if (count > bestCount) {
+      bestCount = count
+      best = currency
+    }
+  }
+  return best
+}

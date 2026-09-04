@@ -4,15 +4,16 @@ import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import { formatMoney } from '../../utils/format'
+import { t } from '../../i18n'
 import type { AccountPickerItem } from '../../types/pickerItems'
 
 const props = defineProps<{ open: boolean; title: string; items: AccountPickerItem[]; selectedId?: string }>()
 const emit = defineEmits<{ close: []; select: [string] }>()
 
-// "Рахунки" / "Заощадження" always lead (matches the reference app's Счета /
-// Сбережения order); any other group (a family member's name, for a
-// transfer's foreign destinations) falls in after, alphabetically.
-const GROUP_ORDER = ['Рахунки', 'Заощадження']
+// The plain-accounts / savings groups always lead (matches the reference
+// app's Счета / Сбережения order); any other group (a family member's name,
+// for a transfer's foreign destinations) falls in after, alphabetically.
+const GROUP_ORDER = computed(() => [t('transactions.picker.groupAccounts'), t('transactions.picker.groupSavings')])
 
 const groups = computed(() => {
   const byLabel = new Map<string, AccountPickerItem[]>()
@@ -21,9 +22,10 @@ const groups = computed(() => {
     byLabel.get(item.group)!.push(item)
   }
   const labels = [...byLabel.keys()].sort((a, b) => {
-    const ai = GROUP_ORDER.indexOf(a)
-    const bi = GROUP_ORDER.indexOf(b)
-    if (ai !== -1 || bi !== -1) return (ai === -1 ? GROUP_ORDER.length : ai) - (bi === -1 ? GROUP_ORDER.length : bi)
+    const order = GROUP_ORDER.value
+    const ai = order.indexOf(a)
+    const bi = order.indexOf(b)
+    if (ai !== -1 || bi !== -1) return (ai === -1 ? order.length : ai) - (bi === -1 ? order.length : bi)
     return a.localeCompare(b)
   })
   return labels.map((label) => ({ label, items: byLabel.get(label)! }))
@@ -37,7 +39,7 @@ function choose(id: string) {
 
 <template>
   <Modal :open="open" :title="title" top @close="emit('close')">
-    <div v-if="!items.length" class="empty">Немає доступних рахунків.</div>
+    <div v-if="!items.length" class="empty">{{ t('transactions.picker.noAccounts') }}</div>
     <template v-for="group in groups" :key="group.label">
       <p class="group-label">{{ group.label }}</p>
       <button
@@ -54,7 +56,7 @@ function choose(id: string) {
           class="balance"
           :class="{ negative: item.balance < 0, zero: item.balance === 0 }"
         >
-          {{ formatMoney(item.balance, item.currency) }}
+          {{ formatMoney(item.balance, item.currency, { currencyDisplay: item.currencyDisplay }) }}
         </span>
         <MdiIcon v-if="item.id === selectedId" name="mdiCheck" :size="18" color="var(--accent)" />
       </button>
@@ -62,7 +64,7 @@ function choose(id: string) {
   </Modal>
 </template>
 
-<style scoped>
+<style lang="scss" scoped>
 .group-label {
   font-size: 11px;
   color: var(--text-muted);
@@ -86,10 +88,10 @@ function choose(id: string) {
   border-radius: var(--radius-sm);
   cursor: pointer;
   text-align: left;
-}
 
-.row:hover {
-  background: var(--surface-2);
+  @include hover() {
+    background: var(--surface-2);
+  }
 }
 
 .row.selected {
@@ -102,9 +104,7 @@ function choose(id: string) {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  @include lineClamp(1);
 }
 
 .balance {
