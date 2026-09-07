@@ -24,6 +24,7 @@
   import { useBudgetsStore } from './stores/budgets'
   import { useReceiptsStore } from './stores/receipts'
   import { usePopupsStore } from './stores/popups'
+  import type { TransactionDuplicatePreset } from './utils/transactionDuplicate'
   import { t } from './i18n'
 
   const authStore = useAuthStore()
@@ -80,6 +81,21 @@
     popups.closeTransactionForm()
     await nextTick()
     popups.openReceiptEdit(tx.receiptId ? { receiptId: tx.receiptId } : { seedTransaction: tx })
+  }
+
+  // "Дублювати" from the transaction form — instead of writing a copy
+  // straight to the DB, reopen this same shared form as a fresh, unsaved
+  // operation prefilled from the one just closed, so the user can still
+  // adjust the date/amount/category/account before it's actually saved (see
+  // TransactionFormModal.vue's duplicateRequested). Closing then reopening
+  // needs the same nextTick gap as above — `transactionForm.open` would
+  // otherwise flip false→true within one Vue flush and the modal's own
+  // `watch(() => props.open, …)` (which is what rebuilds its form from the
+  // new presets) would never see it change.
+  async function handleDuplicateRequest(preset: TransactionDuplicatePreset) {
+    popups.closeTransactionForm()
+    await nextTick()
+    popups.openTransactionForm(preset)
   }
 
   const dataReady = ref(false)
@@ -194,10 +210,16 @@
     :open="popups.transactionForm.open"
     :transaction="popups.transactionForm.transaction"
     :preset-account-id="popups.transactionForm.presetAccountId"
+    :preset-to-account-id="popups.transactionForm.presetToAccountId"
     :preset-category-id="popups.transactionForm.presetCategoryId"
+    :preset-amount="popups.transactionForm.presetAmount"
+    :preset-to-amount="popups.transactionForm.presetToAmount"
+    :preset-note="popups.transactionForm.presetNote"
+    :preset-type="popups.transactionForm.presetType"
+    :preset-date="popups.transactionForm.presetDate"
     @close="popups.closeTransactionForm()"
     @saved="popups.closeTransactionForm()"
-    @duplicated="popups.closeTransactionForm()"
+    @duplicate-requested="handleDuplicateRequest"
     @deleted="handleTransactionDeleteRequest"
     @add-to-receipt="handleAddToReceiptRequest"
   />

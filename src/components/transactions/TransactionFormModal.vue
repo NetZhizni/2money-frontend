@@ -24,6 +24,7 @@ import { dateKey, formatMoney, fullDateLabel } from '../../utils/format'
 import { resolveAccountLabel, accountGroupLabel } from '../../utils/accountLabel'
 import { resolveCategoryCurrency } from '../../utils/currencies'
 import { TRANSFER_CATEGORY_COLOR } from '../../utils/transferAnalytics'
+import { duplicatePresetFrom, type TransactionDuplicatePreset } from '../../utils/transactionDuplicate'
 import { t } from '../../i18n'
 import type { MessageKey } from '../../i18n'
 import type { Transaction, TransactionType, RecurringFrequency } from '../../types/models'
@@ -43,6 +44,13 @@ const props = defineProps<{
   presetNote?: string
   presetType?: TransactionType
   presetDate?: number
+  // Для переказу (presetType: 'transfer') — рахунок призначення, і, разом з
+  // presetToAmount, друге число дво-валютного калькулятора (переказ між
+  // різними валютами чи операція проти категорії з фіксованою валютою — див.
+  // isDualCurrency нижче). Обидва самі по собі використовуються лише
+  // "Дублювати" (handleDuplicate), яке передає їх через popups.ts.
+  presetToAccountId?: string
+  presetToAmount?: number
   // Разом з presetAmount/presetNote/... — тримає нову операцію в тій самій
   // групі "чек", якщо форму відкрито через "Редагувати" на розпізнаному
   // драфті (див. ReceiptEditModal.vue). Може бути ще не заведеним у БД чеком
@@ -67,7 +75,11 @@ const emit = defineEmits<{
   close: []
   saved: []
   deleted: []
-  duplicated: []
+  // Дублювати не пише в БД саму — лише віддає стартові значення для НОВОЇ
+  // операції назовні (див. handleDuplicate), щоб той, хто тримає цю форму
+  // (App.vue/popups.ts, чи ReceiptEditModal.vue для пункту чека), закрив цю
+  // й відкрив іншу (чи ту саму, наново) вже в режимі створення.
+  duplicateRequested: [TransactionDuplicatePreset]
   addToReceipt: []
   draftSaved: [{ type: 'expense' | 'income'; note: string | null; amount: number; categoryId: string; subcategoryId: string | null }]
 }>()
@@ -220,11 +232,11 @@ function buildForm() {
   return {
     type: initialType,
     accountId: props.transaction?.accountId ?? props.presetAccountId ?? autoAccountId ?? accounts.active[0]?.id ?? '',
-    toAccountId: props.transaction?.toAccountId ?? '',
+    toAccountId: props.transaction?.toAccountId ?? props.presetToAccountId ?? '',
     categoryId: props.transaction?.categoryId ?? presetTopCategoryId ?? autoCategoryId ?? '',
     subcategoryId: props.transaction?.subcategoryId ?? presetSubcategoryId ?? '',
     amount: props.transaction?.amount ?? props.presetAmount ?? (undefined as number | undefined),
-    toAmount: props.transaction?.toAmount ?? (undefined as number | undefined),
+    toAmount: props.transaction?.toAmount ?? props.presetToAmount ?? (undefined as number | undefined),
     date: todayDateInputValue(props.transaction?.date ?? props.presetDate),
     note: props.transaction?.note ?? props.presetNote ?? '',
     makeRecurring: false,
@@ -438,13 +450,20 @@ function mostUsedCategoryForAccount(accountId: string, kind: 'income' | 'expense
   return bestId
 }
 
-watch(
-  () => form.type,
-  () => {
-    form.categoryId = ''
-    form.subcategoryId = ''
-  },
-)
+// Only a genuine user click on the type toggle below should clear the
+// category — NOT `watch(() => form.type, …)`: that would also fire from the
+// `Object.assign(form, buildForm())` reset above whenever the freshly built
+// type differs from whatever was left over from the form's previous opening
+// (e.g. a preset income category after the form was last used for an
+// expense), wiping out the very categoryId buildForm() just computed for
+// that preset — the category would fail to prefill on exactly that first
+// open, then work again next time (buildForm's type would already match).
+function setType(type: TransactionType) {
+  if (form.type === type) return
+  form.type = type
+  form.categoryId = ''
+  form.subcategoryId = ''
+}
 
 // ---------- "Від кого / кому" split header ----------
 
@@ -595,10 +614,9 @@ async function submit() {
   emit('saved')
 }
 
-async function handleDuplicate() {
+function handleDuplicate() {
   if (!props.transaction) return
-  await transactions.duplicate(props.transaction.id)
-  emit('duplicated')
+  emit('duplicateRequested', duplicatePresetFrom(props.transaction))
 }
 </script>
 
@@ -636,9 +654,9 @@ async function handleDuplicate() {
 
     <template v-else>
     <div v-if="!lockedByReceipt" class="segmented type-toggle">
-      <button :class="{ active: form.type === 'expense' }" :disabled="lockedByReceipt" @click="form.type = 'expense'">{{ t('categories.form.expenseType') }}</button>
-      <button :class="{ active: form.type === 'income' }" :disabled="lockedByReceipt" @click="form.type = 'income'">{{ t('categories.form.incomeType') }}</button>
-      <button :class="{ active: form.type === 'transfer' }" :disabled="lockedByReceipt" @click="form.type = 'transfer'">{{ t('transactions.form.typeTransfer') }}</button>
+      <button :class="{ active: form.type === 'expense' }" :disabled="lockedByReceipt" @click="setType('expense')">{{ t('categories.form.expenseType') }}</button>
+      <button :class="{ active: form.type === 'income' }" :disabled="lockedByReceipt" @click="setType('income')">{{ t('categories.form.incomeType') }}</button>
+      <button :class="{ active: form.type === 'transfer' }" :disabled="lockedByReceipt" @click="setType('transfer')">{{ t('transactions.form.typeTransfer') }}</button>
     </div>
 
     <div v-if="lockedByReceipt" class="receipt-lock-hint">

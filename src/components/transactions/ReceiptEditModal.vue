@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
@@ -21,6 +21,7 @@ import { scanReceipt, type ScannedOperation } from '../../api/receipts'
 import { dateKey, formatMoney, fullDateLabel } from '../../utils/format'
 import { newId } from '../../utils/id'
 import { accountGroupLabel } from '../../utils/accountLabel'
+import { duplicatePresetFrom, type TransactionDuplicatePreset } from '../../utils/transactionDuplicate'
 import { t } from '../../i18n'
 import type { AccountPickerItem } from '../../types/pickerItems'
 import type { Transaction } from '../../types/models'
@@ -381,6 +382,13 @@ function removeItem(item: ReceiptItem) {
 
 const editingItem = ref<Transaction | null>(null)
 const editingDraft = ref<Draft | null>(null)
+// "Дублювати" on a real (already-saved) item's edit form — a THIRD locally
+// nested TransactionFormModal, same as editingItem/editingDraft above (see
+// the "Вкладено локально" comment below), rather than routing through the
+// popups store's global instance: that one is teleported into <body> before
+// this component's own nested modals (App.vue mounts it first), so it would
+// render BEHIND this receipt editor instead of on top of it.
+const duplicatingPreset = ref<TransactionDuplicatePreset | null>(null)
 
 function editItem(item: ReceiptItem) {
   if (item.kind === 'draft') editingDraft.value = item.draft
@@ -389,6 +397,18 @@ function editItem(item: ReceiptItem) {
 function closeEditItem() {
   editingItem.value = null
   editingDraft.value = null
+}
+// See App.vue's handleDuplicateRequest for why the reopen needs its own tick:
+// closing editingItem's modal and opening this one synchronously would
+// coalesce into one Vue flush (risking the same patcher crash as
+// OperationsDataView.vue's onReceiptPicked, see App.vue's comment).
+async function requestDuplicateItem(tx: Transaction) {
+  editingItem.value = null
+  await nextTick()
+  duplicatingPreset.value = duplicatePresetFrom(tx)
+}
+function closeDuplicate() {
+  duplicatingPreset.value = null
 }
 // Нижня вкладена форма для чернеткового пункту ніколи нічого не пише в БД
 // (`defer-save`, див. TransactionFormModal.vue) — по її "Зберегти" сюди
@@ -557,8 +577,23 @@ function requestDeleteItem(tx: Transaction) {
     disable-add-to-receipt
     @close="closeEditItem"
     @saved="closeEditItem"
-    @duplicated="closeEditItem"
+    @duplicate-requested="editingItem && requestDuplicateItem(editingItem)"
     @deleted="editingItem && requestDeleteItem(editingItem)"
+  />
+
+  <!-- "Дублювати" on the item above — see duplicatingPreset's own comment. -->
+  <TransactionFormModal
+    :open="duplicatingPreset !== null"
+    :preset-type="duplicatingPreset?.presetType"
+    :preset-account-id="duplicatingPreset?.presetAccountId"
+    :preset-to-account-id="duplicatingPreset?.presetToAccountId"
+    :preset-category-id="duplicatingPreset?.presetCategoryId"
+    :preset-amount="duplicatingPreset?.presetAmount"
+    :preset-to-amount="duplicatingPreset?.presetToAmount"
+    :preset-note="duplicatingPreset?.presetNote"
+    :preset-date="duplicatingPreset?.presetDate"
+    @close="closeDuplicate"
+    @saved="closeDuplicate"
   />
 
   <TransactionFormModal

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { reactive } from 'vue'
-import type { Transaction } from '../types/models'
+import type { Transaction, TransactionType } from '../types/models'
 
 /**
  * Central state for the popups that are genuinely shared across multiple
@@ -22,15 +22,52 @@ export const usePopupsStore = defineStore('popups', () => {
     open: boolean
     transaction: Transaction | null
     presetAccountId?: string
+    presetToAccountId?: string
     presetCategoryId?: string
-  }>({ open: false, transaction: null, presetAccountId: undefined, presetCategoryId: undefined })
+    // "Дублювати" (see TransactionFormModal.vue's duplicateRequested) reopens
+    // this same form as a fresh, unsaved operation prefilled from the one
+    // being duplicated — these carry that starting amount/note/type/date
+    // through, same as `transaction` does for a genuine edit.
+    presetAmount?: number
+    presetToAmount?: number
+    presetNote?: string
+    presetType?: TransactionType
+    presetDate?: number
+  }>({
+    open: false,
+    transaction: null,
+    presetAccountId: undefined,
+    presetToAccountId: undefined,
+    presetCategoryId: undefined,
+    presetAmount: undefined,
+    presetToAmount: undefined,
+    presetNote: undefined,
+    presetType: undefined,
+    presetDate: undefined,
+  })
 
   function openTransactionForm(
-    opts: { transaction?: Transaction | null; presetAccountId?: string; presetCategoryId?: string } = {},
+    opts: {
+      transaction?: Transaction | null
+      presetAccountId?: string
+      presetToAccountId?: string
+      presetCategoryId?: string
+      presetAmount?: number
+      presetToAmount?: number
+      presetNote?: string
+      presetType?: TransactionType
+      presetDate?: number
+    } = {},
   ) {
     transactionForm.transaction = opts.transaction ?? null
     transactionForm.presetAccountId = opts.presetAccountId
+    transactionForm.presetToAccountId = opts.presetToAccountId
     transactionForm.presetCategoryId = opts.presetCategoryId
+    transactionForm.presetAmount = opts.presetAmount
+    transactionForm.presetToAmount = opts.presetToAmount
+    transactionForm.presetNote = opts.presetNote
+    transactionForm.presetType = opts.presetType
+    transactionForm.presetDate = opts.presetDate
     transactionForm.open = true
   }
   function closeTransactionForm() {

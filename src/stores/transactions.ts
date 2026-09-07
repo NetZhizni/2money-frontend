@@ -83,14 +83,6 @@ export const useTransactionsStore = defineStore('transactions', () => {
     await collection.removeLocal(id)
   }
 
-  async function duplicate(id: string): Promise<Transaction | null> {
-    const original = collection.all.value.find((t) => t.id === id)
-    if (!original) return null
-    const { id: _id, createdAt: _c, updatedAt: _u, ownerId, participantIds, ...rest } = original
-    const toOwnerId = participantIds.find((p) => p !== ownerId)
-    return add({ ...rest, toOwnerId })
-  }
-
   /** Cascade delete used when a category is removed entirely. */
   async function removeByCategory(categoryId: string): Promise<void> {
     const ids = collection.all.value
@@ -124,7 +116,6 @@ export const useTransactionsStore = defineStore('transactions', () => {
     add,
     update,
     remove,
-    duplicate,
     removeByCategory,
     removeByAccount,
     forAccount,
