@@ -4,6 +4,7 @@ import MdiIcon from '../components/common/MdiIcon.vue'
 import { isFamilyBackup, mergeBackupFile, restoreFamilyBackup } from '../db/backup'
 import { fullSync } from '../db/sync'
 import { useAuthStore } from '../stores/auth'
+import { useServerStore } from '../stores/server'
 import { t } from '../i18n'
 
 /**
@@ -25,6 +26,7 @@ import { t } from '../i18n'
  */
 const emit = defineEmits<{ done: [] }>()
 const authStore = useAuthStore()
+const server = useServerStore()
 
 const importing = ref(false)
 const error = ref('')
@@ -33,6 +35,19 @@ const familyRestoreFileInput = ref<HTMLInputElement | null>(null)
 
 function startFresh() {
   emit('done')
+}
+
+/**
+ * Only ever offered while `server.mode === 'local'` — see the template
+ * below and server.ts's backToSetup() for why that's the one state this
+ * can safely undo (a fresh local profile that picked "work offline" on
+ * ServerSetupView but hasn't actually finished onboarding yet, so there's
+ * nothing here worth losing). A `remote` profile stuck on this screen has
+ * no equivalent one-click undo — its server is already provisioned data
+ * elsewhere, not something a local-only back button could reverse.
+ */
+function backToModeSelection() {
+  server.backToSetup()
 }
 
 function triggerImport() {
@@ -94,6 +109,11 @@ async function handleFamilyRestoreFile(e: Event) {
 <template>
   <div class="onboarding-shell">
     <div class="card">
+      <button v-if="server.mode === 'local'" type="button" class="back-link" :disabled="importing" @click="backToModeSelection">
+        <MdiIcon name="mdiArrowLeft" :size="16" />
+        {{ t('onboarding.backToModeSelection') }}
+      </button>
+
       <MdiIcon name="mdiDatabaseImportOutline" :size="48" color="var(--accent)" />
       <h1>{{ t('onboarding.title') }}</h1>
       <p class="hint">{{ t('onboarding.hint') }}</p>
@@ -132,13 +152,6 @@ async function handleFamilyRestoreFile(e: Event) {
   @include viewportHeight('min-height');
   @include overflow(y);
   display: flex;
-  align-items: center;
-  // `safe` keeps this the same centered layout while there's room, but falls
-  // back to top-aligned once the card is taller than the viewport — plain
-  // `center` would otherwise crop the card evenly off both edges and leave
-  // no way to scroll up to the part cut off above (see PR discussion: content
-  // was getting eaten off the top on small screens).
-  align-items: safe center;
   justify-content: center;
   padding: 24px;
 }
@@ -151,6 +164,34 @@ async function handleFamilyRestoreFile(e: Event) {
   text-align: center;
   max-width: 360px;
   width: 100%;
+  // Vertical auto margins center the card while there's room, and collapse
+  // to 0 (top-aligned, fully scrollable) once it's taller than the
+  // viewport — auto margins can't go negative, so this degrades safely
+  // without depending on `align-items: safe center` on the parent, whose
+  // `safe` keyword Safari supports inconsistently. Without this, Safari
+  // fell back to plain `center`, which crops overflowing content evenly off
+  // *both* edges with no way to scroll up to what's cut off above — hiding
+  // the icon at the top and the last hint at the bottom.
+  margin: auto 0;
+}
+
+.back-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 4px;
+}
+
+.back-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .card h1 {

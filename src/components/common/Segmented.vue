@@ -114,6 +114,13 @@ watch(activeIndex, (idx, prevIdx) => {
 .segmented-control-btn {
   position: relative;
   z-index: 1;
+  // Grid items default to a content-based min-width (`auto`), so a long
+  // label (e.g. "Системна"/"Українська" in SettingsModal's theme/language
+  // switches) can force its `1fr` column past its fair share and grow the
+  // whole grid wider than the modal — on mobile, where the sheet clips
+  // overflow-x, that pushed the rightmost segment off-screen entirely
+  // instead of just wrapping its label.
+  min-width: 0;
   border: none;
   background: transparent;
   padding: 9px 12px;

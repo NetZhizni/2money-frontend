@@ -11,7 +11,7 @@
   import ReceiptEditModal from './components/transactions/ReceiptEditModal.vue'
   import ConfirmDialog from './components/common/ConfirmDialog.vue'
   import { seedDefaultsIfEmpty } from './db/seed'
-  import { hasNoOwnDataYet } from './db/onboarding'
+  import { hasNoOwnDataYet, markOnboardingDone } from './db/onboarding'
   import { useAuthStore } from './stores/auth'
   import { useServerStore } from './stores/server'
   import { useViewAsStore } from './stores/viewAs'
@@ -179,7 +179,10 @@
     needsOnboarding.value = false
     const uid = onboardingUid
     onboardingUid = null
-    if (uid) await proceedLoadingData(uid)
+    if (uid) {
+      await markOnboardingDone(uid)
+      await proceedLoadingData(uid)
+    }
   }
 
   // Re-runs whenever auth resolves or the signed-in profile changes (sign-in,

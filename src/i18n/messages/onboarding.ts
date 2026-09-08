@@ -1,6 +1,7 @@
 export const onboardingMessages = {
   uk: {
     'onboarding.title': 'Розпочнемо?',
+    'onboarding.backToModeSelection': 'Змінити режим роботи',
     'onboarding.hint':
       'Це перший вхід цього профілю. Можна почати з чистого аркуша або перенести історію з файлу резервної копії — власної чи повного бекапу сім’ї з попереднього сервера.',
     'onboarding.freshButton': 'Почати з чистого аркуша',
@@ -17,6 +18,7 @@ export const onboardingMessages = {
   },
   en: {
     'onboarding.title': 'Let’s get started',
+    'onboarding.backToModeSelection': 'Change work mode',
     'onboarding.hint':
       'This is this profile’s first sign-in. Start with a clean slate, or bring your history along from a backup file — your own, or a whole-family backup from a previous server.',
     'onboarding.freshButton': 'Start with a clean slate',

@@ -204,6 +204,25 @@ export const useServerStore = defineStore('server', () => {
   }
 
   /**
+   * "Actually, let me pick a server instead" — undoes goLocalFirstTime(),
+   * offered from OnboardingView.vue's own back link while a fresh local
+   * profile's onboarding is still pending (App.vue's `needsOnboarding`).
+   * That's the ONLY state this can run from — reachable exclusively via
+   * goLocalFirstTime's fast, no-reload path (its other branch already wipes
+   * and reloads before `mode` ever becomes 'local') — so unlike switchTo(),
+   * there's nothing to confirm or wipe: seedDefaultsIfEmpty (db/seed.ts)
+   * hasn't run yet and never will for this profile, so Dexie has nothing
+   * this profile put there worth losing. Reverses persistLocalMode() and
+   * authStore.startLocalMode() in place, same as init()'s own branches,
+   * landing back on ServerSetupView with no reload needed.
+   */
+  function backToSetup(): void {
+    persistLocalMode(false)
+    useAuthStore().reset()
+    mode.value = 'unconfigured'
+  }
+
+  /**
    * Switching this device's identity while it already has data tied to the
    * current one — a different server (see SettingsModal's "Change server"),
    * local mode, or moving a local-only device onto a server for the first
@@ -305,6 +324,7 @@ export const useServerStore = defineStore('server', () => {
     init,
     connect,
     goLocalFirstTime,
+    backToSetup,
     switchTo,
   }
 })

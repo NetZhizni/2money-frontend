@@ -612,7 +612,9 @@ async function handleSignOut() {
         <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
         <template v-else>
           <p class="hint">{{ t('layout.settings.resetHint') }}</p>
-          <button class="btn btn-danger reset-btn" @click="openResetConfirm">{{ t('layout.settings.resetButton') }}</button>
+          <button class="btn btn-danger reset-btn" :disabled="resetLoading" @click="openResetConfirm">
+            {{ resetLoading ? t('layout.settings.resetting') : t('layout.settings.resetButton') }}
+          </button>
         </template>
       </div>
     </div>

@@ -1,12 +1,90 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { t } from '../../i18n'
+import { useModalTopmost } from '../../composables/useModalTopmost'
 
 const props = withDefaults(
   defineProps<{ open: boolean; title?: string; wide?: boolean; width?: number; top?: boolean }>(),
   {},
 )
 const emit = defineEmits<{ close: [] }>()
+
+// Keeps Tab navigation confined to whichever popup is actually on top (see
+// useModalTopmost's doc comment) — the app behind it, and any Modal stacked
+// underneath this one, are marked `inert` for as long as this isn't it.
+const isTopmost = useModalTopmost(computed(() => props.open))
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
+const sheetRef = ref<HTMLElement | null>(null)
+
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) => el.offsetParent !== null,
+  )
+}
+
+// Wraps Tab/Shift+Tab at the edges of the sheet instead of letting focus run
+// off into the (inert) rest of the document, so the popup behaves like a
+// proper modal dialog even once it's the only thing left in tab order.
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Tab' || !sheetRef.value) return
+  const focusable = getFocusable(sheetRef.value)
+  if (!focusable.length) {
+    e.preventDefault()
+    sheetRef.value.focus()
+    return
+  }
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const active = document.activeElement
+  if (e.shiftKey) {
+    if (active === first || !sheetRef.value.contains(active)) {
+      e.preventDefault()
+      last.focus()
+    }
+  } else if (active === last || !sheetRef.value.contains(active)) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+let previouslyFocused: HTMLElement | null = null
+
+// Moves focus into the sheet on open and restores it to whatever triggered
+// the popup on close — only on genuine open/close, not when this Modal
+// merely regains "topmost" after a stacked one above it closes (that would
+// yank focus away from wherever it landed, e.g. back on the trigger button).
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) {
+      previouslyFocused = document.activeElement as HTMLElement | null
+      nextTick(() => {
+        if (!sheetRef.value) return
+        const [first] = getFocusable(sheetRef.value)
+        ;(first ?? sheetRef.value).focus()
+      })
+    } else {
+      // nextTick so this always runs after useModalTopmost's own watcher has
+      // cleared `#app`'s `inert` (when this was the last open Modal) —
+      // focus() on a still-inert ancestor is a silent no-op.
+      const toFocus = previouslyFocused
+      previouslyFocused = null
+      nextTick(() => toFocus?.focus?.())
+    }
+  },
+)
+
+watch(
+  computed(() => props.open && isTopmost.value),
+  (trapActive) => {
+    if (trapActive) document.addEventListener('keydown', onKeydown)
+    else document.removeEventListener('keydown', onKeydown)
+  },
+  { immediate: true },
+)
 
 // Swipe-down-to-dismiss on mobile — grabbable from the handle or the header,
 // mirroring native bottom-sheet behavior. Body content keeps scrolling
@@ -59,12 +137,20 @@ const sheetStyle = computed(() => {
 <template>
   <Teleport to="body">
     <Transition name="modal">
-      <div v-if="open" class="backdrop" :class="{ top }" @mousedown.self="requestClose">
+      <div
+        v-if="open"
+        class="backdrop"
+        :class="{ top }"
+        :inert="!isTopmost"
+        @mousedown.self="requestClose"
+      >
         <div
+          ref="sheetRef"
           class="sheet"
           :class="{ wide, dragging }"
           role="dialog"
           aria-modal="true"
+          tabindex="-1"
           :style="sheetStyle"
         >
           <div
@@ -139,6 +225,7 @@ const sheetStyle = computed(() => {
   background: var(--surface);
   color: var(--text-primary);
   width: 100%;
+  max-width: 480px;
   @include viewportHeight('max-height', 90);
   display: grid;
   grid-template-rows: auto auto 1fr;
