@@ -178,6 +178,33 @@ export const usePeriodStore = defineStore('period', () => {
     setGranularity(granularity.value)
   }
 
+  /**
+   * Which way `goToToday()` would move the period if called right now —
+   * 'next' when today's period lies ahead of the one currently shown, 'prev'
+   * when it lies behind, `null` when already on today's period (matches
+   * `isCurrentPeriod`, so there'd be nothing to animate). Used by
+   * BottomNav.vue/SideNav.vue to run the exact same slide transition as the
+   * chevrons/swipe when double-tapping the active tab jumps back to today —
+   * see `usePeriodTransition.ts`. Pure: doesn't touch any state itself.
+   */
+  function directionToToday(): 'next' | 'prev' | null {
+    if (isCurrentPeriod.value) return null
+    const today = new Date()
+    switch (granularity.value) {
+      case 'day':
+      case 'week':
+        return startOfDay(today.getTime()) > anchor.value ? 'next' : 'prev'
+      case 'month':
+        return today.getFullYear() * 12 + today.getMonth() > year.value * 12 + month.value
+          ? 'next'
+          : 'prev'
+      case 'year':
+        return today.getFullYear() > year.value ? 'next' : 'prev'
+      case 'all':
+        return null
+    }
+  }
+
   return {
     year,
     month,
@@ -194,5 +221,6 @@ export const usePeriodStore = defineStore('period', () => {
     setGranularity,
     isCurrentPeriod,
     goToToday,
+    directionToToday,
   }
 })

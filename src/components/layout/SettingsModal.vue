@@ -4,15 +4,28 @@ import { useRouter } from 'vue-router'
 import Modal from '../common/Modal.vue'
 import CurrencyPickerModal from './CurrencyPickerModal.vue'
 import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
+import Segmented from '../common/Segmented.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { useTemplatesStore } from '../../stores/templates'
 import { useAccountsStore } from '../../stores/accounts'
 import { useCategoriesStore } from '../../stores/categories'
 import { useTransactionsStore } from '../../stores/transactions'
 import { useAuthStore } from '../../stores/auth'
+import { useServerStore } from '../../stores/server'
+import { useChangeServer } from '../../composables/useChangeServer'
 import { useViewAsStore } from '../../stores/viewAs'
 import { usePopupsStore } from '../../stores/popups'
-import { exportData, downloadBackup, importData } from '../../db/backup'
+import {
+  exportData,
+  downloadBackup,
+  importData,
+  mergeBackupFile,
+  exportFamilyBackup,
+  downloadFamilyBackup,
+  restoreFamilyBackup,
+  isFamilyBackup,
+} from '../../db/backup'
+import { fullSync } from '../../db/sync'
 import { downloadTransactionsCsv } from '../../db/csvExport'
 import { loadDemoData } from '../../db/demoData'
 import { resetAllData } from '../../db/reset'
@@ -33,6 +46,7 @@ import {
 import { forceCheckForUpdate } from '../../pwa/updateService'
 import { t, getLocaleSetting, setLocaleSetting } from '../../i18n'
 import type { MessageKey, LocaleSetting } from '../../i18n'
+import type { AppSettings } from '../../types/models'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
@@ -43,8 +57,22 @@ const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const transactions = useTransactionsStore()
 const authStore = useAuthStore()
+const server = useServerStore()
 const viewAs = useViewAsStore()
 const popups = usePopupsStore()
+
+// ---------- Сервер (див. stores/server.ts, composables/useChangeServer.ts) ----------
+
+const {
+  showField: showServerChangeField,
+  newUrl: newServerUrl,
+  switching: switchingServer,
+  error: serverSwitchError,
+  open: openServerChange,
+  cancel: cancelServerChange,
+  confirmChange: confirmChangeServer,
+  confirmGoLocal,
+} = useChangeServer()
 
 // Демо-дані/резервна копія/скидання read straight off the shared
 // accounts/categories/transactions/budgets stores, which "Переглянути як"
@@ -60,6 +88,17 @@ function chooseLocale(value: LocaleSetting) {
   localeSetting.value = value
   setLocaleSetting(value)
 }
+
+const themeOptions = computed(() => [
+  { value: 'system', label: t('layout.settings.themeSystem') },
+  { value: 'light', label: t('layout.settings.themeLight') },
+  { value: 'dark', label: t('layout.settings.themeDark') },
+])
+const localeOptions = computed(() => [
+  { value: 'system', label: t('layout.settings.languageSystem') },
+  { value: 'uk', label: t('layout.settings.languageUk') },
+  { value: 'en', label: t('layout.settings.languageEn') },
+])
 
 // Number/date/currency-display format pickers (see utils/format.ts) — same
 // per-device, reload-to-apply pattern as the language setting above.
@@ -164,6 +203,8 @@ async function removeTemplate(id: string) {
 const showCurrencyPicker = ref(false)
 
 const fileInput = ref<HTMLInputElement | null>(null)
+const mergeFileInput = ref<HTMLInputElement | null>(null)
+const familyRestoreFileInput = ref<HTMLInputElement | null>(null)
 const status = ref('')
 const demoLoading = ref(false)
 
@@ -233,6 +274,94 @@ async function handleImportFile(e: Event) {
   }
 }
 
+function triggerMerge() {
+  mergeFileInput.value?.click()
+}
+
+/**
+ * Same file format as handleImportFile, but adds to what's already here
+ * instead of replacing it — see db/backup.ts's mergeData() doc comment.
+ * Goes through mergeBackupFile() rather than mergeData() directly so this
+ * same button also accepts a full family backup (see
+ * exportFamilyBackup()/handleFamilyBackup() below) — it just pulls out
+ * whatever in it belonged to your own email in the old family.
+ */
+async function handleMergeFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const payload = JSON.parse(text)
+    if (!confirm(t('layout.settings.importMergeConfirm'))) return
+    await mergeBackupFile(payload)
+    status.value = t('sync.mergeSuccess')
+  } catch (err) {
+    status.value = t('sync.importError', { message: (err as Error).message })
+  }
+}
+
+const familyBackupLoading = ref(false)
+
+/** Owner-only "back up literally everyone" — see exportFamilyBackup()'s own doc comment for what's in the file and how it's meant to come back: either restored whole (handleFamilyRestoreFile below) or one member's own slice at a time (handleMergeFile above). */
+async function handleFamilyBackup() {
+  familyBackupLoading.value = true
+  try {
+    const payload = await exportFamilyBackup()
+    downloadFamilyBackup(payload)
+    status.value = t('layout.settings.familyBackupSaved')
+  } catch (err) {
+    status.value = t('sync.importError', { message: (err as Error).message })
+  } finally {
+    familyBackupLoading.value = false
+  }
+}
+
+const familyRestoreLoading = ref(false)
+
+function triggerFamilyRestore() {
+  familyRestoreFileInput.value?.click()
+}
+
+/**
+ * Owner-only "restore literally everyone at once" — see
+ * restoreFamilyBackup()'s own doc comment. Confirmed separately (danger
+ * dialog) since, unlike every other action on this screen, it writes data
+ * attributed to OTHER family members and can provision brand-new accounts
+ * for people who've never signed in yet.
+ */
+async function handleFamilyRestoreFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const text = await file.text()
+    const payload = JSON.parse(text)
+    if (!isFamilyBackup(payload)) throw new Error(t('sync.unsupportedBackupFormat'))
+    popups.confirmDialog({
+      title: t('layout.settings.familyRestoreConfirmTitle'),
+      message: t('layout.settings.familyRestoreConfirmMessage'),
+      confirmLabel: t('layout.settings.familyRestoreConfirmButton'),
+      danger: true,
+      onConfirm: async () => {
+        familyRestoreLoading.value = true
+        try {
+          const summary = await restoreFamilyBackup(payload)
+          await fullSync(authStore.uid)
+          status.value = t('layout.settings.familyRestoreSuccess', { count: summary.transactions })
+        } catch (err) {
+          status.value = t('sync.importError', { message: (err as Error).message })
+        } finally {
+          familyRestoreLoading.value = false
+          popups.closeConfirm()
+        }
+      },
+    })
+  } catch (err) {
+    status.value = t('sync.importError', { message: (err as Error).message })
+  }
+}
+
 const updateChecking = ref(false)
 const updateStatus = ref('')
 
@@ -264,7 +393,7 @@ async function handleSignOut() {
 
 <template>
   <Modal :open="open" :title="t('layout.settings.title')" wide @close="emit('close')">
-    <div class="section">
+    <div class="section" v-if="!authStore.localMode">
       <h3 class="section-title">{{ t('layout.settings.section.profile') }}</h3>
 
       <div class="field profile-field" v-if="authStore.profile">
@@ -289,24 +418,73 @@ async function handleSignOut() {
     </div>
 
     <div class="section">
+      <h3 class="section-title">{{ t('server.settings.section') }}</h3>
+
+      <div class="field">
+        <template v-if="server.mode === 'remote'">
+          <label>{{ t('server.settings.currentRemote') }}</label>
+          <p class="server-url">{{ server.serverUrl }}</p>
+          <p v-if="server.remoteConfig && !server.remoteConfig.features.receiptScanning" class="hint">
+            {{ t('server.settings.receiptScanningOff') }}
+          </p>
+        </template>
+        <template v-else>
+          <label>{{ t('server.settings.currentLocal') }}</label>
+          <p class="hint">{{ t('server.settings.goRemoteHint') }}</p>
+        </template>
+
+        <template v-if="!showServerChangeField">
+          <div class="server-actions">
+            <button class="btn btn-secondary" @click="openServerChange">
+              {{ t('server.settings.changeButton') }}
+            </button>
+            <button v-if="server.mode === 'remote'" class="btn btn-secondary" @click="confirmGoLocal">
+              {{ t('server.settings.goLocalButton') }}
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <p class="hint">{{ t('server.settings.hint') }}</p>
+          <label class="server-field-label">{{ t('server.settings.changeLabel') }}</label>
+          <input
+            v-model="newServerUrl"
+            type="text"
+            inputmode="url"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            :placeholder="t('server.setup.urlPlaceholder')"
+            :disabled="switchingServer"
+            class="server-url-input"
+          />
+          <div class="server-actions">
+            <button class="btn btn-primary" :disabled="switchingServer || !newServerUrl.trim()" @click="confirmChangeServer">
+              {{ switchingServer ? t('server.switching') : t('server.settings.changeButton') }}
+            </button>
+            <button class="btn btn-secondary" :disabled="switchingServer" @click="cancelServerChange">
+              {{ t('common.cancel') }}
+            </button>
+          </div>
+        </template>
+        <p v-if="serverSwitchError" class="status error">{{ serverSwitchError }}</p>
+      </div>
+    </div>
+
+    <div class="section">
       <h3 class="section-title">{{ t('layout.settings.section.appearance') }}</h3>
 
       <div class="field">
         <label>{{ t('layout.settings.theme') }}</label>
-        <div class="segmented">
-          <button :class="{ active: settings.theme === 'system' }" @click="settings.setTheme('system')">{{ t('layout.settings.themeSystem') }}</button>
-          <button :class="{ active: settings.theme === 'light' }" @click="settings.setTheme('light')">{{ t('layout.settings.themeLight') }}</button>
-          <button :class="{ active: settings.theme === 'dark' }" @click="settings.setTheme('dark')">{{ t('layout.settings.themeDark') }}</button>
-        </div>
+        <Segmented
+          :model-value="settings.theme"
+          :options="themeOptions"
+          @update:model-value="(v) => settings.setTheme(v as AppSettings['theme'])"
+        />
       </div>
 
       <div class="field">
         <label>{{ t('layout.settings.language') }}</label>
-        <div class="segmented">
-          <button :class="{ active: localeSetting === 'system' }" @click="chooseLocale('system')">{{ t('layout.settings.languageSystem') }}</button>
-          <button :class="{ active: localeSetting === 'uk' }" @click="chooseLocale('uk')">{{ t('layout.settings.languageUk') }}</button>
-          <button :class="{ active: localeSetting === 'en' }" @click="chooseLocale('en')">{{ t('layout.settings.languageEn') }}</button>
-        </div>
+        <Segmented :model-value="localeSetting" :options="localeOptions" @update:model-value="(v) => chooseLocale(v as LocaleSetting)" />
       </div>
     </div>
 
@@ -387,7 +565,28 @@ async function handleSignOut() {
             <button class="btn btn-secondary" @click="handleExportCsv">{{ t('layout.settings.exportCsv') }}</button>
           </div>
           <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
+          <p class="hint">{{ t('layout.settings.importMergeHint') }}</p>
+          <div class="backup-actions">
+            <button class="btn btn-secondary" @click="triggerMerge">{{ t('layout.settings.importJsonMerge') }}</button>
+          </div>
+          <input ref="mergeFileInput" type="file" accept="application/json" hidden @change="handleMergeFile" />
           <p v-if="status" class="status">{{ status }}</p>
+        </template>
+      </div>
+
+      <div class="field" v-if="authStore.isOwner && !authStore.localMode">
+        <label>{{ t('layout.settings.familyBackupLabel') }}</label>
+        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
+        <template v-else>
+          <p class="hint">{{ t('layout.settings.familyBackupHint') }}</p>
+          <button class="btn btn-secondary family-backup-btn" :disabled="familyBackupLoading" @click="handleFamilyBackup">
+            {{ familyBackupLoading ? t('layout.settings.familyBackupLoading') : t('layout.settings.familyBackupButton') }}
+          </button>
+          <p class="hint">{{ t('layout.settings.familyRestoreHint') }}</p>
+          <button class="btn btn-secondary family-backup-btn" :disabled="familyRestoreLoading" @click="triggerFamilyRestore">
+            {{ familyRestoreLoading ? t('layout.settings.familyRestoreLoading') : t('layout.settings.familyRestoreButton') }}
+          </button>
+          <input ref="familyRestoreFileInput" type="file" accept="application/json" hidden @change="handleFamilyRestoreFile" />
         </template>
       </div>
     </div>
@@ -531,6 +730,48 @@ async function handleSignOut() {
   width: 100%;
 }
 
+.server-url {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 2px 0 0;
+  word-break: break-all;
+}
+
+.server-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+.server-actions .btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+.server-field-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
+
+.server-url-input {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.server-url-input:disabled {
+  opacity: 0.6;
+}
+
 .backup-actions {
   display: flex;
   flex-wrap: wrap;
@@ -545,6 +786,10 @@ async function handleSignOut() {
   width: 100%;
   margin-top: 8px;
 }
+.family-backup-btn {
+  width: 100%;
+  margin-top: 8px;
+}
 .reset-btn {
   width: 100%;
   margin-top: 8px;
@@ -553,6 +798,10 @@ async function handleSignOut() {
   font-size: 13px;
   color: var(--income);
   margin-top: 8px;
+}
+
+.status.error {
+  color: var(--expense);
 }
 
 .template-list {

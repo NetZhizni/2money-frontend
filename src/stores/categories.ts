@@ -6,7 +6,9 @@ import { newId } from '../utils/id'
 import { useAuthStore } from './auth'
 import { useSettingsStore } from './settings'
 import { useTransactionsStore } from './transactions'
+import { useBudgetsStore } from './budgets'
 import { assertWritable } from './guards'
+import { t } from '../i18n'
 import type { Category, CategoryKind } from '../types/models'
 
 export type NewCategoryInput = Omit<Category, 'id' | 'createdAt' | 'order' | 'ownerId'>
@@ -133,6 +135,50 @@ export const useCategoriesStore = defineStore('categories', () => {
     }
   }
 
+  /**
+   * Folds `sourceId` into `targetId` (both must be the same kind) — for
+   * consolidating accidental duplicates (e.g. two "Таксі" categories).
+   * Any of source's own subcategories are reparented onto target first, then
+   * this profile's own transactions/budgets pointing at source are
+   * repointed to target. Categories are shared family-wide (see the module
+   * doc comment above), so another family member's own transactions/budgets
+   * can't be rewritten from here — the backend only accepts writes to
+   * records this profile owns — which is exactly why source is deleted
+   * outright only once NOTHING in the whole family still references it
+   * (checked unfiltered by owner, like hasTransactions() does); otherwise
+   * it's archived instead, so it drops out of pickers without leaving
+   * whoever still uses it pointing at a category that's gone.
+   */
+  async function merge(sourceId: string, targetId: string): Promise<void> {
+    assertWritable()
+    if (sourceId === targetId) return
+    const source = byId(sourceId)
+    const target = byId(targetId)
+    if (!source || !target) return
+    if (source.kind !== target.kind) throw new Error(t('errors.mergeKindMismatch'))
+
+    for (const child of childrenOf(sourceId, true)) {
+      await update(child.id, { parentId: targetId })
+    }
+
+    const myUid = authStore.uid
+    const transactions = useTransactionsStore()
+    for (const tx of transactions.all.filter((row) => row.ownerId === myUid && (row.categoryId === sourceId || row.subcategoryId === sourceId))) {
+      if (tx.categoryId === sourceId) await transactions.update(tx.id, { categoryId: targetId })
+      if (tx.subcategoryId === sourceId) await transactions.update(tx.id, { subcategoryId: targetId })
+    }
+    const budgets = useBudgetsStore()
+    for (const b of budgets.all.filter((row) => row.ownerId === myUid && row.categoryId === sourceId)) {
+      await budgets.update(b.id, { categoryId: targetId })
+    }
+
+    if (await hasTransactions(sourceId)) {
+      await setArchived(sourceId, true)
+    } else {
+      await remove(sourceId)
+    }
+  }
+
   const expenseTree = computed(() => topLevel('expense').map((c) => ({ ...c, children: childrenOf(c.id) })))
   const incomeTree = computed(() => topLevel('income').map((c) => ({ ...c, children: childrenOf(c.id) })))
 
@@ -149,6 +195,7 @@ export const useCategoriesStore = defineStore('categories', () => {
     update,
     setArchived,
     remove,
+    merge,
     hasTransactions,
     inferCurrency,
     expenseTree,

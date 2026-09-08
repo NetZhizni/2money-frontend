@@ -4,12 +4,16 @@
   import BottomNav from './components/layout/BottomNav.vue'
   import SideNav from './components/layout/SideNav.vue'
   import LoginView from './views/LoginView.vue'
+  import ServerSetupView from './views/ServerSetupView.vue'
+  import OnboardingView from './views/OnboardingView.vue'
   import UpdateToast from './components/common/UpdateToast.vue'
   import TransactionFormModal from './components/transactions/TransactionFormModal.vue'
   import ReceiptEditModal from './components/transactions/ReceiptEditModal.vue'
   import ConfirmDialog from './components/common/ConfirmDialog.vue'
   import { seedDefaultsIfEmpty } from './db/seed'
+  import { hasNoOwnDataYet } from './db/onboarding'
   import { useAuthStore } from './stores/auth'
+  import { useServerStore } from './stores/server'
   import { useViewAsStore } from './stores/viewAs'
   import { useProfilesStore } from './stores/profiles'
   import { useAllAccountsStore } from './stores/allAccounts'
@@ -24,10 +28,12 @@
   import { useBudgetsStore } from './stores/budgets'
   import { useReceiptsStore } from './stores/receipts'
   import { usePopupsStore } from './stores/popups'
+  import { pageTransitionName } from './composables/usePageTransition'
   import type { TransactionDuplicatePreset } from './utils/transactionDuplicate'
   import { t } from './i18n'
 
   const authStore = useAuthStore()
+  const server = useServerStore()
   const viewAs = useViewAsStore()
   const profiles = useProfilesStore()
   const allAccounts = useAllAccountsStore()
@@ -98,7 +104,20 @@
     popups.openTransactionForm(preset)
   }
 
+  // Resolves which server (if any) this device is configured for — see
+  // stores/server.ts's own doc comment. Drives `server.mode` below, which
+  // gates ServerSetupView vs. LoginView vs. the app shell; runs exactly
+  // once, since App.vue's root instance only ever mounts once per page load.
+  void server.init()
+
   const dataReady = ref(false)
+  // Whether OnboardingView.vue's "start fresh or import a backup?" choice is
+  // currently pending for the signed-in profile — see loadForCurrentUser and
+  // db/onboarding.ts's hasNoOwnDataYet. `onboardingUid` isn't reactive on
+  // purpose: nothing in the template reads it, it's only there to hand
+  // handleOnboardingDone the right uid once the choice is made.
+  const needsOnboarding = ref(false)
+  let onboardingUid: string | null = null
 
   function resetAllStores() {
     viewAs.reset()
@@ -115,10 +134,11 @@
     allBudgets.reset()
     allReceipts.reset()
     dataReady.value = false
+    needsOnboarding.value = false
+    onboardingUid = null
   }
 
-  async function loadForCurrentUser(uid: string) {
-    dataReady.value = false
+  async function proceedLoadingData(uid: string) {
     await seedDefaultsIfEmpty(uid)
     await Promise.all([
       settings.load(),
@@ -136,6 +156,30 @@
     ])
     await templates.runDueGeneration()
     dataReady.value = true
+  }
+
+  /**
+   * Gates on hasNoOwnDataYet() before ever seeding/loading anything — see its
+   * own doc comment for exactly when that's true and why it's safe even when
+   * wrong. When it is, this returns early and waits for handleOnboardingDone
+   * (OnboardingView.vue's `@done`) instead of proceeding straight to
+   * proceedLoadingData like every other login does.
+   */
+  async function loadForCurrentUser(uid: string) {
+    dataReady.value = false
+    if (await hasNoOwnDataYet(uid)) {
+      onboardingUid = uid
+      needsOnboarding.value = true
+      return
+    }
+    await proceedLoadingData(uid)
+  }
+
+  async function handleOnboardingDone() {
+    needsOnboarding.value = false
+    const uid = onboardingUid
+    onboardingUid = null
+    if (uid) await proceedLoadingData(uid)
   }
 
   // Re-runs whenever auth resolves or the signed-in profile changes (sign-in,
@@ -179,12 +223,20 @@
 
 <template>
   <div
-    v-if="!authStore.ready"
+    v-if="server.initializing"
     class="boot-splash"
   >
     {{ t('common.loading') }}
   </div>
-  <LoginView v-else-if="!authStore.user || !authStore.profile" />
+  <ServerSetupView v-else-if="server.mode === 'unconfigured'" />
+  <div
+    v-else-if="!authStore.ready"
+    class="boot-splash"
+  >
+    {{ t('common.loading') }}
+  </div>
+  <LoginView v-else-if="!authStore.profile" />
+  <OnboardingView v-else-if="needsOnboarding" @done="handleOnboardingDone" />
   <div
     class="app-shell"
     v-else-if="dataReady"
@@ -193,7 +245,11 @@
     <div class="main-column">
       <TopHeader />
       <main class="app-content">
-        <RouterView />
+        <RouterView v-slot="{ Component, route: matchedRoute }">
+          <Transition :name="pageTransitionName">
+            <component :is="Component" :key="matchedRoute.name ?? matchedRoute.path" />
+          </Transition>
+        </RouterView>
       </main>
       <BottomNav class="bottom-nav-slot" />
     </div>
@@ -262,7 +318,8 @@
   }
 
   .app-content {
-    display: grid;  
+    position: relative; // lets the leaving/entering pages below overlap instead of stacking
+    display: grid;
     grid-template-rows: 1fr;
     height: 100%;
     justify-content: stretch;
@@ -271,17 +328,60 @@
     overscroll-behavior: contain;
   }
 
-  .page-enter-active,
-  .page-leave-active {
-    @include transition();
+  // Page-to-page slide, played whenever the route changes (see App.vue's
+  // <RouterView> above and usePageTransition.ts for the forward/back pick).
+  // Durations mirror PeriodPageView.vue's own slide (SLIDE_OUT_MS/SLIDE_IN_MS)
+  // for the same "quick out, slightly slower in" feel.
+  //
+  // Axis matches whichever nav is on screen: BottomNav's tabs run left→right
+  // (below the `laptop()` breakpoint), SideNav's run top→bottom (above it) —
+  // the desktop/vertical rules are the default below, the mobile/horizontal
+  // ones override inside the `laptop()` block so they win at that width.
+  .page-forward-enter-active,
+  .page-back-enter-active {
+    position: absolute;
+    inset: 0;
+    transition: transform 0.22s ease-out, opacity 0.22s ease-out;
   }
-  .page-enter-from {
-    opacity: 0;
-    transform: translateY(6px);
+  .page-forward-leave-active,
+  .page-back-leave-active {
+    position: absolute;
+    inset: 0;
+    transition: transform 0.16s ease-in, opacity 0.16s ease-in;
   }
-  .page-leave-to {
+
+  // Desktop/laptop (SideNav, vertical tab order) — slide up/down.
+  .page-forward-enter-from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(16px);
+  }
+  .page-forward-leave-to {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  .page-back-enter-from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  .page-back-leave-to {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+
+  // Mobile/touch (BottomNav, horizontal tab order) — slide left/right instead.
+  @include laptop() {
+    .page-forward-enter-from {
+      transform: translateX(100%);
+    }
+    .page-forward-leave-to {
+      transform: translateX(-100%);
+    }
+    .page-back-enter-from {
+      transform: translateX(-100%);
+    }
+    .page-back-leave-to {
+      transform: translateX(100%);
+    }
   }
 
   .side-nav-slot {

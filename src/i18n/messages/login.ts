@@ -7,6 +7,7 @@ export const login = {
     'login.accessNotGranted': 'доступ не надано.',
     'login.deniedSuffix': 'Зверніться до адміністратора родини.',
     'login.noConnectionNoOfflineProfile': 'Немає з’єднання з сервером, і немає збереженого профілю для офлайн-входу.',
+    'login.localProfileName': 'Цей пристрій',
   },
   en: {
     'login.signInHint': 'Sign in with your family’s Google account.',
@@ -16,5 +17,6 @@ export const login = {
     'login.accessNotGranted': 'access not granted.',
     'login.deniedSuffix': 'Contact your family’s administrator.',
     'login.noConnectionNoOfflineProfile': 'There’s no connection to the server, and no saved profile for offline sign-in.',
+    'login.localProfileName': 'This device',
   },
 }

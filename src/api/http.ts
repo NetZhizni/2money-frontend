@@ -1,19 +1,45 @@
 import axios from 'axios'
-import { auth } from '../firebase'
+import { getFirebaseAuthOrNull } from '../firebase'
 import { markBackendReachable, markBackendUnreachable } from '../db/syncStatus'
+import { apiBaseUrl, getPersistedServerUrl, hasConfiguredServer } from '../config/serverConfig'
 import { env } from '../runtimeConfig'
 
 /**
  * The one HTTP client talking to the Express/PostgreSQL backend. Every
  * synced entity's Dexie-backed store (src/db/sync.ts) goes through this —
  * there is no more direct Firestore access anywhere in the app.
+ *
+ * `baseURL` is read once here, at module-eval time — that's safe because
+ * every place that actually changes which server is configured
+ * (stores/server.ts's `connect`/`switchTo`) does so by persisting the new
+ * URL and then `location.reload()`ing rather than hot-swapping this
+ * instance live: a fresh page load re-evaluates this module and picks up
+ * the new value. `env.VITE_API_URL` is only a dev-time convenience fallback
+ * (relative `/api`, proxied by Vite — see vite.config.ts) for a device that
+ * hasn't gone through ServerSetupView yet; a production build served with
+ * no server configured never reaches this client at all (see App.vue).
  */
 export const http = axios.create({
-  baseURL: env.VITE_API_URL,
+  baseURL: (() => {
+    const serverUrl = getPersistedServerUrl()
+    return serverUrl ? apiBaseUrl(serverUrl) : env.VITE_API_URL
+  })(),
 })
 
 http.interceptors.request.use(async (config) => {
-  const user = auth.currentUser
+  // No server configured (local/offline mode, see stores/server.ts) — fail
+  // fast instead of letting a relative /api request go out to whatever
+  // origin happens to be serving this page. Falls into the same
+  // "unreachable" handling as a real network error below (no `.response`),
+  // so every existing best-effort `.catch()` call site (db/seed.ts,
+  // stores/settings.ts, …) already handles this the same way it handles
+  // being offline.
+  if (!hasConfiguredServer()) {
+    return Promise.reject(new Error('[http] no server configured (local mode)'))
+  }
+
+  const auth = getFirebaseAuthOrNull()
+  const user = auth?.currentUser
   if (user) {
     config.headers.Authorization = `Bearer ${await user.getIdToken()}`
   }
@@ -30,9 +56,10 @@ http.interceptors.request.use(async (config) => {
  * input, not found, auth — still means it's up and answering correctly)
  * marks it reachable. A 5xx (the backend answered but is itself erroring —
  * see backend/src/middleware/error.js) or no response at all (network
- * error/timeout) marks it unreachable: `navigator.onLine` alone can't tell
- * you that, it only knows about the device's own network interface, not
- * whether *our* backend is actually working. See src/db/syncStatus.ts.
+ * error/timeout, or the local-mode short-circuit above) marks it
+ * unreachable: `navigator.onLine` alone can't tell you that, it only knows
+ * about the device's own network interface, not whether *our* backend is
+ * actually working. See src/db/syncStatus.ts.
  */
 http.interceptors.response.use(
   (response) => {
@@ -44,8 +71,9 @@ http.interceptors.response.use(
     else markBackendUnreachable()
 
     const original = error.config
-    const user = auth.currentUser
-    if (error.response?.status === 401 && user && !original._retried) {
+    const auth = getFirebaseAuthOrNull()
+    const user = auth?.currentUser
+    if (error.response?.status === 401 && user && original && !original._retried) {
       original._retried = true
       original.headers.Authorization = `Bearer ${await user.getIdToken(true)}`
       return http(original)

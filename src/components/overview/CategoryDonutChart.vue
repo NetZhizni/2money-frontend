@@ -18,6 +18,11 @@ export interface DonutSegment {
 
 const props = defineProps<{ segments: DonutSegment[]; currency: string }>()
 
+// Fixed rather than a prop (no caller needs to vary it today) — kept as a
+// single constant so the empty-state placeholder below can reserve exactly
+// the same footprint as the real chart.
+const CHART_HEIGHT = 260
+
 const { colors, mode } = useChartColors()
 
 const series = computed(() => props.segments.map((s) => s.amount))
@@ -37,20 +42,26 @@ const options = computed(() => ({
 </script>
 
 <template>
-  <div class="chart-wrap">
+  <div class="chart-wrap" :style="{ minHeight: `${CHART_HEIGHT}px` }">
     <p v-if="!segments.length" class="empty">{{ t('overview.noExpensesForPeriod') }}</p>
-    <VueApexCharts v-else type="donut" height="260" :options="options" :series="series" />
+    <VueApexCharts v-else type="donut" :height="CHART_HEIGHT" :options="options" :series="series" />
   </div>
 </template>
 
 <style scoped>
+/* min-height matches CHART_HEIGHT so the "no expenses" placeholder reserves
+   the same footprint as the real donut — otherwise the surrounding layout
+   jumps every time segments empties out or fills back in (switching period,
+   filtering, background sync). */
 .chart-wrap {
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .empty {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
-  padding: 24px 0;
 }
 </style>

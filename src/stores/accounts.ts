@@ -9,7 +9,9 @@ import { useAuthStore } from './auth'
 import { useViewAsStore } from './viewAs'
 import { useSettingsStore } from './settings'
 import { useTransactionsStore } from './transactions'
+import { useTemplatesStore } from './templates'
 import { assertWritable } from './guards'
+import { t } from '../i18n'
 import type { Account, Transaction } from '../types/models'
 
 export type NewAccountInput = Omit<Account, 'id' | 'createdAt' | 'order' | 'ownerId'>
@@ -83,6 +85,53 @@ export const useAccountsStore = defineStore('accounts', () => {
     await collection.removeLocal(id)
   }
 
+  /**
+   * Folds `sourceId` into `targetId` (both must share a currency — merging
+   * across currencies would silently corrupt balance math) — for
+   * consolidating accidental duplicate cards. `target.initialBalance`
+   * absorbs `source.initialBalance` so its running balance ends up exactly
+   * what the two used to add up to, and this profile's own
+   * transactions/recurring templates pointing at source are repointed to
+   * target. Only this profile's own rows are ever touched — a cross-profile
+   * transfer some OTHER family member sent to this account isn't ours to
+   * rewrite (the backend only accepts writes to records this profile owns),
+   * which is exactly why source is deleted outright only once NOTHING in
+   * the whole family still touches it (hasTransactions() is already
+   * unfiltered by owner); otherwise it's archived instead, so it drops out
+   * of pickers without leaving whoever's cross-profile transfer still
+   * points at it dangling.
+   */
+  async function merge(sourceId: string, targetId: string): Promise<void> {
+    assertWritable()
+    if (sourceId === targetId) return
+    const source = collection.all.value.find((a) => a.id === sourceId)
+    const target = collection.all.value.find((a) => a.id === targetId)
+    if (!source || !target) return
+    if (source.currency !== target.currency) throw new Error(t('errors.mergeCurrencyMismatch'))
+
+    const myUid = authStore.uid
+    const transactions = useTransactionsStore()
+    for (const tx of transactions.all.filter(
+      (row) => row.ownerId === myUid && (row.accountId === sourceId || row.toAccountId === sourceId),
+    )) {
+      if (tx.accountId === sourceId) await transactions.update(tx.id, { accountId: targetId })
+      if (tx.toAccountId === sourceId) await transactions.update(tx.id, { toAccountId: targetId })
+    }
+    const templates = useTemplatesStore()
+    for (const rec of templates.all.filter((row) => row.accountId === sourceId || row.toAccountId === sourceId)) {
+      if (rec.accountId === sourceId) await templates.update(rec.id, { accountId: targetId })
+      if (rec.toAccountId === sourceId) await templates.update(rec.id, { toAccountId: targetId })
+    }
+
+    await update(targetId, { initialBalance: target.initialBalance + source.initialBalance })
+
+    if (await hasTransactions(sourceId)) {
+      await setArchived(sourceId, true)
+    } else {
+      await remove(sourceId)
+    }
+  }
+
   function balanceOf(account: Account): number {
     const transactions = useTransactionsStore()
     return computeAccountBalance(account, transactions.forAccount(account.id))
@@ -122,6 +171,7 @@ export const useAccountsStore = defineStore('accounts', () => {
     update,
     setArchived,
     remove,
+    merge,
     hasTransactions,
     balanceOf,
     totalBalanceInBase,

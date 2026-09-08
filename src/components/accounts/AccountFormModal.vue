@@ -6,14 +6,19 @@ import IconColorPickerModal from '../common/IconColorPickerModal.vue'
 import CurrencyPickerModal from '../layout/CurrencyPickerModal.vue'
 import AmountEntryModal from '../common/AmountEntryModal.vue'
 import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
+import Segmented from '../common/Segmented.vue'
+import AccountPickerModal from '../transactions/AccountPickerModal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import FieldRow from '../common/FieldRow.vue'
 import { useAccountsStore } from '../../stores/accounts'
 import { useSettingsStore } from '../../stores/settings'
+import { usePopupsStore } from '../../stores/popups'
 import { ACCOUNT_TYPE_OPTIONS, ACCOUNT_TYPE_DEFAULTS, LOAN_DIRECTION_OPTIONS } from '../../utils/accountTypes'
+import { accountGroupLabel } from '../../utils/accountLabel'
 import { formatMoney, formatMoneyAs, getNumberFormatSetting, type CurrencyDisplayStyle } from '../../utils/format'
 import { t } from '../../i18n'
 import type { Account, AccountType, LoanDirection } from '../../types/models'
+import type { AccountPickerItem } from '../../types/pickerItems'
 
 // The picker's own "use the base Settings choice" option — kept out of
 // Account.currencyDisplay's real value space (that field just stays
@@ -26,6 +31,7 @@ const emit = defineEmits<{ close: []; save: [Partial<Account>]; deleted: []; arc
 
 const accounts = useAccountsStore()
 const settings = useSettingsStore()
+const popups = usePopupsStore()
 
 const isEdit = computed(() => !!props.account)
 
@@ -52,6 +58,7 @@ const showIconColorPicker = ref(false)
 const showCurrencyPicker = ref(false)
 const showCurrencyDisplayPicker = ref(false)
 const showBalanceEntry = ref(false)
+const showMergePicker = ref(false)
 // Once an account has operations against it, its currency can't change (see
 // stores/accounts.ts's hasTransactions and the server-side twin in
 // upsertAccount.js, which is what actually enforces this) — this is just the
@@ -67,9 +74,51 @@ watch(
     showCurrencyPicker.value = false
     showCurrencyDisplayPicker.value = false
     showBalanceEntry.value = false
+    showMergePicker.value = false
+    mergeError.value = ''
     currencyLocked.value = props.account ? await accounts.hasTransactions(props.account.id) : false
   },
 )
+
+// Same currency only — merging across currencies would silently corrupt
+// balance math (see stores/accounts.ts's merge()).
+const mergeCandidates = computed<AccountPickerItem[]>(() =>
+  accounts.active
+    .filter((a) => a.id !== props.account?.id && a.currency === props.account?.currency)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      icon: a.icon,
+      color: a.color,
+      currency: a.currency,
+      currencyDisplay: a.currencyDisplay,
+      balance: accounts.balanceOf(a),
+      group: accountGroupLabel(a),
+    })),
+)
+const mergeError = ref('')
+
+async function handleMergeSelect(targetId: string) {
+  const source = props.account
+  if (!source) return
+  const target = mergeCandidates.value.find((a) => a.id === targetId)
+  popups.confirmDialog({
+    title: t('accounts.form.mergeConfirmTitle'),
+    message: t('accounts.form.mergeConfirmMessage', { source: source.name, target: target?.name ?? '' }),
+    confirmLabel: t('accounts.form.mergeConfirmButton'),
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await accounts.merge(source.id, targetId)
+        popups.closeConfirm()
+        emit('close')
+      } catch (err) {
+        mergeError.value = t('accounts.form.mergeError', { message: (err as Error).message })
+        popups.closeConfirm()
+      }
+    },
+  })
+}
 
 // Previewed at the current amount-agnostic base setting (formatMoney's own
 // default) rather than a fixed style, so this option's sublabel always shows
@@ -111,6 +160,9 @@ function chooseCurrencyDisplay(value: string) {
 // right above it, live, same as the balance preview in the FieldRow itself.
 const resolvedCurrencyDisplay = computed(() => (form.currencyDisplay === 'base' ? undefined : form.currencyDisplay))
 
+const accountTypeSegmentOptions = computed(() => ACCOUNT_TYPE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })))
+const loanDirectionSegmentOptions = computed(() => LOAN_DIRECTION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })))
+
 function selectType(type: AccountType) {
   form.type = type
   if (!isEdit.value) {
@@ -151,30 +203,20 @@ function submit() {
 
     <div class="field">
       <label>{{ t('accounts.form.typeLabel') }}</label>
-      <div class="segmented">
-        <button
-          v-for="opt in ACCOUNT_TYPE_OPTIONS"
-          :key="opt.value"
-          :class="{ active: form.type === opt.value }"
-          @click="selectType(opt.value)"
-        >
-          {{ t(opt.labelKey) }}
-        </button>
-      </div>
-    </div>
-
-    <div v-if="form.type === 'loan'" class="field">
-      <label>{{ t('accounts.form.loanDirectionLabel') }}</label>
-      <div class="segmented">
-        <button
-          v-for="dir in LOAN_DIRECTION_OPTIONS"
-          :key="dir.value"
-          :class="{ active: form.loanDirection === dir.value }"
-          @click="form.loanDirection = dir.value"
-        >
-          {{ t(dir.labelKey) }}
-        </button>
-      </div>
+      <Segmented
+        :model-value="form.type"
+        :options="accountTypeSegmentOptions"
+        @update:model-value="(v) => selectType(v as AccountType)"
+      >
+        <div v-if="form.type === 'loan'" class="field">
+          <label>{{ t('accounts.form.loanDirectionLabel') }}</label>
+          <Segmented
+            :model-value="form.loanDirection"
+            :options="loanDirectionSegmentOptions"
+            @update:model-value="(v) => (form.loanDirection = v as LoanDirection)"
+          />
+        </div>
+      </Segmented>
     </div>
 
     <FieldRow icon="mdiFormTextbox" :label="t('accounts.form.nameLabel')">
@@ -228,6 +270,18 @@ function submit() {
       {{ isEdit ? t('common.save') : t('accounts.form.create') }}
     </button>
 
+    <template v-if="isEdit">
+      <button
+        class="btn btn-secondary merge-btn"
+        :disabled="!mergeCandidates.length"
+        @click="showMergePicker = true"
+      >
+        {{ t('accounts.form.mergeButton') }}
+      </button>
+      <span v-if="!mergeCandidates.length" class="hint">{{ t('accounts.form.mergeNoCandidates') }}</span>
+      <span v-if="mergeError" class="field-error">{{ mergeError }}</span>
+    </template>
+
     <div v-if="isEdit" class="danger-zone">
       <button class="btn btn-secondary" @click="emit('archived')">
         {{ props.account?.archived ? t('accounts.form.unarchive') : t('accounts.form.archive') }}
@@ -235,6 +289,14 @@ function submit() {
       <button class="btn btn-danger" @click="emit('deleted')">{{ t('accounts.form.deleteAccount') }}</button>
     </div>
   </Modal>
+
+  <AccountPickerModal
+    :open="showMergePicker"
+    :title="t('accounts.form.mergePickerTitle')"
+    :items="mergeCandidates"
+    @close="showMergePicker = false"
+    @select="handleMergeSelect"
+  />
 
   <IconColorPickerModal
     :open="showIconColorPicker"
@@ -320,10 +382,14 @@ function submit() {
   width: 100%;
   margin-top: 4px;
 }
+.merge-btn {
+  width: 100%;
+  margin-top: 20px;
+}
 .danger-zone {
   display: flex;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 12px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }

@@ -14,6 +14,8 @@ import { categoriesMessages } from './messages/categories'
 import { receiptsMessages } from './messages/receipts'
 import { seedMessages } from './messages/seed'
 import { csvMessages } from './messages/csv'
+import { serverMessages } from './messages/server'
+import { onboardingMessages } from './messages/onboarding'
 
 export { locale, BCP47, detectLocale, getLocaleSetting, setLocaleSetting } from './locale'
 export type { Locale, LocaleSetting } from './locale'
@@ -21,8 +23,8 @@ export type { Locale, LocaleSetting } from './locale'
 // Merged via direct spread (not Array#map/Object.assign) so TypeScript keeps each
 // namespace's literal key union instead of collapsing it to a bare `string` index.
 const MESSAGES = {
-  uk: { ...common.uk, ...errors.uk, ...transactions.uk, ...period.uk, ...layout.uk, ...accounts.uk, ...sync.uk, ...overview.uk, ...currenciesMessages.uk, ...login.uk, ...admin.uk, ...categoriesMessages.uk, ...receiptsMessages.uk, ...seedMessages.uk, ...csvMessages.uk },
-  en: { ...common.en, ...errors.en, ...transactions.en, ...period.en, ...layout.en, ...accounts.en, ...sync.en, ...overview.en, ...currenciesMessages.en, ...login.en, ...admin.en, ...categoriesMessages.en, ...receiptsMessages.en, ...seedMessages.en, ...csvMessages.en },
+  uk: { ...common.uk, ...errors.uk, ...transactions.uk, ...period.uk, ...layout.uk, ...accounts.uk, ...sync.uk, ...overview.uk, ...currenciesMessages.uk, ...login.uk, ...admin.uk, ...categoriesMessages.uk, ...receiptsMessages.uk, ...seedMessages.uk, ...csvMessages.uk, ...serverMessages.uk, ...onboardingMessages.uk },
+  en: { ...common.en, ...errors.en, ...transactions.en, ...period.en, ...layout.en, ...accounts.en, ...sync.en, ...overview.en, ...currenciesMessages.en, ...login.en, ...admin.en, ...categoriesMessages.en, ...receiptsMessages.en, ...seedMessages.en, ...csvMessages.en, ...serverMessages.en, ...onboardingMessages.en },
 }
 
 export type MessageKey = keyof typeof MESSAGES.uk

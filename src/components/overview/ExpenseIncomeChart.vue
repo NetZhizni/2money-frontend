@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, ref, watch } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
 import { formatMoney } from '../../utils/format'
 import { t } from '../../i18n'
+import Segmented from '../common/Segmented.vue'
 
 // ApexCharts is a large dependency (~500KB+) — load it only once a chart
 // actually needs to render instead of bundling it into every route that
@@ -30,6 +31,10 @@ const { colors, mode } = useChartColors()
 
 type ViewMode = 'bars' | 'trend'
 const view = ref<ViewMode>('bars')
+const viewOptions = computed(() => [
+  { value: 'bars', label: t('overview.viewBars') },
+  { value: 'trend', label: t('overview.viewLine') },
+])
 
 // Only label roughly every Nth bar to avoid crowding, plus first/last — N
 // scales with the bar count so this reads fine whether there are 7 (week),
@@ -161,10 +166,7 @@ const trendOptions = computed(() => ({
   <div class="chart-wrap">
     <div class="chart-head">
       <h3 class="section-title">{{ t('overview.expenseIncomeTitle') }}</h3>
-      <div class="segmented view-toggle">
-        <button :class="{ active: view === 'bars' }" @click="view = 'bars'">{{ t('overview.viewBars') }}</button>
-        <button :class="{ active: view === 'trend' }" @click="view = 'trend'">{{ t('overview.viewLine') }}</button>
-      </div>
+      <Segmented class="view-toggle" :model-value="view" :options="viewOptions" @update:model-value="(v) => (view = v as ViewMode)" />
     </div>
     <div class="chart-body">
       <Transition name="chart-fade" mode="out-in">
@@ -180,7 +182,7 @@ const trendOptions = computed(() => ({
           v-else
           :key="`trend-${chartVersion}`"
           type="area"
-          height="220"
+          height="240"
           :options="trendOptions"
           :series="trendSeries"
         />

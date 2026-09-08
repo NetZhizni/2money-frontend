@@ -8,6 +8,11 @@ import PeriodPickerPopover from './PeriodPickerPopover.vue'
 
 const period = usePeriodStore()
 
+// Prev/next don't touch the store directly — PeriodPageView.vue owns the
+// slide animation and needs to run it around the actual navigation (there's
+// no other consumer of this component, see grep for `<PeriodSwitcher`).
+const emit = defineEmits<{ prev: []; next: [] }>()
+
 const showPeriodPicker = ref(false)
 
 function daysInCurrentMonth(): number {
@@ -43,7 +48,7 @@ const periodLabel = computed(() => {
       v-if="period.granularity !== 'all'"
       class="chevron"
       :aria-label="t('layout.periodSwitcher.prev')"
-      @click="period.prev()"
+      @click="emit('prev')"
     >
       <MdiIcon name="mdiChevronLeft" :size="22" />
     </button>
@@ -63,7 +68,7 @@ const periodLabel = computed(() => {
       v-if="period.granularity !== 'all'"
       class="chevron"
       :aria-label="t('layout.periodSwitcher.next')"
-      @click="period.next()"
+      @click="emit('next')"
     >
       <MdiIcon name="mdiChevronRight" :size="22" />
     </button>

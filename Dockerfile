@@ -9,11 +9,12 @@ RUN npm ci
 
 COPY . .
 
-# No VITE_* build args here on purpose: those values are no longer baked
-# into the bundle for the Docker image — they're injected at container
-# startup instead (see render-env-config.sh below + src/runtimeConfig.ts),
-# so this build is secret-free and the same image works for anyone
-# self-hosting it with their own Firebase project / backend.
+# No VITE_* build args here: the app no longer has any per-deployment
+# secret or config baked in at build time at all. The Firebase project and
+# backend a device talks to are chosen at runtime, in the app itself (see
+# src/config/serverConfig.ts, views/ServerSetupView.vue) — so this single,
+# secret-free image works for anyone self-hosting it, pointed at whatever
+# backend they type in, no rebuild and no per-deployment env vars needed.
 RUN npm run build
 
 # ---- Runtime stage -------------------------------------------------------
@@ -23,16 +24,13 @@ FROM nginx:1.27-alpine AS runtime
 # nginx.conf.template) — override per-deployment with
 # `environment: API_UPSTREAM=host:port` in docker-compose, no rebuild
 # needed. Matches the service name/port used in vite.config.ts's dev proxy.
+# Only relevant when a user points ServerSetupView at THIS frontend's own
+# origin (the common single-domain deployment) — /api is then reverse-
+# proxied to this upstream; pointing at a fully separate backend origin
+# doesn't touch this at all.
 ENV API_UPSTREAM=backend:3100
 
 COPY nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
-
-# Runtime env injection (VITE_FIREBASE_*, VITE_API_URL) — see
-# docker/render-env-config.sh and src/runtimeConfig.ts. Placed outside
-# /usr/share/nginx/html so the template itself is never served.
-COPY docker/env-config.template.js /usr/share/nginx/env-config.template.js
-COPY docker/render-env-config.sh /docker-entrypoint.d/50-render-env-config.sh
-RUN chmod +x /docker-entrypoint.d/50-render-env-config.sh
 
 EXPOSE 80

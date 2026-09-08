@@ -11,6 +11,10 @@ import { t } from '../../i18n'
 
 const authStore = useAuthStore()
 const popups = usePopupsStore()
+
+// Local mode (see stores/server.ts) has no server to be reachable/unreachable
+// from and no outbox that will ever drain — this badge's entire premise
+// doesn't apply, so it renders nothing rather than a permanently-offline icon.
 const showDetails = ref(false)
 
 // Ticks while the badge is on screen so "N min ago" doesn't go stale without a re-render.
@@ -72,8 +76,13 @@ function openResyncConfirm() {
 </script>
 
 <template>
+  <!-- Root stays mounted (and reserves the same 40x40 footprint as the other
+       header icon buttons) even in local mode, so the header row stays
+       symmetric and "Всі рахунки" doesn't drift off-center; only the
+       contents are conditional on there being a server to report on. -->
   <div class="sync-status">
     <button
+      v-if="!authStore.localMode"
       class="icon-btn"
       :aria-label="backendOnline ? t('sync.serverOnlineAria') : t('sync.serverOfflineAria')"
       @click="showDetails = true"
@@ -86,7 +95,7 @@ function openResyncConfirm() {
       <span v-if="pendingCount > 0" class="pending-dot">{{ pendingCount > 9 ? '9+' : pendingCount }}</span>
     </button>
 
-    <Modal :open="showDetails" :title="t('sync.title')" @close="showDetails = false">
+    <Modal v-if="!authStore.localMode" :open="showDetails" :title="t('sync.title')" @close="showDetails = false">
       <div class="status-row">
         <span class="dot" :class="backendOnline ? 'online' : 'offline'" />
         <span>{{ backendOnline ? t('sync.serverOnline') : t('sync.serverOffline') }}</span>
@@ -117,6 +126,9 @@ function openResyncConfirm() {
 <style lang="scss" scoped>
 .sync-status {
   position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
 }
 
 .icon-btn {

@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { updatePageTransition } from '../composables/usePageTransition'
 
 // Auth gating lives in App.vue (it renders LoginView directly and never
 // mounts RouterView until signed in), so there's no dedicated /login route
@@ -33,10 +34,22 @@ export const router = createRouter({
   routes,
 })
 
+// Decides the page-slide direction (see usePageTransition.ts) before the
+// navigation resolves, so App.vue's <RouterView> transition already knows
+// which way to animate by the time the incoming page mounts.
+router.beforeEach((to, from) => {
+  updatePageTransition(to, from)
+  return true
+})
+
 router.beforeEach((to) => {
   if (to.name !== 'admin') return true
   const authStore = useAuthStore()
-  return authStore.isOwner ? true : '/'
+  // Local mode (see stores/server.ts) has no backend `users` table to
+  // manage — stores/admin.ts talks to the API directly with no offline
+  // story (see README's "Offline-first, in short"), so this route simply
+  // doesn't apply there even though a local profile's role is 'owner'.
+  return authStore.isOwner && !authStore.localMode ? true : '/'
 })
 
 // Every route's component is a dynamic import() (see `routes` above). After a

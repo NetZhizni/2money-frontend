@@ -3,6 +3,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import MdiIcon from '../common/MdiIcon.vue'
 import { NAV_TABS as tabs } from '../../utils/navTabs'
 import { usePeriodStore } from '../../stores/period'
+import { requestPeriodTransition } from '../../composables/usePeriodTransition'
 import { t } from '../../i18n'
 
 const route = useRoute()
@@ -10,9 +11,15 @@ const period = usePeriodStore()
 
 // Repeat-clicking the already-active tab doesn't navigate anywhere (we're
 // already there) — jump the period back to "current" instead, on tabs that
-// show one. Granularity (day/week/month/year) is left untouched.
+// show one. Granularity (day/week/month/year) is left untouched. Runs the
+// same slide animation as the period chevrons/swipe (see
+// usePeriodTransition.ts) — direction depends on whether today is ahead of or
+// behind whatever period is currently shown; `null` means we're already on
+// today's period, so there's nothing to jump to or animate.
 function onTabClick(tab: (typeof tabs)[number]) {
-  if (tab.hasPeriod && route.path === tab.to) period.goToToday()
+  if (!tab.hasPeriod || route.path !== tab.to) return
+  const direction = period.directionToToday()
+  if (direction) requestPeriodTransition(direction, () => period.goToToday())
 }
 </script>
 

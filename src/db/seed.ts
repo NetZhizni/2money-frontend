@@ -43,6 +43,22 @@ function defaultIncomeCategories(): Array<Pick<Category, 'name' | 'icon' | 'colo
 }
 
 /**
+ * Staggers two devices that both reach seedDefaultsIfEmpty() at effectively
+ * the same instant (e.g. two brand-new family members finishing sign-in
+ * within the same moment) so they don't both see zero categories and each
+ * write their own duplicate default set. Doesn't eliminate the race — a
+ * genuine fix needs a server-side uniqueness guarantee (a DB constraint, or
+ * an atomic "seed once" endpoint), which is out of reach from the client
+ * alone — it just makes the window one device has to lose the race in a
+ * random ~150-500ms spread plus a network round trip instead of a single
+ * event-loop tick, which in practice is enough for whichever device pulls
+ * second to see the first one's already-synced set.
+ */
+function onboardingJitterMs(): number {
+  return 150 + Math.random() * 350
+}
+
+/**
  * Categories are a shared family resource (see stores/categories.ts) — this
  * seeds the default set exactly once, family-wide, the very first time
  * anyone finds it empty. Every member after that just inherits the
@@ -51,10 +67,18 @@ function defaultIncomeCategories(): Array<Pick<Category, 'name' | 'icon' | 'colo
  * whatever `fullSync`'s own unawaited background pull happens to have landed
  * by now) so a second family member's fresh device doesn't race the check
  * and wrongly reseed a duplicate set alongside what the family already has.
+ * Re-checks once more after a short jitter (see onboardingJitterMs) right
+ * before actually writing, to narrow — not close — that same race further.
  */
 export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
   await pullAllCategories().catch((error) =>
     console.warn('[seed] pullAllCategories failed, deciding from local cache only', error),
+  )
+  if ((await db.categories.count()) > 0) return
+
+  await new Promise((resolve) => setTimeout(resolve, onboardingJitterMs()))
+  await pullAllCategories().catch((error) =>
+    console.warn('[seed] pullAllCategories re-check failed, deciding from local cache only', error),
   )
   if ((await db.categories.count()) > 0) return
 

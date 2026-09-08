@@ -10,6 +10,7 @@
   import { useViewAsStore } from '../stores/viewAs'
   import { usePeriodStore } from '../stores/period'
   import { usePopupsStore } from '../stores/popups'
+  import { useServerStore } from '../stores/server'
   import { useSettingsStore } from '../stores/settings'
   import { useBaseCurrency } from '../composables/useBaseCurrency'
   import { useLatestRun } from '../composables/useLatestRun'
@@ -41,6 +42,7 @@
   const viewAs = useViewAsStore()
   const period = usePeriodStore()
   const popups = usePopupsStore()
+  const server = useServerStore()
   const settings = useSettingsStore()
   const baseCurrency = useBaseCurrency()
   const route = useRoute()
@@ -496,6 +498,13 @@
   // `seedTransaction`, щоб рахунок/дата/склад операцій виглядали й поводились
   // однаково незалежно від того, звідки чек узявся.
 
+  // Scanning is POST /api/receipts/scan on whatever server is connected
+  // (see backend/src/util/gemini.js) — meaningless in local mode (no
+  // server at all) and hidden if the connected server never got a
+  // GEMINI_API_KEY (see server.remoteConfig.features.receiptScanning,
+  // fetched from GET /api/config/public).
+  const canScanReceipts = computed(() => server.mode === 'remote' && server.remoteConfig?.features.receiptScanning === true)
+
   const showReceiptCapture = ref(false)
 
   function openReceiptCapture() {
@@ -786,6 +795,7 @@
     <template v-else-if="!readOnly">
       <div class="fab-row">
         <button
+          v-if="canScanReceipts"
           class="fab fab-scan"
           :aria-label="t('transactions.ops.scanReceiptAria')"
           @click="openReceiptCapture"

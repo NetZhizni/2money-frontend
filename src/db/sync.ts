@@ -2,6 +2,7 @@ import { isAxiosError } from 'axios'
 import http from '../api/http'
 import { db, type SyncableEntity, type UserDirectoryEntry } from './schema'
 import { backendOnline, markSynced } from './syncStatus'
+import { hasConfiguredServer } from '../config/serverConfig'
 import { t } from '../i18n'
 
 const RESOURCE_PATH: Record<SyncableEntity, string> = {
@@ -43,7 +44,7 @@ const pushInFlight = new Map<string, Promise<void>>()
  * entries stay queued behind it so ordering is preserved on the next drain.
  */
 export async function pushOutbox(currentUserId: string | null): Promise<void> {
-  if (!currentUserId || !navigator.onLine) return
+  if (!currentUserId || !navigator.onLine || !hasConfiguredServer()) return
   const existing = pushInFlight.get(currentUserId)
   if (existing) return existing
 
@@ -123,6 +124,7 @@ function coalescedPull(key: string, run: () => Promise<void>): Promise<void> {
 }
 
 async function pullEntity(entity: SyncableEntity, opts?: { scope: 'all' }): Promise<void> {
+  if (!hasConfiguredServer()) return
   const cursorKey = opts?.scope ? (`${entity}:${opts.scope}` as const) : entity
   return coalescedPull(cursorKey, async () => {
     const path = RESOURCE_PATH[entity]
@@ -183,7 +185,7 @@ async function pullMany(entities: SyncableEntity[], opts: { scope: 'all' } | und
  * rather than claiming a full sync that didn't happen.
  */
 export async function fullSync(currentUserId: string | null): Promise<void> {
-  if (!currentUserId || !navigator.onLine) return
+  if (!currentUserId || !navigator.onLine || !hasConfiguredServer()) return
   await pushOutbox(currentUserId)
   const results = await pullMany(SYNC_ENTITIES, { scope: 'all' }, 'sync')
   if (results.every(Boolean)) markSynced()
@@ -265,7 +267,7 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
  * entries in the "Переглянути як" picker).
  */
 export async function pullUserDirectory(): Promise<void> {
-  if (!navigator.onLine) return
+  if (!navigator.onLine || !hasConfiguredServer()) return
   return coalescedPull('users', async () => {
     const { data } = await http.get<UserDirectoryEntry[]>('/users')
     await db.transaction('rw', db.users, async () => {
@@ -393,18 +395,25 @@ export function startAutoSync(getUserId: () => string | null): () => void {
 
 /** Queues a create/update — always a full-record upsert (see OutboxEntry's doc comment) — and tries to push right away. */
 export async function enqueueUpsert(entity: SyncableEntity, ownerId: string, record: SyncRow): Promise<void> {
+  // Local mode (see stores/server.ts) has no server this could ever reach —
+  // queuing it would just sit in the outbox forever, permanently showing
+  // every record as "pending sync" (see pendingCount/isPending). Nothing to
+  // push, so nothing to queue.
+  if (!hasConfiguredServer()) return
   await db.outbox.add({ entity, op: 'upsert', recordId: record.id, payload: record, ownerId, createdAt: Date.now() })
   void pushOutbox(ownerId)
 }
 
 /** Queues a delete and tries to push right away. */
 export async function enqueueDelete(entity: SyncableEntity, ownerId: string, id: string): Promise<void> {
+  if (!hasConfiguredServer()) return // see enqueueUpsert's doc comment
   await db.outbox.add({ entity, op: 'delete', recordId: id, ownerId, createdAt: Date.now() })
   void pushOutbox(ownerId)
 }
 
 /** Bulk variant of enqueueUpsert — demo-data seeding and recurring-template generation queue many records at once. */
 export async function enqueueUpsertMany(entity: SyncableEntity, ownerId: string, records: SyncRow[]): Promise<void> {
+  if (!hasConfiguredServer()) return // see enqueueUpsert's doc comment
   const now = Date.now()
   await db.outbox.bulkAdd(
     records.map((record) => ({ entity, op: 'upsert' as const, recordId: record.id, payload: record, ownerId, createdAt: now })),
@@ -414,6 +423,7 @@ export async function enqueueUpsertMany(entity: SyncableEntity, ownerId: string,
 
 /** Bulk variant of enqueueDelete — used by the "reset all data" flow. */
 export async function enqueueDeleteMany(entity: SyncableEntity, ownerId: string, ids: string[]): Promise<void> {
+  if (!hasConfiguredServer()) return // see enqueueUpsert's doc comment
   const now = Date.now()
   await db.outbox.bulkAdd(ids.map((recordId) => ({ entity, op: 'delete' as const, recordId, ownerId, createdAt: now })))
   void pushOutbox(ownerId)

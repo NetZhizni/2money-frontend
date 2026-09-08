@@ -5,6 +5,7 @@ import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import FieldRow from '../common/FieldRow.vue'
+import Segmented from '../common/Segmented.vue'
 import AmountKeypad from './AmountKeypad.vue'
 import AccountPickerModal from './AccountPickerModal.vue'
 import CategoryPickerModal from './CategoryPickerModal.vue'
@@ -465,6 +466,12 @@ function setType(type: TransactionType) {
   form.subcategoryId = ''
 }
 
+const typeSegmentOptions = computed(() => [
+  { value: 'expense', label: t('categories.form.expenseType') },
+  { value: 'income', label: t('categories.form.incomeType') },
+  { value: 'transfer', label: t('transactions.form.typeTransfer') },
+])
+
 // ---------- "Від кого / кому" split header ----------
 
 const amountTypeLabel = computed(() =>
@@ -653,11 +660,13 @@ function handleDuplicate() {
     </div>
 
     <template v-else>
-    <div v-if="!lockedByReceipt" class="segmented type-toggle">
-      <button :class="{ active: form.type === 'expense' }" :disabled="lockedByReceipt" @click="setType('expense')">{{ t('categories.form.expenseType') }}</button>
-      <button :class="{ active: form.type === 'income' }" :disabled="lockedByReceipt" @click="setType('income')">{{ t('categories.form.incomeType') }}</button>
-      <button :class="{ active: form.type === 'transfer' }" :disabled="lockedByReceipt" @click="setType('transfer')">{{ t('transactions.form.typeTransfer') }}</button>
-    </div>
+    <Segmented
+      v-if="!lockedByReceipt"
+      class="type-toggle"
+      :model-value="form.type"
+      :options="typeSegmentOptions"
+      @update:model-value="(v) => setType(v as TransactionType)"
+    />
 
     <div v-if="lockedByReceipt" class="receipt-lock-hint">
       <MdiIcon name="mdiReceiptTextOutline" :size="14" color="var(--text-muted)" />

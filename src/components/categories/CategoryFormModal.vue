@@ -6,10 +6,12 @@ import IconColorPickerModal from '../common/IconColorPickerModal.vue'
 import CurrencyPickerModal from '../layout/CurrencyPickerModal.vue'
 import CategoryPickerModal from '../transactions/CategoryPickerModal.vue'
 import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
+import Segmented from '../common/Segmented.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import FieldRow from '../common/FieldRow.vue'
 import { useCategoriesStore } from '../../stores/categories'
 import { useSettingsStore } from '../../stores/settings'
+import { usePopupsStore } from '../../stores/popups'
 import { formatMoney, formatMoneyAs, getNumberFormatSetting, type CurrencyDisplayStyle } from '../../utils/format'
 import { t } from '../../i18n'
 import type { Category, CategoryKind } from '../../types/models'
@@ -29,6 +31,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; saved: [Category]; deleted: []; archived: [] }>()
 const categories = useCategoriesStore()
 const settings = useSettingsStore()
+const popups = usePopupsStore()
 
 const isEdit = computed(() => !!props.category)
 
@@ -51,11 +54,18 @@ const showIconColorPicker = ref(false)
 const showParentPicker = ref(false)
 const showCurrencyPicker = ref(false)
 const showCurrencyDisplayPicker = ref(false)
+const showMergePicker = ref(false)
+const mergeError = ref('')
 // Once a top-level category has operations against it, its currency can't
 // change (see stores/categories.ts's hasTransactions and the server-side
 // twin in upsertCategory.js, which is what actually enforces this) — this is
 // just the form's own preview of that, so a doomed edit is never attempted.
 const currencyLocked = ref(false)
+
+const kindSegmentOptions = computed(() => [
+  { value: 'expense', label: t('categories.form.expenseType') },
+  { value: 'income', label: t('categories.form.incomeType') },
+])
 
 watch(
   () => props.open,
@@ -66,6 +76,8 @@ watch(
     showParentPicker.value = false
     showCurrencyPicker.value = false
     showCurrencyDisplayPicker.value = false
+    showMergePicker.value = false
+    mergeError.value = ''
     currencyLocked.value = props.category ? await categories.hasTransactions(props.category.id) : false
     // A top-level category saved before currencies were mandatory has none
     // yet — buildForm() just defaulted the field above to the base currency,
@@ -85,6 +97,37 @@ const parentOptions = computed(() =>
   categories.topLevel(form.kind, true).filter((c) => c.id !== props.category?.id),
 )
 const parentCategoryName = computed(() => (form.parentId ? (categories.byId(form.parentId)?.name ?? '') : t('categories.form.noParent')))
+
+// Same kind only (see stores/categories.ts's merge()); excludes the
+// category's own children too, since reparenting a category onto its own
+// child would create a cycle.
+const mergeCandidates = computed(() =>
+  categories.all.filter(
+    (c) => c.kind === props.category?.kind && c.id !== props.category?.id && c.parentId !== props.category?.id && !c.archived,
+  ),
+)
+
+async function handleMergeSelect(targetId: string) {
+  const source = props.category
+  if (!source) return
+  const target = categories.byId(targetId)
+  popups.confirmDialog({
+    title: t('categories.form.mergeConfirmTitle'),
+    message: t('categories.form.mergeConfirmMessage', { source: source.name, target: target?.name ?? '' }),
+    confirmLabel: t('categories.form.mergeConfirmButton'),
+    danger: true,
+    onConfirm: async () => {
+      try {
+        await categories.merge(source.id, targetId)
+        popups.closeConfirm()
+        emit('close')
+      } catch (err) {
+        mergeError.value = t('categories.form.mergeError', { message: (err as Error).message })
+        popups.closeConfirm()
+      }
+    },
+  })
+}
 
 // Same live-preview idea as AccountFormModal.vue's own currency-display
 // picker — "base" shows what formatMoney's own default currently resolves to.
@@ -180,10 +223,7 @@ function toggleParent(id: string | null) {
 
     <div class="field" v-if="!isEdit">
       <label>{{ t('categories.form.typeLabel') }}</label>
-      <div class="segmented">
-        <button :class="{ active: form.kind === 'expense' }" @click="form.kind = 'expense'">{{ t('categories.form.expenseType') }}</button>
-        <button :class="{ active: form.kind === 'income' }" @click="form.kind = 'income'">{{ t('categories.form.incomeType') }}</button>
-      </div>
+      <Segmented :model-value="form.kind" :options="kindSegmentOptions" @update:model-value="(v) => (form.kind = v as CategoryKind)" />
     </div>
 
     <FieldRow icon="mdiFormTextbox" :label="t('categories.form.nameLabel')">
@@ -240,6 +280,18 @@ function toggleParent(id: string | null) {
       {{ isEdit ? t('common.save') : t('categories.form.create') }}
     </button>
 
+    <template v-if="isEdit">
+      <button
+        class="btn btn-secondary merge-btn"
+        :disabled="!mergeCandidates.length"
+        @click="showMergePicker = true"
+      >
+        {{ t('categories.form.mergeButton') }}
+      </button>
+      <span v-if="!mergeCandidates.length" class="hint">{{ t('categories.form.mergeNoCandidates') }}</span>
+      <span v-if="mergeError" class="field-error">{{ mergeError }}</span>
+    </template>
+
     <div v-if="isEdit" class="danger-zone">
       <button class="btn btn-secondary" @click="emit('archived')">
         {{ props.category?.archived ? t('categories.form.unarchive') : t('categories.form.archive') }}
@@ -247,6 +299,14 @@ function toggleParent(id: string | null) {
       <button class="btn btn-danger" @click="emit('deleted')">{{ t('categories.form.deleteCategory') }}</button>
     </div>
   </Modal>
+
+  <CategoryPickerModal
+    :open="showMergePicker"
+    :kind="props.category?.kind ?? 'expense'"
+    :categories="mergeCandidates"
+    @close="showMergePicker = false"
+    @select="handleMergeSelect"
+  />
 
   <IconColorPickerModal
     :open="showIconColorPicker"
@@ -328,10 +388,14 @@ function toggleParent(id: string | null) {
   width: 100%;
   margin-top: 4px;
 }
+.merge-btn {
+  width: 100%;
+  margin-top: 20px;
+}
 .danger-zone {
   display: flex;
   gap: 10px;
-  margin-top: 20px;
+  margin-top: 12px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
 }

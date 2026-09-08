@@ -66,20 +66,26 @@ const options = computed(() => ({
 </script>
 
 <template>
-  <div class="chart-wrap">
+  <div class="chart-wrap" :style="{ minHeight: `${height}px` }">
     <p v-if="points.length < 2" class="empty">{{ t('accounts.balanceChart.notEnoughData') }}</p>
     <VueApexCharts v-else type="area" :height="height" :options="options" :series="series" />
   </div>
 </template>
 
 <style scoped>
+/* min-height matches the chart's own :height prop so the "not enough data"
+   placeholder reserves the same footprint as the real chart — otherwise the
+   surrounding layout jumps every time points.length crosses the 2-point
+   threshold (e.g. while data is loading, or a filter empties the range). */
 .chart-wrap {
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 .empty {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
-  padding: 24px 0;
 }
 </style>

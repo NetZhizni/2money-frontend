@@ -29,7 +29,9 @@ export const sync = {
     'sync.unsupportedBackupFormat': 'Непідтримуваний формат файлу резервної копії',
     'sync.mustSignIn': 'Потрібно увійти в систему',
     'sync.restoreSuccess': 'Дані відновлено.',
+    'sync.mergeSuccess': 'Дані додано.',
     'sync.importError': 'Помилка імпорту: {message}',
+    'sync.familyBackupEmailNotFound': 'У цьому файлі немає учасника з вашою поштою — переконайтесь, що це саме той файл, або зверніться до власника сім’ї.',
   },
   en: {
     'sync.notSyncedYet': 'Not synced yet',
@@ -61,6 +63,8 @@ export const sync = {
     'sync.unsupportedBackupFormat': 'Unsupported backup file format',
     'sync.mustSignIn': 'You need to sign in',
     'sync.restoreSuccess': 'Data restored.',
+    'sync.mergeSuccess': 'Data merged.',
     'sync.importError': 'Import error: {message}',
+    'sync.familyBackupEmailNotFound': 'This file has no member with your email — make sure it’s the right file, or check with the family owner.',
   },
 }

@@ -80,9 +80,9 @@ $breakpoint_mobile: 480px;
  * Мiксін для додавання переходу до елементів. 
  * При його використанні, елемент отримує перехід по вказаним властивостям за заданим часовим інтервалом.
  * Наприклад, можна використати @include transition(background-color, 0.2s, ease-in-out);
- * для додавання переходу кольору фону за 0.2 секунди з використанням ease-in-out.
+ * для додавання переходу кольору фону за 0.15 секунди з використанням ease-in-out.
  */
-@mixin transition($property: all, $duration: 0.2s, $timingFunction: ease-in-out) {
+@mixin transition($property: all, $duration: 0.15s, $timingFunction: ease-in-out) {
   transition: $property $duration $timingFunction;
 }
 

@@ -10,6 +10,7 @@
   import AccountFormModal from '../components/accounts/AccountFormModal.vue'
   import AccountDetailModal from '../components/accounts/AccountDetailModal.vue'
   import MdiIcon from '../components/common/MdiIcon.vue'
+  import Segmented from '../components/common/Segmented.vue'
   import { loadDemoData } from '../db/demoData'
   import { ACCOUNT_TYPE_OPTIONS } from '../utils/accountTypes'
   import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
@@ -34,6 +35,9 @@
 
   const TABS = ACCOUNT_TYPE_OPTIONS
   const activeTab = ref<AccountType>('regular')
+  const tabOptions = computed(() =>
+    TABS.map((tab) => ({ value: tab.value, label: t(tab.labelKey) })),
+  )
 
   const showArchived = ref(false)
   const showForm = ref(false)
@@ -145,19 +149,14 @@
 
 <template>
   <div class="view">
-    <div class="segmented tabs">
-      <button
-        v-for="tab in TABS"
-        :key="tab.value"
-        :class="{ active: activeTab === tab.value }"
-        @click="activeTab = tab.value"
-      >
-        {{ t(tab.labelKey) }}
-      </button>
-    </div>
-
     <div class="view-scroll">
       <div class="view-scroll-content">
+        <Segmented
+          class="tabs"
+          :model-value="activeTab"
+          :options="tabOptions"
+          @update:model-value="(v) => (activeTab = v as AccountType)"
+        >
         <TransitionGroup
           ref="listGroupRef"
           tag="div"
@@ -230,6 +229,7 @@
         >
           <p class="empty">{{ t('accounts.view.emptyTab') }}</p>
         </div>
+        </Segmented>
       </div>
     </div>
 

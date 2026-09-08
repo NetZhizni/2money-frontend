@@ -9,6 +9,7 @@ import {
 import { dateKey, MONTHS_SHORT } from '../../utils/format'
 import { t } from '../../i18n'
 import Modal from '../common/Modal.vue'
+import Segmented from '../common/Segmented.vue'
 
 const period = usePeriodStore()
 const props = defineProps<{ open: boolean }>()
@@ -34,6 +35,9 @@ const currentMonth = today.getMonth()
 const todayShortLabel = `${today.getDate()} ${MONTHS_SHORT[currentMonth]}`
 
 const GRANULARITY_OPTIONS: PeriodGranularity[] = ['day', 'week', 'month', 'year', 'all']
+const granularitySegmentOptions = computed(() =>
+  GRANULARITY_OPTIONS.map((g) => ({ value: g, label: t(PERIOD_GRANULARITY_LABEL_KEY[g]) })),
+)
 
 function chooseGranularity(g: PeriodGranularity) {
   period.setGranularity(g)
@@ -78,16 +82,12 @@ const yearGrid = computed(() => {
 
 <template>
   <Modal :open="open" :title="t('layout.periodPicker.title')" @close="emit('close')">
-    <div class="segmented granularity-toggle">
-      <button
-        v-for="g in GRANULARITY_OPTIONS"
-        :key="g"
-        :class="{ active: period.granularity === g }"
-        @click="chooseGranularity(g)"
-      >
-        {{ t(PERIOD_GRANULARITY_LABEL_KEY[g]) }}
-      </button>
-    </div>
+    <Segmented
+      class="granularity-toggle"
+      :model-value="period.granularity"
+      :options="granularitySegmentOptions"
+      @update:model-value="(v) => chooseGranularity(v as PeriodGranularity)"
+    />
 
     <button v-if="!period.isCurrentPeriod" class="today-btn" @click="chooseToday">
       {{ period.granularity === 'all' ? t('common.today') : t(PERIOD_TODAY_LABEL_KEY[period.granularity]) }}
