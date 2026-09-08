@@ -3,7 +3,7 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { router } from './router'
 import { setupServiceWorker } from './pwa/updateService'
-import './style.scss'
+import './styles/style.scss'
 
 // Dev-only service worker (see vite.config.ts's devOptions.enabled) is
 // meant purely to test PWA installability locally — registering it during

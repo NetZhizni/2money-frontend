@@ -302,8 +302,8 @@
 <style lang="scss" scoped>
   .app-shell {
     display: flex;
-    height: 100vh;
-    height: 100dvh;
+    @include viewportHeight('height');
+    @include viewportHeight('min-height');
     overflow: hidden;
     background: var(--page-bg);
   }
@@ -313,7 +313,8 @@
     min-width: 0;
     display: grid;
     grid-template-rows: auto 1fr auto;
-    height: 100dvh;
+    @include viewportHeight('height');
+    @include viewportHeight('min-height');
     overflow: hidden;
   }
 
@@ -395,10 +396,15 @@
   .boot-splash {
     display: flex;
     align-items: center;
+    // See ServerSetupView.vue's .setup-shell for why `safe` matters here too.
+    align-items: safe center;
     justify-content: center;
-    min-height: 100vh;
-    min-height: 100dvh;
+    @include viewportHeight('height');
+    @include viewportHeight('min-height');
+    @include overflow(y);
     color: var(--text-muted);
+    text-align: center;
+    padding: 24px;
   }
 
   @include laptop() {

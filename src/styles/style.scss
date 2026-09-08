@@ -96,6 +96,25 @@ button {
   font-family: inherit;
 }
 
+/* ---------- Kill the mobile/WebKit tap-highlight box ----------
+   Without this, tapping any button or link shows the browser's own
+   rectangular "pressed" overlay on top of it — it ignores the element's
+   border-radius entirely, so a pill-shaped control (e.g. Segmented.vue's
+   toggle) flashes a square. Every interactive control here already does
+   its own press feedback via `:active` (scale/opacity), so the native
+   highlight is pure noise. `:focus-visible` below keeps keyboard
+   accessibility working, shaped to match the element instead. */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+button:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 input,
 select,
 textarea {

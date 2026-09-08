@@ -160,7 +160,7 @@ function openResult(tx: Transaction) {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 60vh;
+  @include viewportHeight('max-height', 60);
   @include overflow(y);
 }
 

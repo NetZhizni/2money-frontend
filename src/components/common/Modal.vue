@@ -139,8 +139,7 @@ const sheetStyle = computed(() => {
   background: var(--surface);
   color: var(--text-primary);
   width: 100%;
-  max-width: 480px;
-  max-height: 88vh;
+  @include viewportHeight('max-height', 90);
   display: grid;
   grid-template-rows: auto auto 1fr;
   overflow: hidden;

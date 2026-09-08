@@ -49,7 +49,7 @@ watch(activeIndex, (idx, prevIdx) => {
 
 <template>
   <div class="segmented-control" v-bind="$attrs">
-    <div v-if="activeIndex >= 0" class="segmented-control-thumb" :style="{ transform: `translateX(${activeIndex * 100}%)`, width: `${100 / options.length}%` }" />
+    <div v-if="activeIndex >= 0" class="segmented-control-thumb" :style="{ transform: `translateX(${activeIndex * 100}%)`, width: `calc((100% - var(--segmented-pad) * 2) / ${options.length})` }" />
     <button
       v-for="opt in options"
       :key="opt.value"
@@ -90,14 +90,21 @@ watch(activeIndex, (idx, prevIdx) => {
   grid-auto-columns: 1fr;
   background: var(--surface-2);
   border-radius: var(--radius-pill);
-  padding: 3px;
+  // Named so the thumb below can size/position itself off the same value —
+  // an absolutely-positioned child's `left`/`top`/width% resolve against
+  // this box's *outer* edge (padding is invisible to it), so left:0 would
+  // sit flush with the container's edge instead of lining up with where
+  // the padded buttons actually start. Keeping one source of truth here
+  // stops the two from drifting apart if the padding ever changes.
+  --segmented-pad: 3px;
+  padding: var(--segmented-pad);
 }
 
 .segmented-control-thumb {
   position: absolute;
-  top: 3px;
-  bottom: 3px;
-  left: 0;
+  top: var(--segmented-pad);
+  bottom: var(--segmented-pad);
+  left: var(--segmented-pad);
   border-radius: var(--radius-pill);
   background: var(--surface);
   box-shadow: var(--shadow-sm);

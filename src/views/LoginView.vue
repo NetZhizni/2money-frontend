@@ -110,11 +110,15 @@ const {
 
 <style lang="scss" scoped>
 .login-shell {
-  min-height: 100vh;
-  min-height: 100dvh;
-  @include overflow(y);
+  @include viewportHeight('height');
+  @include viewportHeight('min-height');
   display: flex;
   align-items: center;
+  // `safe` keeps this the same centered layout while there's room, but falls
+  // back to top-aligned once the card is taller than the viewport — plain
+  // `center` would otherwise crop the card evenly off both edges and leave
+  // no way to scroll up to the part cut off above.
+  align-items: safe center;
   justify-content: center;
   padding: 24px;
 }
