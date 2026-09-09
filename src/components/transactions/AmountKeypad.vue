@@ -332,6 +332,7 @@ const dualCurrencySym = computed(() =>
       <button type="button" class="key" @click="pressDigit('2')">2</button>
       <button type="button" class="key" @click="pressDigit('3')">3</button>
       <button type="button" class="key op" :class="{ active: active.pendingOp === '+' }" @click="pressOperator('+')">+</button>
+      <div/>
       <button type="button" class="key" @click="pressDigit('0')">0</button>
       <button type="button" class="key" :disabled="active.currentText.includes(',')" @click="pressDecimal">,</button>
     </div>

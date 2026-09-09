@@ -328,7 +328,15 @@
     height: 100%;
     justify-content: stretch;
 
-    @include overflow(x);
+    // Clip, don't scroll: the forward/back page transition and
+    // PeriodPageView.vue's own period-swipe slide both translate their
+    // content by ±100% (see the .page-forward-*/.page-back-* rules below),
+    // which briefly extends past this container's bounds. `overflow(x)`
+    // (overflow-x: auto) let Android treat that as real scrollable content
+    // mid-animation — it would show a scrollbar and accept a touch-scroll
+    // gesture during the slide. `overflow(none)` still clips the same
+    // overflow, just without making it interactively scrollable.
+    @include overflow(none);
     overscroll-behavior: contain;
   }
 

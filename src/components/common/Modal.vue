@@ -172,7 +172,9 @@ const sheetStyle = computed(() => {
             <button class="icon-btn" :aria-label="t('common.close')" @click="requestClose">✕</button>
           </header>
           <div class="sheet-body">
-            <slot />
+            <div class="sheet-body-inner">
+              <slot />
+            </div>
           </div>
         </div>
       </div>
@@ -184,6 +186,7 @@ const sheetStyle = computed(() => {
 .backdrop {
   position: fixed;
   inset: 0;
+  background: #00000000;
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
   display: flex;
@@ -232,7 +235,7 @@ const sheetStyle = computed(() => {
   overflow: hidden;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
-  padding: 8px 20px 0;
+  padding-top: 8px;
   @include transition();
   touch-action: pan-y;
 }
@@ -275,7 +278,7 @@ const sheetStyle = computed(() => {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
-  padding-bottom: 8px;
+  padding: 0 20px 8px;
   border-bottom: 1px solid var(--border);
   touch-action: none;
 }
@@ -286,10 +289,17 @@ const sheetStyle = computed(() => {
   /* Per spec, a non-'visible' overflow-y forces overflow-x to 'auto' too, so
      any child that overflows horizontally (e.g. a grid row before the
      min-width fix) would silently grow a horizontal scrollbar here — the
-     overflow(y) mixin pins overflow-x back to hidden to guard against that. */
+     overflow(y) mixin pins overflow-x back to hidden to guard against that.
+     No horizontal padding here on purpose: it's the scroll container, so
+     leaving its own box edge-to-edge with `.sheet` puts the scrollbar flush
+     against the modal's edge instead of inset next to the content — the
+     inset padding lives on `.sheet-body-inner` below instead. */
   @include overflow(y);
   overscroll-behavior: contain;
-  padding-bottom: 24px;
+}
+
+.sheet-body-inner {
+  padding: 0 20px 24px;
 }
 
 .sheet-header h2 {

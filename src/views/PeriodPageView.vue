@@ -17,10 +17,40 @@
   const SWIPE_THRESHOLD = 60
   let touchStartX = 0
   let touchStartY = 0
+  // Locked true for the rest of the current gesture as soon as it reads as a
+  // horizontal swipe (see onTouchMove) — lets onTouchMove tell a real swipe
+  // apart from an ordinary vertical scroll without redoing the "how
+  // horizontal is this" math on every move.
+  let isSwiping = false
 
   function onTouchStart(e: TouchEvent) {
     touchStartX = e.touches[0].clientX
     touchStartY = e.touches[0].clientY
+    isSwiping = false
+  }
+
+  // Left unhandled, a mostly-but-not-perfectly horizontal drag still lets the
+  // browser natively scroll the list underneath by its small vertical
+  // component (only the CSS `touch-action: pan-y` on .view-scroll is there to
+  // stop horizontal panning, so vertical panning is still native). On iOS
+  // that leaves the list mid-momentum right as the finger lifts, and the very
+  // next tap *anywhere* — including a BottomNav/SideNav tab, nowhere near the
+  // list — gets swallowed settling that deceleration instead of registering,
+  // so switching tabs right after a period-swipe needed a second tap. Once a
+  // move reads as a swipe (dominantly horizontal), preventDefault() on every
+  // further touchmove of this gesture keeps the browser from ever starting
+  // that native pan in the first place.
+  function onTouchMove(e: TouchEvent) {
+    if (period.granularity === 'all') return
+    const touch = e.touches[0]
+    const dx = touch.clientX - touchStartX
+    const dy = touch.clientY - touchStartY
+    if (!isSwiping) {
+      if (Math.abs(dx) < 10) return // too little movement yet to tell swipe from scroll
+      if (Math.abs(dx) < Math.abs(dy) * 1.5) return // reads as a vertical scroll — let the browser handle it natively
+      isSwiping = true
+    }
+    e.preventDefault()
   }
 
   function onTouchEnd(e: TouchEvent) {
@@ -96,7 +126,12 @@
 <template>
   <div class="view">
     <PeriodSwitcher @prev="navigate('prev')" @next="navigate('next')" />
-    <div class="view-scroll" @touchstart="onTouchStart" @touchend="onTouchEnd">
+    <div
+      class="view-scroll"
+      @touchstart="onTouchStart"
+      @touchmove="onTouchMove"
+      @touchend="onTouchEnd"
+    >
       <div
         ref="contentEl"
         class="view-scroll-content"
