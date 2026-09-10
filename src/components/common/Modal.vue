@@ -187,13 +187,27 @@ const sheetStyle = computed(() => {
   position: fixed;
   inset: 0;
   background: #00000000;
-  backdrop-filter: blur(3px);
+  // Safari < 18 only recognizes the prefixed property, so it's the
+  // fallback here; unprefixed is added below via @supports rather than
+  // as a second declaration in this same rule. Vite's CSS minifier
+  // (lightningcss) has a bug where two `backdrop-filter` declarations in
+  // one rule get collapsed into just one — and which one survives flips
+  // depending on build target — silently dropping the blur in whichever
+  // browser needed the other form
+  // (https://github.com/parcel-bundler/lightningcss/issues/695). Splitting
+  // them into separate rules like this sidesteps the merge entirely.
   -webkit-backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
   @include transition();
+}
+
+@supports (backdrop-filter: blur(1px)) {
+  .backdrop {
+    backdrop-filter: blur(3px);
+  }
 }
 
 /* `top` is for popups mounted once in App.vue (the confirm dialog, the

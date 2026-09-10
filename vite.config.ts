@@ -100,19 +100,6 @@ export default defineConfig({
     allowedHosts: ['fin2.leleka.pp.ua'],
   },
   build: {
-    // Vite 8's default CSS minifier (lightningcss) targets its "Baseline
-    // widely available" set (Chrome 111+/Safari 16.4+/Firefox 114+) unless
-    // told otherwise, and on that baseline it prunes `-webkit-`-prefixed
-    // declarations it considers redundant — e.g. it strips
-    // `-webkit-backdrop-filter` from Modal.vue's backdrop, keeping only the
-    // unprefixed `backdrop-filter`. That's invisible in `vite dev` (nothing
-    // minifies CSS there) but silently drops the blur in the *built* app on
-    // any real-world browser below that baseline (older Android WebViews,
-    // Samsung Internet, etc.) — which is exactly why it worked locally and
-    // broke after deploy. Lowering the target here makes lightningcss keep
-    // the vendor-prefixed fallback for such browsers instead of assuming
-    // they're unnecessary.
-    cssTarget: ['chrome80', 'edge80', 'firefox78', 'safari13', 'ios13'],
     // The @mdi/js icon set is imported in full (for the searchable icon picker),
     // which produces one intentionally large, well-compressing vendor chunk.
     chunkSizeWarningLimit: 3200,
