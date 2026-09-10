@@ -27,10 +27,13 @@
   import { resolveCategoryCurrency } from '../utils/currencies'
   import { categoryCurrencyAmount } from '../utils/transactionAmounts'
   import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
+  import { seedDefaultCategoriesNow } from '../db/seed'
+  import { useAuthStore } from '../stores/auth'
   import { t } from '../i18n'
   import type { Category, CategoryKind } from '../types/models'
 
   const categories = useCategoriesStore()
+  const authStore = useAuthStore()
   const transactions = useTransactionsStore()
   const budgets = useBudgetsStore()
   const period = usePeriodStore()
@@ -213,6 +216,19 @@
 
   const visibleTop = computed(() => categories.topLevel(kind.value))
 
+  // Reachable after "Очистити всі категорії" in Settings (see
+  // SettingsModal.vue) — offers the same reseed action right where the
+  // resulting empty grid is actually seen, instead of only in Settings.
+  const seedingDefaults = ref(false)
+  async function handleSeedDefaults() {
+    seedingDefaults.value = true
+    try {
+      await seedDefaultCategoriesNow(authStore.uid!)
+    } finally {
+      seedingDefaults.value = false
+    }
+  }
+
   // Archived top-level categories, shown collapsed below the active grid so
   // they stay reachable (to unarchive or inspect past spend) without cluttering
   // the main list — same pattern as AccountsView's "Архівовані рахунки".
@@ -366,6 +382,16 @@
     </TransitionGroup>
 
     <div
+      v-if="!categories.all.length && !readOnly"
+      class="empty-state"
+    >
+      <p class="empty">{{ t('categories.empty') }}</p>
+      <button class="btn btn-secondary" :disabled="seedingDefaults" @click="handleSeedDefaults">
+        {{ seedingDefaults ? t('layout.settings.seedingCategories') : t('layout.settings.seedCategoriesButton') }}
+      </button>
+    </div>
+
+    <div
       v-if="archivedTop.length"
       class="archived-section"
     >
@@ -477,6 +503,21 @@
     /* position/size are pinned inline by pinLeavingRect() before this class
      applies — see @before-leave on the TransitionGroup above. */
     position: absolute;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    margin-top: 40px;
+  }
+
+  .empty {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+    margin: 0;
   }
 
   .archived-section {

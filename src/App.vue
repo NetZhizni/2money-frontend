@@ -6,6 +6,8 @@
   import LoginView from './views/LoginView.vue'
   import ServerSetupView from './views/ServerSetupView.vue'
   import OnboardingView from './views/OnboardingView.vue'
+  import LanguageOnboardingView from './views/LanguageOnboardingView.vue'
+  import BaseCurrencyOnboardingView from './views/BaseCurrencyOnboardingView.vue'
   import UpdateToast from './components/common/UpdateToast.vue'
   import TransactionFormModal from './components/transactions/TransactionFormModal.vue'
   import ReceiptEditModal from './components/transactions/ReceiptEditModal.vue'
@@ -30,7 +32,8 @@
   import { usePopupsStore } from './stores/popups'
   import { pageTransitionName } from './composables/usePageTransition'
   import type { TransactionDuplicatePreset } from './utils/transactionDuplicate'
-  import { t } from './i18n'
+  import { t, hasChosenLocale } from './i18n'
+  import { hasChosenBaseCurrency } from './utils/baseCurrencyChoice'
 
   const authStore = useAuthStore()
   const server = useServerStore()
@@ -103,6 +106,23 @@
     await nextTick()
     popups.openTransactionForm(preset)
   }
+
+  // Starts from the boot-time check, but stays a ref (rather than a plain
+  // const) so BaseCurrencyOnboardingView.vue's "back to language" link can
+  // reopen this screen later in the same session, and so
+  // LanguageOnboardingView's own `confirmed` emit (below) can close it again
+  // without a page reload.
+  const needsLanguageChoice = ref(!hasChosenLocale())
+
+  // Same pattern, one step later: shown right after the language choice is
+  // confirmed, before anything else (ServerSetupView, sign-in, ...) — see
+  // BaseCurrencyOnboardingView.vue's own doc comment for what its choice
+  // actually feeds into. Stays a ref for the same reason as above:
+  // ServerSetupView.vue's own "back" link reopens this screen (see its
+  // `@back` below), forming a strictly sequential
+  // language -> base currency -> server-setup chain — each step's "back"
+  // only ever reopens the ONE immediately before it, never skips one.
+  const needsBaseCurrencyChoice = ref(!hasChosenBaseCurrency())
 
   // Resolves which server (if any) this device is configured for — see
   // stores/server.ts's own doc comment. Drives `server.mode` below, which
@@ -225,13 +245,19 @@
 </script>
 
 <template>
+  <LanguageOnboardingView v-if="needsLanguageChoice" @confirmed="needsLanguageChoice = false" />
+  <BaseCurrencyOnboardingView
+    v-else-if="needsBaseCurrencyChoice"
+    @confirmed="needsBaseCurrencyChoice = false"
+    @back-to-language="needsLanguageChoice = true"
+  />
   <div
-    v-if="server.initializing"
+    v-else-if="server.initializing"
     class="boot-splash"
   >
     {{ t('common.loading') }}
   </div>
-  <ServerSetupView v-else-if="server.mode === 'unconfigured'" />
+  <ServerSetupView v-else-if="server.mode === 'unconfigured'" @back="needsBaseCurrencyChoice = true" />
   <div
     v-else-if="!authStore.ready"
     class="boot-splash"

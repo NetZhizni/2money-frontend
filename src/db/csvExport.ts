@@ -21,17 +21,22 @@ import type { Transaction } from '../types/models'
 // picked manually on import either way, an acceptable trade-off here.
 // Follows Settings → "Формат чисел" (see format.ts), falling back to the
 // text language for 'auto' same as it did before that setting existed.
-const numberFormatSetting = getNumberFormatSetting()
-const usesCommaDecimal = numberFormatSetting === 'auto' ? locale === 'uk' : numberFormatSetting === 'uk' || numberFormatSetting === 'eu'
-const CSV_DELIMITER = usesCommaDecimal ? ';' : ','
-const DECIMAL_SEPARATOR = usesCommaDecimal ? ',' : '.'
+// Computed fresh on every export (not once at module load) so a language
+// switch since the last export is picked up — `locale` is a live ref (see
+// i18n/locale.ts), even though `numberFormatSetting` itself is still a
+// plain reload-to-apply setting.
+function csvNumberFormat(): { delimiter: string; decimalSeparator: string } {
+  const numberFormatSetting = getNumberFormatSetting()
+  const usesCommaDecimal = numberFormatSetting === 'auto' ? locale.value === 'uk' : numberFormatSetting === 'uk' || numberFormatSetting === 'eu'
+  return usesCommaDecimal ? { delimiter: ';', decimalSeparator: ',' } : { delimiter: ',', decimalSeparator: '.' }
+}
 
 function typeLabel(type: Transaction['type']): string {
   return type === 'expense' ? t('categories.form.expenseType') : type === 'income' ? t('categories.form.incomeType') : t('transactions.form.typeTransfer')
 }
 
-function formatAmount(n: number): string {
-  return n.toFixed(2).replace('.', DECIMAL_SEPARATOR)
+function formatAmount(n: number, decimalSeparator: string): string {
+  return n.toFixed(2).replace('.', decimalSeparator)
 }
 
 /**
@@ -69,6 +74,7 @@ export async function buildTransactionsCsv(): Promise<string> {
   )
   const rateToBase = new Map(rateEntries)
 
+  const { delimiter, decimalSeparator } = csvNumberFormat()
   const rows: CsvCell[][] = [header]
   for (const t of sorted) {
     const signedAmount = t.type === 'expense' ? -t.amount : t.amount
@@ -80,14 +86,14 @@ export async function buildTransactionsCsv(): Promise<string> {
       t.type === 'transfer' ? resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all) : '',
       categories.byId(t.categoryId)?.name ?? '',
       categories.byId(t.subcategoryId)?.name ?? '',
-      formatAmount(signedAmount),
+      formatAmount(signedAmount, decimalSeparator),
       t.currency,
-      formatAmount(signedBaseAmount),
+      formatAmount(signedBaseAmount, decimalSeparator),
       t.note ?? '',
     ])
   }
 
-  return CSV_BOM + toCsv(rows, CSV_DELIMITER)
+  return CSV_BOM + toCsv(rows, delimiter)
 }
 
 export async function downloadTransactionsCsv(): Promise<void> {

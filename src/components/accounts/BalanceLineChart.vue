@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, ref } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
+import { useECharts } from '../../composables/useECharts'
 import { formatMoney, MONTHS_SHORT, type CurrencyDisplayStyle } from '../../utils/format'
+import { withAlpha } from '../../utils/color'
 import { t } from '../../i18n'
 import type { BalancePoint } from '../../utils/balanceHistory'
-
-// ApexCharts is a large dependency (~500KB+) — load it only once a chart
-// actually needs to render instead of bundling it into every route that
-// merely imports this component, which was making page/route loads feel slow.
-const VueApexCharts = defineAsyncComponent(() => import('vue3-apexcharts'))
+import type { EChartsOption } from 'echarts'
 
 const props = withDefaults(
   defineProps<{
@@ -24,51 +22,85 @@ const props = withDefaults(
   { height: 220 },
 )
 
-const { colors, mode } = useChartColors()
+const { colors } = useChartColors()
+
+const chartEl = ref<HTMLElement | null>(null)
 
 function shortDateLabel(ts: number): string {
   const d = new Date(ts)
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 
-const series = computed(() => [
-  { name: t('accounts.balanceChart.seriesName'), data: props.points.map((p) => ({ x: p.date, y: p.balance })) },
-])
-
 const lineColor = computed(() => props.color ?? colors.value.accent)
 
-const options = computed(() => ({
-  chart: { type: 'area' as const, toolbar: { show: false }, zoom: { enabled: false }, background: 'transparent' },
-  theme: { mode: mode.value },
-  colors: [lineColor.value],
-  stroke: { curve: 'straight' as const, width: 2 },
-  dataLabels: { enabled: false },
-  fill: {
-    type: 'gradient',
-    gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0, stops: [0, 100] },
+interface AxisTooltipParam {
+  value: [number, number]
+}
+
+const option = computed<EChartsOption>(() => ({
+  backgroundColor: 'transparent',
+  grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
+  xAxis: {
+    type: 'time',
+    axisLabel: { color: colors.value.textMuted, formatter: (val: number) => shortDateLabel(val) },
+    axisLine: { show: false },
+    axisTick: { show: false },
+    splitLine: { show: false },
   },
-  grid: { borderColor: colors.value.border, strokeDashArray: 3 },
-  xaxis: {
-    type: 'datetime' as const,
-    labels: { style: { colors: colors.value.textMuted }, formatter: shortDateLabel },
-    axisBorder: { show: false },
-    axisTicks: { show: false },
-  },
-  yaxis: {
-    labels: { style: { colors: colors.value.textMuted }, formatter: (v: number) => formatMoney(v, props.currency, { currencyDisplay: props.currencyDisplay }) },
+  yAxis: {
+    type: 'value',
+    axisLabel: {
+      color: colors.value.textMuted,
+      formatter: (v: number) => formatMoney(v, props.currency, { currencyDisplay: props.currencyDisplay }),
+    },
+    axisLine: { show: false },
+    axisTick: { show: false },
+    splitLine: { lineStyle: { color: colors.value.border, type: 'dashed' } },
   },
   tooltip: {
-    theme: mode.value,
-    x: { formatter: (val: number) => shortDateLabel(val) },
-    y: { formatter: (v: number) => formatMoney(v, props.currency, { currencyDisplay: props.currencyDisplay }) },
+    trigger: 'axis',
+    backgroundColor: colors.value.surface,
+    borderColor: colors.value.border,
+    textStyle: { color: colors.value.textPrimary },
+    formatter: (params) => {
+      const p = (Array.isArray(params) ? params[0] : params) as unknown as AxisTooltipParam
+      const [x, y] = p.value
+      return `${shortDateLabel(x)}<br/>${formatMoney(y, props.currency, { currencyDisplay: props.currencyDisplay })}`
+    },
   },
+  series: [
+    {
+      type: 'line',
+      name: t('accounts.balanceChart.seriesName'),
+      data: props.points.map((p) => [p.date, p.balance]),
+      showSymbol: false,
+      smooth: false,
+      lineStyle: { color: lineColor.value, width: 2 },
+      itemStyle: { color: lineColor.value },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
+          colorStops: [
+            { offset: 0, color: withAlpha(lineColor.value, 0.35) },
+            { offset: 1, color: withAlpha(lineColor.value, 0) },
+          ],
+        },
+      },
+    },
+  ],
 }))
+
+useECharts(chartEl, option)
 </script>
 
 <template>
   <div class="chart-wrap" :style="{ minHeight: `${height}px` }">
     <p v-if="points.length < 2" class="empty">{{ t('accounts.balanceChart.notEnoughData') }}</p>
-    <VueApexCharts v-else type="area" :height="height" :options="options" :series="series" />
+    <div v-else ref="chartEl" class="chart" :style="{ height: `${height}px` }" />
   </div>
 </template>
 
@@ -82,6 +114,9 @@ const options = computed(() => ({
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+.chart {
+  width: 100%;
 }
 .empty {
   text-align: center;

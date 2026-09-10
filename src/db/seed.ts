@@ -1,45 +1,56 @@
 import { db } from './schema'
 import { enqueueUpsertMany, pullAllCategories } from './sync'
+import { DEFAULT_EXPENSE_CATEGORY_DEFS, DEFAULT_INCOME_CATEGORY_DEFS } from './defaultCategories'
 import http from '../api/http'
 import { newId } from '../utils/id'
 import { t } from '../i18n'
+import { getChosenBaseCurrency } from '../utils/baseCurrencyChoice'
 import type { Category } from '../types/models'
 
 /**
- * Default category set shown on first launch (no accounts/transactions are
- * seeded — those start empty per spec). Icons are MDI keys, colors follow the
- * app's decorative badge palette (see utils/color.ts) chosen to match the
- * reference app's look. Names are resolved through `t()` (not
- * `db/demoData.ts`'s opt-in sample data, which stays Ukrainian-only by
- * design) since this is the real, permanent category set every new family
- * actually starts with.
+ * Builds the default category set as real `Category` rows, named in
+ * whichever locale is active right now (see defaultCategories.ts's own doc
+ * comment for how a category is matched back to its def later, to re-label
+ * it on a language change). Shared by both `seedDefaultsIfEmpty` (automatic,
+ * family-wide, first login ever) and `seedDefaultCategoriesNow` (manual, from
+ * Settings) below — the only difference between the two is the race-guard
+ * jitter and `onboarded` bookkeeping, both meaningless outside the very-first
+ * login flow.
  */
-function defaultExpenseCategories(): Array<Pick<Category, 'name' | 'icon' | 'color'>> {
-  return [
-    { name: t('seed.expense.groceries'), icon: 'mdiFridgeOutline', color: '#2a78d6' },
-    { name: t('seed.expense.cafes'), icon: 'mdiSilverwareForkKnife', color: '#e34948' },
-    { name: t('seed.expense.leisure'), icon: 'mdiTicketOutline', color: '#e87ba4' },
-    { name: t('seed.expense.transport'), icon: 'mdiBus', color: '#eda100' },
-    { name: t('seed.expense.shopping'), icon: 'mdiShoppingOutline', color: '#8d6e63' },
-    { name: t('seed.expense.clothing'), icon: 'mdiHanger', color: '#8a8d91' },
-    { name: t('seed.expense.gifts'), icon: 'mdiGiftOutline', color: '#eb6834' },
-    { name: t('seed.expense.communication'), icon: 'mdiWeb', color: '#1baf7a' },
-    { name: t('seed.expense.home'), icon: 'mdiHomeOutline', color: '#008300' },
-    { name: t('seed.expense.car'), icon: 'mdiCarOutline', color: '#8a8d91' },
-    { name: t('seed.expense.health'), icon: 'mdiMedicalBag', color: '#e34948' },
-    { name: t('seed.expense.selfDevelopment'), icon: 'mdiChartLine', color: '#1baf7a' },
-    { name: t('seed.expense.beautyAndHygiene'), icon: 'mdiEmoticonOutline', color: '#eda100' },
-    { name: t('seed.expense.pets'), icon: 'mdiPaw', color: '#1baf7a' },
-  ]
-}
-
-function defaultIncomeCategories(): Array<Pick<Category, 'name' | 'icon' | 'color'>> {
-  return [
-    { name: t('seed.income.salary'), icon: 'mdiCashMultiple', color: '#008300' },
-    { name: t('seed.income.sideJob'), icon: 'mdiBriefcaseOutline', color: '#2a78d6' },
-    { name: t('seed.income.gifts'), icon: 'mdiGiftOpenOutline', color: '#e87ba4' },
-    { name: t('seed.income.other'), icon: 'mdiDotsHorizontalCircleOutline', color: '#8a8d91' },
-  ]
+function buildDefaultCategories(ownerId: string): Category[] {
+  const now = Date.now()
+  const categories: Category[] = []
+  DEFAULT_EXPENSE_CATEGORY_DEFS.forEach((def, order) => {
+    categories.push({
+      id: newId(),
+      ownerId,
+      name: t(def.key),
+      kind: def.kind,
+      icon: def.icon,
+      color: def.color,
+      parentId: null,
+      archived: false,
+      order,
+      createdAt: now,
+      isDefault: true,
+    })
+  })
+  DEFAULT_INCOME_CATEGORY_DEFS.forEach((def, order) => {
+    categories.push({
+      id: newId(),
+      ownerId,
+      name: t(def.key),
+      kind: def.kind,
+      icon: def.icon,
+      color: def.color,
+      parentId: null,
+      archived: false,
+      order,
+      createdAt: now,
+      isDefault: true,
+    })
+  })
+  return categories
 }
 
 /**
@@ -69,6 +80,11 @@ function onboardingJitterMs(): number {
  * and wrongly reseed a duplicate set alongside what the family already has.
  * Re-checks once more after a short jitter (see onboardingJitterMs) right
  * before actually writing, to narrow — not close — that same race further.
+ *
+ * Only top-level categories are seeded here — no subcategories (e.g. no
+ * "Обід на роботі" under "Кафе і ресторани") — so a brand-new family starts
+ * with the cleanest possible list. db/demoData.ts creates the couple of
+ * default subcategories it actually needs lazily, on demand.
  */
 export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
   await pullAllCategories().catch((error) =>
@@ -82,50 +98,40 @@ export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
   )
   if ((await db.categories.count()) > 0) return
 
-  const now = Date.now()
-  const categories: Category[] = []
-  let order = 0
-
-  for (const c of defaultExpenseCategories()) {
-    categories.push({
-      id: newId(),
-      ownerId,
-      name: c.name,
-      kind: 'expense',
-      icon: c.icon,
-      color: c.color,
-      parentId: null,
-      archived: false,
-      order: order++,
-      createdAt: now,
-      isDefault: true,
-    })
-  }
-  order = 0
-  for (const c of defaultIncomeCategories()) {
-    categories.push({
-      id: newId(),
-      ownerId,
-      name: c.name,
-      kind: 'income',
-      icon: c.icon,
-      color: c.color,
-      parentId: null,
-      archived: false,
-      order: order++,
-      createdAt: now,
-      isDefault: true,
-    })
-  }
-
+  const categories = buildDefaultCategories(ownerId)
   await db.categories.bulkPut(categories)
   await enqueueUpsertMany('categories', ownerId, categories)
 
   const existing = await db.settings.get(ownerId)
-  await db.settings.put({ id: ownerId, baseCurrency: existing?.baseCurrency ?? 'UAH', theme: existing?.theme ?? 'system', onboarded: true })
+  await db.settings.put({
+    id: ownerId,
+    baseCurrency: existing?.baseCurrency ?? getChosenBaseCurrency() ?? 'UAH',
+    theme: existing?.theme ?? 'system',
+    onboarded: true,
+  })
   try {
     await http.patch('/settings', { onboarded: true })
   } catch (error) {
     console.warn('[seed] onboarded PATCH failed, will reconcile on next successful settings change', error)
   }
 }
+
+/**
+ * Manual counterpart to seedDefaultsIfEmpty — creates the exact same default
+ * set on demand, from Settings → Дані → "Створити базові категорії". Meant
+ * for reseeding after "Очистити всі категорії" (e.g. to start over in a
+ * different language than whatever the categories were first created in),
+ * so it refuses outright if the family already has ANY category — this can
+ * never create a duplicate set, and there's no jitter/race-guard to worry
+ * about here since it's an explicit, one-off user action, not something two
+ * devices could both trigger unattended at once.
+ */
+export async function seedDefaultCategoriesNow(ownerId: string): Promise<void> {
+  if ((await db.categories.count()) > 0) {
+    throw new Error(t('errors.categoriesNotEmpty'))
+  }
+  const categories = buildDefaultCategories(ownerId)
+  await db.categories.bulkPut(categories)
+  await enqueueUpsertMany('categories', ownerId, categories)
+}
+

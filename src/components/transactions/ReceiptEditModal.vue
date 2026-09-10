@@ -109,6 +109,31 @@ interface Draft extends ScannedOperation {
 }
 const scanDrafts = ref<Draft[]>([])
 
+/**
+ * Backend business errors carry a stable `.code` (+ optional `.data`, e.g.
+ * `retrySeconds`) — see backend's util/gemini.js and services/internal/
+ * receipt/scanReceipt.js. `.message` itself is English-only (server logs),
+ * so it's never shown to the user; unmapped/unknown codes (an unexpected
+ * 500, a Gemini failure with no dedicated copy, …) fall back to the
+ * existing generic `receipts.scanFailed`.
+ */
+const SCAN_ERROR_MESSAGES: Partial<Record<string, (data: Record<string, unknown> | undefined) => string>> = {
+  RECEIPT_IMAGE_REQUIRED: () => t('receipts.scanErrors.imageRequired'),
+  RECEIPT_UNSUPPORTED_FORMAT: (data) => t('receipts.scanErrors.unsupportedFormat', { format: String(data?.mimeType ?? '') }),
+  RECEIPT_IMAGE_TOO_LARGE: () => t('receipts.scanErrors.imageTooLarge'),
+  RECEIPT_NO_OPERATIONS_DETECTED: () => t('receipts.scanErrors.noOperations'),
+  GEMINI_RATE_LIMITED: (data) =>
+    data?.retrySeconds
+      ? t('receipts.scanErrors.rateLimitedIn', { seconds: String(data.retrySeconds) })
+      : t('receipts.scanErrors.rateLimited'),
+}
+
+function scanErrorMessage(error: unknown): string {
+  const body = (error as { response?: { data?: { code?: string; data?: Record<string, unknown> } } })?.response?.data
+  const toMessage = body?.code ? SCAN_ERROR_MESSAGES[body.code] : undefined
+  return toMessage ? toMessage(body?.data) : t('receipts.scanFailed')
+}
+
 async function runScan(file: File) {
   phase.value = 'loading'
   errorMessage.value = ''
@@ -122,8 +147,7 @@ async function runScan(file: File) {
     phase.value = 'idle'
   } catch (error) {
     console.error('[receipt-scan] failed', error)
-    const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
-    errorMessage.value = message || t('receipts.scanFailed')
+    errorMessage.value = scanErrorMessage(error)
     phase.value = 'error'
   }
 }

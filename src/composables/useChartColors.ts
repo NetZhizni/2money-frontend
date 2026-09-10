@@ -32,12 +32,12 @@ function readColors(): ChartColors {
 }
 
 /**
- * ApexCharts needs literal color strings (it can't resolve CSS custom
- * properties the way native CSS does), so this reads the app's actual design
- * tokens via `getComputedStyle` and re-reads them whenever the effective
- * theme changes (explicit light/dark choice, or the OS scheme when the
- * setting is "system") — keeping charts in sync with the rest of the UI
- * without duplicating the palette from style.css.
+ * Chart libraries (ECharts included) need literal color strings — they can't
+ * resolve CSS custom properties the way native CSS does — so this reads the
+ * app's actual design tokens via `getComputedStyle` and re-reads them
+ * whenever the effective theme changes (explicit light/dark choice, or the
+ * OS scheme when the setting is "system") — keeping charts in sync with the
+ * rest of the UI without duplicating the palette from style.css.
  */
 export function useChartColors() {
   const settings = useSettingsStore()

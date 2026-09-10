@@ -4,6 +4,8 @@ import { useServerStore } from '../stores/server'
 import MdiIcon from '../components/common/MdiIcon.vue'
 import { t, type MessageKey } from '../i18n'
 
+const emit = defineEmits<{ back: [] }>()
+
 const server = useServerStore()
 const url = ref('')
 
@@ -21,6 +23,11 @@ async function handleConnect() {
 <template>
   <div class="setup-shell">
     <div class="card">
+      <button type="button" class="back-link" @click="emit('back')">
+        <MdiIcon name="mdiArrowLeft" :size="16" />
+        {{ t('baseCurrencyOnboarding.backButton') }}
+      </button>
+
       <MdiIcon name="mdiWalletOutline" :size="48" color="var(--accent)" />
       <h1>{{ t('server.setup.title') }}</h1>
       <p class="hint">{{ t('server.setup.hint') }}</p>
@@ -79,6 +86,20 @@ async function handleConnect() {
   text-align: center;
   max-width: 360px;
   width: 100%;
+}
+
+.back-link {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 4px;
 }
 
 .card h1 {

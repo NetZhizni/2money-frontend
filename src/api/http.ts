@@ -3,6 +3,12 @@ import { getFirebaseAuthOrNull } from '../firebase'
 import { markBackendReachable, markBackendUnreachable } from '../db/syncStatus'
 import { apiBaseUrl, getPersistedServerUrl, hasConfiguredServer } from '../config/serverConfig'
 import { env } from '../runtimeConfig'
+// Circular with i18n/locale.ts (it imports `http` too, for its own
+// best-effort PATCH /settings mirror) — safe here because both sides only
+// touch the other's export from inside a function body called well after
+// module init (the request interceptor below; `setLocaleSetting` there),
+// never at top-level eval time.
+import { locale } from '../i18n/locale'
 
 /**
  * The one HTTP client talking to the Express/PostgreSQL backend. Every
@@ -43,6 +49,12 @@ http.interceptors.request.use(async (config) => {
   if (user) {
     config.headers.Authorization = `Bearer ${await user.getIdToken()}`
   }
+  // Lets the backend localize what little user-facing text it generates
+  // itself — right now just the Gemini receipt-scan prompt/errors (see
+  // backend's util/gemini.js, services/internal/receipt/scanReceipt.js).
+  // Always the already-resolved code ('system' resolved via detectLocale,
+  // never the literal string 'system' — see i18n/locale.ts's `locale` ref).
+  config.headers['X-App-Locale'] = locale.value
   return config
 })
 

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Modal from '../common/Modal.vue'
 import CurrencyPickerModal from './CurrencyPickerModal.vue'
+import LanguagePickerModal from './LanguagePickerModal.vue'
 import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
 import Segmented from '../common/Segmented.vue'
 import { useSettingsStore } from '../../stores/settings'
@@ -28,6 +29,7 @@ import {
 import { fullSync } from '../../db/sync'
 import { downloadTransactionsCsv } from '../../db/csvExport'
 import { loadDemoData } from '../../db/demoData'
+import { seedDefaultCategoriesNow } from '../../db/seed'
 import { resetAllData } from '../../db/reset'
 import {
   formatMoney,
@@ -44,8 +46,8 @@ import {
   type CurrencyDisplayStyle,
 } from '../../utils/format'
 import { forceCheckForUpdate } from '../../pwa/updateService'
-import { t, getLocaleSetting, setLocaleSetting } from '../../i18n'
-import type { MessageKey, LocaleSetting } from '../../i18n'
+import { t, getLocaleSetting, setLocaleSetting, detectLocale, LOCALE_NAMES, localeFlagUrl } from '../../i18n'
+import type { MessageKey, LocaleSetting, Locale } from '../../i18n'
 import type { AppSettings } from '../../types/models'
 
 defineProps<{ open: boolean }>()
@@ -81,23 +83,44 @@ const {
 // these stay unavailable until back on "Ви".
 const viewingOther = computed(() => viewAs.isReadOnly)
 
-// Per-device, not part of `settings` (see i18n/locale.ts) — reloads the page
-// on change instead of live-updating, so this only needs its initial value.
+// Per-device, not part of `settings` (see i18n/locale.ts) — applies live
+// (setLocaleSetting no longer reloads the page), but this component sets
+// `.value` itself the instant a choice is made (below) rather than deriving
+// it from anything reactive, so it only ever needs its initial value here.
 const localeSetting = ref<LocaleSetting>(getLocaleSetting())
-function chooseLocale(value: LocaleSetting) {
+
+/**
+ * Switches the app language immediately (`setLocaleSetting` applies live —
+ * see its own doc comment), then catches up every still-factory default
+ * category's name to match in the background — see stores/categories.ts's
+ * `retranslateDefaults` for what counts as "still factory" vs.
+ * user-customized. Ordered this way (language first, categories after) now
+ * that neither step is racing a reload: the language switch stays snappy,
+ * and `retranslateDefaults` is itself reactive (Pinia), so renamed
+ * categories just pop in moments later.
+ */
+async function chooseLocale(value: LocaleSetting) {
   localeSetting.value = value
+  showLanguagePicker.value = false
+  const nextLocale = value === 'system' ? detectLocale() : value
   setLocaleSetting(value)
+  await categories.retranslateDefaults(nextLocale)
 }
+
+// What the language field's button itself shows — the effective locale even
+// while `localeSetting` is 'system' (so its flag/name reflect what "Системна"
+// actually resolves to right now), and the label swaps to "Системна" only in
+// that one case.
+const effectiveDisplayLocale = computed<Locale>(() => (localeSetting.value === 'system' ? detectLocale() : localeSetting.value))
+const languageButtonLabel = computed(() =>
+  localeSetting.value === 'system' ? t('layout.settings.languageSystem') : LOCALE_NAMES[localeSetting.value],
+)
+const showLanguagePicker = ref(false)
 
 const themeOptions = computed(() => [
   { value: 'system', label: t('layout.settings.themeSystem') },
   { value: 'light', label: t('layout.settings.themeLight') },
   { value: 'dark', label: t('layout.settings.themeDark') },
-])
-const localeOptions = computed(() => [
-  { value: 'system', label: t('layout.settings.languageSystem') },
-  { value: 'uk', label: t('layout.settings.languageUk') },
-  { value: 'en', label: t('layout.settings.languageEn') },
 ])
 
 // Number/date/currency-display format pickers (see utils/format.ts) — same
@@ -213,6 +236,9 @@ const demoLoading = ref(false)
 // to undo it selectively afterwards. `loadDemoData` enforces this itself too;
 // this just keeps the button from even being clickable in that state.
 const hasAnyData = computed(() => accounts.all.length > 0 || transactions.all.length > 0)
+// Without any category, demo income/expense transactions have nowhere to
+// file under (see db/demoData.ts's own guard) — only transfers would show.
+const hasNoCategories = computed(() => categories.all.length === 0)
 
 async function handleLoadDemo() {
   demoLoading.value = true
@@ -222,6 +248,39 @@ async function handleLoadDemo() {
   } finally {
     demoLoading.value = false
   }
+}
+
+const seedingCategories = ref(false)
+
+async function handleSeedDefaultCategories() {
+  seedingCategories.value = true
+  try {
+    await seedDefaultCategoriesNow(authStore.uid!)
+    status.value = t('layout.settings.categoriesSeeded')
+  } finally {
+    seedingCategories.value = false
+  }
+}
+
+const clearingCategories = ref(false)
+
+function openClearCategoriesConfirm() {
+  popups.confirmDialog({
+    title: t('layout.settings.clearCategoriesConfirmTitle'),
+    message: t('layout.settings.clearCategoriesConfirmMessage'),
+    confirmLabel: t('layout.settings.clearCategoriesConfirmButton'),
+    danger: true,
+    onConfirm: async () => {
+      clearingCategories.value = true
+      try {
+        await categories.removeAll()
+        status.value = t('layout.settings.categoriesCleared')
+      } finally {
+        clearingCategories.value = false
+        popups.closeConfirm()
+      }
+    },
+  })
 }
 
 const resetLoading = ref(false)
@@ -484,7 +543,10 @@ async function handleSignOut() {
 
       <div class="field">
         <label>{{ t('layout.settings.language') }}</label>
-        <Segmented :model-value="localeSetting" :options="localeOptions" @update:model-value="(v) => chooseLocale(v as LocaleSetting)" />
+        <button type="button" class="btn btn-secondary currency-btn language-btn" @click="showLanguagePicker = true">
+          <img :src="localeFlagUrl(effectiveDisplayLocale)" class="flag-inline" alt="" width="20" height="20" />
+          {{ languageButtonLabel }}
+        </button>
       </div>
     </div>
 
@@ -543,12 +605,39 @@ async function handleSignOut() {
       </div>
 
       <div class="field">
+        <label>{{ t('layout.settings.categoriesLabel') }}</label>
+        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
+        <template v-else>
+          <p class="hint">{{ t('layout.settings.categoriesHint') }}</p>
+          <p v-if="hasNoCategories" class="hint">{{ t('layout.settings.categoriesEmptyHint') }}</p>
+          <p v-else class="hint">{{ t('layout.settings.categoriesExist') }}</p>
+          <div class="backup-actions">
+            <button
+              class="btn btn-secondary"
+              :disabled="seedingCategories || !hasNoCategories"
+              @click="handleSeedDefaultCategories"
+            >
+              {{ seedingCategories ? t('layout.settings.seedingCategories') : t('layout.settings.seedCategoriesButton') }}
+            </button>
+            <button
+              class="btn btn-danger"
+              :disabled="clearingCategories || hasNoCategories"
+              @click="openClearCategoriesConfirm"
+            >
+              {{ clearingCategories ? t('layout.settings.clearingCategories') : t('layout.settings.clearCategoriesButton') }}
+            </button>
+          </div>
+        </template>
+      </div>
+
+      <div class="field">
         <label>{{ t('layout.settings.demoDataLabel') }}</label>
         <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
         <template v-else>
           <p class="hint">{{ t('layout.settings.demoDataHint') }}</p>
           <p v-if="hasAnyData" class="hint">{{ t('layout.settings.demoDataBlocked') }}</p>
-          <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData" @click="handleLoadDemo">
+          <p v-else-if="hasNoCategories" class="hint">{{ t('layout.settings.demoDataNoCategories') }}</p>
+          <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData || hasNoCategories" @click="handleLoadDemo">
             {{ demoLoading ? t('layout.settings.addingDemo') : t('layout.settings.addDemoData') }}
           </button>
         </template>
@@ -627,6 +716,13 @@ async function handleSignOut() {
     :hint="t('layout.settings.currencyModalHint')"
     @close="showCurrencyPicker = false"
     @select="settings.setBaseCurrency"
+  />
+
+  <LanguagePickerModal
+    :open="showLanguagePicker"
+    :selected="localeSetting"
+    @close="showLanguagePicker = false"
+    @select="chooseLocale"
   />
 
   <OptionListModal
@@ -730,6 +826,21 @@ async function handleSignOut() {
 
 .currency-btn {
   width: 100%;
+}
+
+.language-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.flag-inline {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--border);
+  flex-shrink: 0;
 }
 
 .server-url {

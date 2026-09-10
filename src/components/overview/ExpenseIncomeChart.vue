@@ -1,14 +1,12 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
+import { useECharts } from '../../composables/useECharts'
 import { formatMoney } from '../../utils/format'
+import { withAlpha } from '../../utils/color'
 import { t } from '../../i18n'
 import Segmented from '../common/Segmented.vue'
-
-// ApexCharts is a large dependency (~500KB+) — load it only once a chart
-// actually needs to render instead of bundling it into every route that
-// merely imports this component, which was making page/route loads feel slow.
-const VueApexCharts = defineAsyncComponent(() => import('vue3-apexcharts'))
+import type { EChartsOption } from 'echarts'
 
 /**
  * One bar of the chart, in whatever unit the current period granularity
@@ -27,7 +25,9 @@ export interface PeriodBar {
 
 const props = defineProps<{ bars: PeriodBar[]; currency: string }>()
 
-const { colors, mode } = useChartColors()
+const { colors } = useChartColors()
+
+const chartEl = ref<HTMLElement | null>(null)
 
 type ViewMode = 'bars' | 'trend'
 const view = ref<ViewMode>('bars')
@@ -41,125 +41,132 @@ const viewOptions = computed(() => [
 // 31 (month), 12 (year) or however many years ("all").
 const labelStep = computed(() => Math.max(1, Math.ceil(props.bars.length / 5)))
 
-// Blank out the skipped categories up front rather than filtering them in a
-// labels.formatter callback: for a category (non-datetime) x-axis ApexCharts
-// calls that formatter as (value, index) with no third `opts` argument, so an
-// `opts.i`-based check silently never fires and every label ends up shown.
+// Blank out the skipped categories up front rather than filtering them in an
+// axisLabel.formatter callback, so the skip logic lives in one place instead
+// of being re-derived from the label's position in a callback.
 const xCategories = computed(() =>
   props.bars.map((b, i) => (i % labelStep.value === 0 || i === props.bars.length - 1 ? b.label : '')),
 )
 
-const tooltipXFormatter = (_val: number, opts?: { dataPointIndex: number }) =>
-  props.bars[opts?.dataPointIndex ?? 0]?.tooltipLabel ?? ''
+interface AxisTooltipParam {
+  dataIndex: number
+  seriesName?: string
+  value?: number
+  marker?: string
+}
 
-// vue3-apexcharts pushes every reactive `options` change through
-// `updateOptions(JSON.parse(JSON.stringify(options)))` (see its
-// vue3-apexcharts-core.js) — a JSON round-trip that silently drops the
-// yaxis/tooltip formatter *functions* below, so the axis falls back to
-// ApexCharts' raw default number formatting (e.g. "100000.00000000000000",
-// no currency symbol) the moment anything (currency, theme, the bars data
-// itself) changes after the initial mount. Only the mount path preserves
-// functions, so we force a full remount on any change that would otherwise
-// hit that lossy update path.
-//
-// This used to gate the remount on `JSON.stringify([...])` of the relevant
-// inputs, i.e. only when their *content* actually changed. But the parent
-// view keeps this component mounted across background-sync refreshes of the
-// same period (see OverviewDataView.vue's own, coarser `:key`), and each
-// refresh hands down a brand new `bars` array reference even when the totals
-// haven't moved — same JSON, no remount, yet `barsOptions`/`trendOptions`
-// still recompute to a new object and get pushed through the lossy update
-// path, silently killing the formatter until the *content* next changes.
-// Track raw reference changes instead so every actual prop/theme update
-// forces a remount, whether or not the content happens to match.
-const chartVersion = ref(0)
-watch([() => props.bars, () => props.currency, mode, colors], () => {
-  chartVersion.value++
-})
+// Shared by both views: header is the hovered bar's full tooltipLabel (the
+// x-axis itself only shows the thinned-out `xCategories`), followed by one
+// money-formatted row per series in the tooltip, using the little colored
+// `marker` dot ECharts hands back for each series.
+function axisTooltipFormatter(params: unknown): string {
+  const points = (Array.isArray(params) ? params : [params]) as AxisTooltipParam[]
+  const header = props.bars[points[0]?.dataIndex ?? 0]?.tooltipLabel ?? ''
+  const rows = points
+    .map((p) => `${p.marker ?? ''}${p.seriesName ?? ''}: ${formatMoney(p.value ?? 0, props.currency)}`)
+    .join('<br/>')
+  return `${header}<br/>${rows}`
+}
+
+const sharedAxes = computed(() => ({
+  grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true } as const,
+  xAxis: {
+    type: 'category' as const,
+    data: xCategories.value,
+    axisLabel: { color: colors.value.textMuted },
+    axisLine: { show: false },
+    axisTick: { show: false },
+  },
+  yAxis: {
+    type: 'value' as const,
+    axisLabel: { color: colors.value.textMuted, formatter: (v: number) => formatMoney(v, props.currency) },
+    axisLine: { show: false },
+    axisTick: { show: false },
+    splitLine: { lineStyle: { color: colors.value.border, type: 'dashed' as const } },
+  },
+  tooltip: {
+    trigger: 'axis' as const,
+    backgroundColor: colors.value.surface,
+    borderColor: colors.value.border,
+    textStyle: { color: colors.value.textPrimary },
+    formatter: axisTooltipFormatter,
+  },
+}))
 
 // Default view: expense/income columns with the net-balance trend overlaid as
 // a line on the same axis — replaces what used to be two separate cards
 // (a bar chart and a standalone "Динаміка чистого балансу" area chart) with
 // one chart that shows both at a glance.
-const barsSeries = computed(() => [
-  { name: t('overview.expenses'), type: 'column', data: props.bars.map((b) => b.expense) },
-  { name: t('overview.income'), type: 'column', data: props.bars.map((b) => b.income) },
-  { name: t('overview.netBalance'), type: 'line', data: props.bars.map((b) => b.income - b.expense) },
-])
-
-const barsOptions = computed(() => ({
-  chart: {
-    type: 'line' as const,
-    toolbar: { show: false },
-    zoom: { enabled: false },
-    background: 'transparent',
-    animations: { speed: 400 },
+const barsOption = computed<EChartsOption>(() => ({
+  backgroundColor: 'transparent',
+  color: [colors.value.expense, colors.value.income, colors.value.accent],
+  ...sharedAxes.value,
+  legend: {
+    bottom: 0,
+    textStyle: { color: colors.value.textSecondary },
+    itemWidth: 10,
+    itemHeight: 10,
   },
-  theme: { mode: mode.value },
-  colors: [colors.value.expense, colors.value.income, colors.value.accent],
-  stroke: { width: [0, 0, 3], curve: 'smooth' as const },
-  markers: { size: [0, 0, 3], strokeWidth: 0 },
-  plotOptions: { bar: { columnWidth: '55%', borderRadius: 4 } },
-  fill: {
-    type: ['gradient', 'gradient', 'solid'],
-    gradient: { shadeIntensity: 1, opacityFrom: 0.9, opacityTo: 0.65, type: 'vertical' },
-  },
-  dataLabels: { enabled: false },
-  grid: { borderColor: colors.value.border, strokeDashArray: 3 },
-  legend: { position: 'bottom' as const, labels: { colors: colors.value.textSecondary }, markers: { size: 5 } },
-  xaxis: {
-    categories: xCategories.value,
-    labels: { style: { colors: colors.value.textMuted } },
-    axisBorder: { show: false },
-    axisTicks: { show: false },
-  },
-  yaxis: {
-    labels: { style: { colors: colors.value.textMuted }, formatter: (v: number) => formatMoney(v, props.currency) },
-  },
-  tooltip: {
-    theme: mode.value,
-    x: { formatter: tooltipXFormatter },
-    y: { formatter: (v: number) => formatMoney(v, props.currency) },
-  },
+  series: [
+    {
+      name: t('overview.expenses'),
+      type: 'bar',
+      data: props.bars.map((b) => b.expense),
+      barCategoryGap: '35%',
+      itemStyle: { borderRadius: 4 },
+    },
+    {
+      name: t('overview.income'),
+      type: 'bar',
+      data: props.bars.map((b) => b.income),
+      itemStyle: { borderRadius: 4 },
+    },
+    {
+      name: t('overview.netBalance'),
+      type: 'line',
+      data: props.bars.map((b) => b.income - b.expense),
+      smooth: true,
+      symbol: 'circle',
+      symbolSize: 6,
+      lineStyle: { width: 3 },
+    },
+  ],
 }))
 
 // Trend view: net-balance-only area chart, for a cleaner read of the overall
 // direction across the period without the column clutter.
-const trendSeries = computed(() => [{ name: t('overview.netBalance'), data: props.bars.map((b) => b.income - b.expense) }])
-
-const trendOptions = computed(() => ({
-  chart: {
-    type: 'area' as const,
-    toolbar: { show: false },
-    zoom: { enabled: false },
-    background: 'transparent',
-    animations: { speed: 400 },
-  },
-  theme: { mode: mode.value },
-  colors: [colors.value.accent],
-  stroke: { curve: 'smooth' as const, width: 2.5 },
-  dataLabels: { enabled: false },
-  markers: { size: 0 },
-  fill: {
-    type: 'gradient',
-    gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0, stops: [0, 100] },
-  },
-  grid: { borderColor: colors.value.border, strokeDashArray: 3 },
-  xaxis: {
-    categories: xCategories.value,
-    labels: { style: { colors: colors.value.textMuted } },
-    axisBorder: { show: false },
-    axisTicks: { show: false },
-  },
-  yaxis: {
-    labels: { style: { colors: colors.value.textMuted }, formatter: (v: number) => formatMoney(v, props.currency) },
-  },
-  tooltip: {
-    theme: mode.value,
-    x: { formatter: tooltipXFormatter },
-    y: { formatter: (v: number) => formatMoney(v, props.currency) },
-  },
+const trendOption = computed<EChartsOption>(() => ({
+  backgroundColor: 'transparent',
+  ...sharedAxes.value,
+  series: [
+    {
+      name: t('overview.netBalance'),
+      type: 'line',
+      data: props.bars.map((b) => b.income - b.expense),
+      smooth: true,
+      showSymbol: false,
+      lineStyle: { width: 2.5, color: colors.value.accent },
+      itemStyle: { color: colors.value.accent },
+      areaStyle: {
+        color: {
+          type: 'linear',
+          x: 0,
+          y: 0,
+          x2: 0,
+          y2: 1,
+          colorStops: [
+            { offset: 0, color: withAlpha(colors.value.accent, 0.35) },
+            { offset: 1, color: withAlpha(colors.value.accent, 0) },
+          ],
+        },
+      },
+    },
+  ],
 }))
+
+const option = computed<EChartsOption>(() => (view.value === 'bars' ? barsOption.value : trendOption.value))
+
+useECharts(chartEl, option)
 </script>
 
 <template>
@@ -170,22 +177,7 @@ const trendOptions = computed(() => ({
     </div>
     <div class="chart-body">
       <Transition name="chart-fade" mode="out-in">
-        <VueApexCharts
-          v-if="view === 'bars'"
-          :key="`bars-${chartVersion}`"
-          type="line"
-          height="240"
-          :options="barsOptions"
-          :series="barsSeries"
-        />
-        <VueApexCharts
-          v-else
-          :key="`trend-${chartVersion}`"
-          type="area"
-          height="240"
-          :options="trendOptions"
-          :series="trendSeries"
-        />
+        <div :key="view" ref="chartEl" class="chart" />
       </Transition>
     </div>
   </div>
@@ -215,11 +207,16 @@ const trendOptions = computed(() => ({
   max-width: 190px;
 }
 
-/* Reserves the chart's footprint before vue3-apexcharts (loaded async,
-   see the defineAsyncComponent above) actually mounts, so the surrounding
-   layout doesn't jump once it appears. */
+/* Reserves the chart's footprint before echarts (loaded async, see
+   useECharts.ts) actually mounts, so the surrounding layout doesn't jump
+   once it appears. */
 .chart-body {
   min-height: 240px;
+}
+
+.chart {
+  width: 100%;
+  height: 240px;
 }
 
 .chart-fade-enter-active,

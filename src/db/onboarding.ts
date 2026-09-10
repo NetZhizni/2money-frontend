@@ -1,6 +1,7 @@
 import { db } from './schema'
 import { pullAllAccounts, pullAllTransactions } from './sync'
 import http from '../api/http'
+import { getChosenBaseCurrency } from '../utils/baseCurrencyChoice'
 
 /**
  * Whether THIS profile — not the family as a whole — still needs
@@ -57,7 +58,12 @@ export async function hasNoOwnDataYet(uid: string): Promise<boolean> {
  */
 export async function markOnboardingDone(uid: string): Promise<void> {
   const existing = await db.settings.get(uid)
-  await db.settings.put({ id: uid, baseCurrency: existing?.baseCurrency ?? 'UAH', theme: existing?.theme ?? 'system', onboarded: true })
+  await db.settings.put({
+    id: uid,
+    baseCurrency: existing?.baseCurrency ?? getChosenBaseCurrency() ?? 'UAH',
+    theme: existing?.theme ?? 'system',
+    onboarded: true,
+  })
   try {
     await http.patch('/settings', { onboarded: true })
   } catch (error) {

@@ -8,7 +8,9 @@ import { useSettingsStore } from './settings'
 import { useTransactionsStore } from './transactions'
 import { useBudgetsStore } from './budgets'
 import { assertWritable } from './guards'
-import { t } from '../i18n'
+import { t, tFor, preloadLocale, LOCALES } from '../i18n'
+import type { Locale } from '../i18n'
+import { ALL_DEFAULT_CATEGORY_DEFS } from '../db/defaultCategories'
 import type { Category, CategoryKind } from '../types/models'
 
 export type NewCategoryInput = Omit<Category, 'id' | 'createdAt' | 'order' | 'ownerId'>
@@ -136,6 +138,57 @@ export const useCategoriesStore = defineStore('categories', () => {
   }
 
   /**
+   * Hard delete EVERY category (both kinds) and every transaction tied to
+   * any of them — the "Очистити всі категорії" danger-zone action in
+   * Settings, for wiping a mismatched-language or otherwise-stale category
+   * set before reseeding it (see db/seed.ts's `seedDefaultCategoriesNow`).
+   * Loops `remove()` one top-level category at a time so the exact same
+   * cascade (subcategories, then every linked transaction) applies to each.
+   */
+  async function removeAll(): Promise<void> {
+    assertWritable()
+    const topLevelIds = collection.all.value.filter((c) => c.parentId === null).map((c) => c.id)
+    for (const id of topLevelIds) {
+      await remove(id)
+    }
+  }
+
+  /**
+   * Re-labels every still-factory default category to `nextLocale`'s
+   * translation — called right after a language switch (see
+   * i18n/locale.ts's `setLocaleSetting`, which applies live — no reload) so
+   * a category seeded under one language keeps reading naturally after
+   * switching, instead of freezing at whatever text it was created with.
+   *
+   * A category only qualifies if it's still recognizably "factory": marked
+   * `isDefault` AND its `(kind, icon)` still fingerprints one of
+   * defaultCategories.ts's defs AND its current name still equals THAT def's
+   * translation in some locale (not some other def's — two defs can share an
+   * icon, e.g. "Кафе і ресторани" and its own "Обід на роботі" subcategory
+   * both carry the parent's icon, but only the one whose translated name
+   * actually matches gets touched). A category failing any of those checks
+   * has been customized (renamed and/or re-iconed) and is left exactly as
+   * the user left it — see defaultCategories.ts's own doc comment.
+   *
+   * The `LOCALES.some(...)` check below needs EVERY locale's real strings,
+   * not just whichever one or two happen to be loaded already — i18n's lazy
+   * loading otherwise silently falls back to English for a not-yet-fetched
+   * locale, which would make this comparison wrong instead of merely slow.
+   * `preloadLocale` is a no-op for anything already loaded, so this is only
+   * ever a real fetch for locales the app hasn't touched yet.
+   */
+  async function retranslateDefaults(nextLocale: Locale): Promise<void> {
+    await Promise.all(LOCALES.map((loc) => preloadLocale(loc)))
+    for (const c of collection.all.value) {
+      if (!c.isDefault) continue
+      const def = ALL_DEFAULT_CATEGORY_DEFS.find((d) => d.kind === c.kind && d.icon === c.icon && LOCALES.some((loc) => tFor(loc, d.key) === c.name))
+      if (!def) continue
+      const newName = tFor(nextLocale, def.key)
+      if (newName !== c.name) await collection.put({ ...c, name: newName })
+    }
+  }
+
+  /**
    * Folds `sourceId` into `targetId` (both must be the same kind) — for
    * consolidating accidental duplicates (e.g. two "Таксі" categories).
    * Any of source's own subcategories are reparented onto target first, then
@@ -195,6 +248,8 @@ export const useCategoriesStore = defineStore('categories', () => {
     update,
     setArchived,
     remove,
+    removeAll,
+    retranslateDefaults,
     merge,
     hasTransactions,
     inferCurrency,

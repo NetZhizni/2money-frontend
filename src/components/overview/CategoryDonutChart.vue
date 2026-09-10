@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent } from 'vue'
+import { computed, ref } from 'vue'
 import { useChartColors } from '../../composables/useChartColors'
+import { useECharts } from '../../composables/useECharts'
 import { formatMoney } from '../../utils/format'
 import { t } from '../../i18n'
-
-// ApexCharts is a large dependency (~500KB+) — load it only once a chart
-// actually needs to render instead of bundling it into every route that
-// merely imports this component, which was making page/route loads feel slow.
-const VueApexCharts = defineAsyncComponent(() => import('vue3-apexcharts'))
+import type { EChartsOption } from 'echarts'
 
 export interface DonutSegment {
   id: string
@@ -23,28 +20,45 @@ const props = defineProps<{ segments: DonutSegment[]; currency: string }>()
 // the same footprint as the real chart.
 const CHART_HEIGHT = 260
 
-const { colors, mode } = useChartColors()
+const { colors } = useChartColors()
 
-const series = computed(() => props.segments.map((s) => s.amount))
-const labels = computed(() => props.segments.map((s) => s.name))
+const chartEl = ref<HTMLElement | null>(null)
 
-const options = computed(() => ({
-  chart: { type: 'donut' as const, background: 'transparent' },
-  theme: { mode: mode.value },
-  labels: labels.value,
-  colors: props.segments.map((s) => s.color),
-  dataLabels: { enabled: false },
-  legend: { position: 'bottom' as const, labels: { colors: colors.value.textSecondary }, markers: { size: 5 } },
-  stroke: { colors: [colors.value.surface] },
-  tooltip: { theme: mode.value, y: { formatter: (v: number) => formatMoney(v, props.currency) } },
-  plotOptions: { pie: { donut: { labels: { show: false } } } },
+const option = computed<EChartsOption>(() => ({
+  backgroundColor: 'transparent',
+  legend: {
+    bottom: 0,
+    textStyle: { color: colors.value.textSecondary },
+    itemWidth: 10,
+    itemHeight: 10,
+  },
+  tooltip: {
+    trigger: 'item',
+    backgroundColor: colors.value.surface,
+    borderColor: colors.value.border,
+    textStyle: { color: colors.value.textPrimary },
+    valueFormatter: (v) => formatMoney(v as number, props.currency),
+  },
+  series: [
+    {
+      type: 'pie',
+      radius: ['55%', '80%'],
+      center: ['50%', '42%'],
+      avoidLabelOverlap: false,
+      label: { show: false },
+      itemStyle: { borderColor: colors.value.surface, borderWidth: 2 },
+      data: props.segments.map((s) => ({ name: s.name, value: s.amount, itemStyle: { color: s.color } })),
+    },
+  ],
 }))
+
+useECharts(chartEl, option)
 </script>
 
 <template>
   <div class="chart-wrap" :style="{ minHeight: `${CHART_HEIGHT}px` }">
     <p v-if="!segments.length" class="empty">{{ t('overview.noExpensesForPeriod') }}</p>
-    <VueApexCharts v-else type="donut" :height="CHART_HEIGHT" :options="options" :series="series" />
+    <div v-else ref="chartEl" class="chart" :style="{ height: `${CHART_HEIGHT}px` }" />
   </div>
 </template>
 
@@ -58,6 +72,9 @@ const options = computed(() => ({
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+.chart {
+  width: 100%;
 }
 .empty {
   text-align: center;

@@ -159,11 +159,17 @@ export interface Receipt {
 }
 
 export interface ExchangeRateEntry {
-  // key: `${dateKey}_${currency}`, dateKey = YYYY-MM-DD
+  // key: `${dateKey}_${base}_${currency}`, dateKey = YYYY-MM-DD — `base` is
+  // part of the key (not just a stored field) because it's whatever the
+  // signed-in profile's base currency happened to be at fetch time (see
+  // db/exchangeRates.ts), not a fixed constant; a later base-currency change
+  // just starts filling a different set of keys instead of reading stale
+  // rates quoted against the old one.
   id: string
   dateKey: string
   currency: string
-  rate: number // UAH per 1 unit of currency
+  base: string // the currency `rate` is expressed in, e.g. "UAH per 1 unit of currency"
+  rate: number
   fetchedAt: number
 }
 

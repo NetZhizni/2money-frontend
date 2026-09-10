@@ -1,13 +1,14 @@
 /**
  * Rates for all of these come from open.er-api.com (see `db/exchangeRates.ts`)
- * — a free, no-key service with UAH as a base, covering the ~160 currencies
- * it quotes. Deliberately excludes: RUB (not offered as a display/account
- * currency in this app), a few IMF/precious-metal accounting units that
- * aren't real spendable currencies (XDR, XAG, XAU, XPD, XPT, CLF), CNH
- * (offshore-market duplicate of CNY), and SLL/ZWL/HRK (currencies their own
- * countries have already replaced — with SLE, ZWG, and EUR respectively).
+ * — a free, no-key service queried against the signed-in profile's own base
+ * currency, covering the ~160 currencies it quotes. Deliberately excludes:
+ * RUB (not offered as a display/account currency in this app), a few
+ * IMF/precious-metal accounting units that aren't real spendable currencies
+ * (XDR, XAG, XAU, XPD, XPT, CLF), CNH (offshore-market duplicate of CNY), and
+ * SLL/ZWL/HRK (currencies their own countries have already replaced — with
+ * SLE, ZWG, and EUR respectively).
  */
-import { locale } from '../i18n/locale'
+import { locale, type Locale } from '../i18n/locale'
 
 /** Built once — stateless per locale, same hoist-out-of-the-hot-path reasoning as format.ts's genitiveMonthFormatter. */
 const enCurrencyNames = new Intl.DisplayNames(['en'], { type: 'currency' })
@@ -23,9 +24,44 @@ const enCurrencyNames = new Intl.DisplayNames(['en'], { type: 'currency' })
  * for it (a handful of exotic/regional codes).
  */
 export function currencyLabel(code: string): string {
-  if (locale === 'uk') return COMMON_CURRENCIES.find((c) => c.code === code)?.label ?? code
+  if (locale.value === 'uk') return COMMON_CURRENCIES.find((c) => c.code === code)?.label ?? code
   const name = enCurrencyNames.of(code)
   return name ? `${name} (${code})` : code
+}
+
+/**
+ * A sensible default guess for each supported UI language, used to preselect
+ * a row on the first-launch base-currency screen (see
+ * views/BaseCurrencyOnboardingView.vue) before the user searches for
+ * something else. Derived from each locale's own BCP47 country tag (see
+ * i18n/locale.ts's `BCP47`) — e.g. `de-DE` -> EUR, `ja-JP` -> JPY — except
+ * `ru`, whose country's real currency (RUB) isn't offered as a display
+ * currency in this app (see the file-level comment above); UAH is the
+ * nearest sensible default given who this app is actually built for. Not
+ * meant to be authoritative, just a reasonable starting point.
+ */
+export const DEFAULT_CURRENCY_BY_LOCALE: Record<Locale, string> = {
+  uk: 'UAH',
+  en: 'USD',
+  ru: 'UAH',
+  pl: 'PLN',
+  de: 'EUR',
+  fr: 'EUR',
+  es: 'EUR',
+  it: 'EUR',
+  pt: 'EUR',
+  ro: 'RON',
+  cs: 'CZK',
+  sk: 'EUR',
+  hu: 'HUF',
+  nl: 'EUR',
+  sv: 'SEK',
+  tr: 'TRY',
+  ar: 'SAR',
+  zh: 'CNY',
+  ja: 'JPY',
+  ko: 'KRW',
+  hi: 'INR',
 }
 
 export const COMMON_CURRENCIES = [

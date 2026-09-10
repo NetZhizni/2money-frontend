@@ -1,7 +1,11 @@
+import { reactive, watch } from 'vue'
 import { locale, BCP47 } from '../i18n/locale'
 import http from '../api/http'
 
-const INTL_LOCALE = BCP47[locale]
+// Rebuilt by the `watch(locale, …)` near the bottom of this file whenever
+// the app language changes — every other module-level Intl-derived constant
+// below (MONTHS, WEEKDAYS, pluralRules, …) depends on this one value.
+let INTL_LOCALE = BCP47[locale.value]
 
 /**
  * Best-effort mirror of a device-local preference (number/date/currency
@@ -249,9 +253,11 @@ export function formatDate(date: Date | number): string {
 }
 
 const MONTH_REF_DATES = Array.from({ length: 12 }, (_, i) => new Date(2020, i, 1))
+const WEEKDAY_REF_DATES = Array.from({ length: 7 }, (_, i) => new Date(2020, 0, 5 + i)) // 5 Jan 2020 was a Sunday — Sunday-first, index = Date#getDay()
 
-/** Nominative, lowercase in uk ("січень"/"January") — apply caps at the call site (CSS `text-transform`) where the design wants them. */
-export const MONTHS = MONTH_REF_DATES.map((d) => new Intl.DateTimeFormat(INTL_LOCALE, { month: 'long' }).format(d))
+function buildMonths(): string[] {
+  return MONTH_REF_DATES.map((d) => new Intl.DateTimeFormat(INTL_LOCALE, { month: 'long' }).format(d))
+}
 
 /**
  * Intl's `month: 'short'` comes back with a trailing dot for most uk months ("січ.",
@@ -259,26 +265,46 @@ export const MONTHS = MONTH_REF_DATES.map((d) => new Intl.DateTimeFormat(INTL_LO
  * in charts and pills. Lengths still vary since that's the real CLDR abbreviation,
  * just undotted (a no-op for locales, like en, whose short months have no dot).
  */
-export const MONTHS_SHORT = MONTH_REF_DATES.map((d) => {
-  const raw = new Intl.DateTimeFormat(INTL_LOCALE, { month: 'short' }).format(d).replace('.', '')
-  return raw.charAt(0).toUpperCase() + raw.slice(1)
-})
+function buildMonthsShort(): string[] {
+  return MONTH_REF_DATES.map((d) => {
+    const raw = new Intl.DateTimeFormat(INTL_LOCALE, { month: 'short' }).format(d).replace('.', '')
+    return raw.charAt(0).toUpperCase() + raw.slice(1)
+  })
+}
 
-const genitiveMonthFormatter = new Intl.DateTimeFormat(INTL_LOCALE, { day: 'numeric', month: 'long' })
-/** Genitive case in uk ("5 квітня"); same as `MONTHS` for locales (like en) with no genitive month form. */
-export const MONTHS_GENITIVE = MONTH_REF_DATES.map(
-  (d) => genitiveMonthFormatter.formatToParts(d).find((p) => p.type === 'month')!.value,
-)
+/** Genitive case in uk ("5 квітня"); same as `buildMonths` for locales (like en) with no genitive month form. */
+function buildMonthsGenitive(): string[] {
+  const formatter = new Intl.DateTimeFormat(INTL_LOCALE, { day: 'numeric', month: 'long' })
+  return MONTH_REF_DATES.map((d) => formatter.formatToParts(d).find((p) => p.type === 'month')!.value)
+}
 
+function buildWeekdays(): string[] {
+  return WEEKDAY_REF_DATES.map((d) => new Intl.DateTimeFormat(INTL_LOCALE, { weekday: 'long' }).format(d))
+}
+
+/** Dot-stripped like `buildMonthsShort`. */
+function buildWeekdaysShort(): string[] {
+  return WEEKDAY_REF_DATES.map((d) => {
+    const raw = new Intl.DateTimeFormat(INTL_LOCALE, { weekday: 'short' }).format(d).replace('.', '')
+    return raw.charAt(0).toUpperCase() + raw.slice(1)
+  })
+}
+
+// `reactive()` (not plain arrays) so every consumer — `MONTHS[i]`,
+// `v-for="… in WEEKDAYS_SHORT"`, a `computed()` built on top of either —
+// updates live when the `watch(locale, …)` near `pluralRules` below
+// replaces their contents on a language switch, with zero changes needed at
+// any of those call sites: a reactive array's index reads and iteration are
+// tracked exactly like a plain array's, just not (as here) its own
+// in-place `.splice()` replacement from outside this module, which nothing does.
+
+/** Nominative, lowercase in uk ("січень"/"January") — apply caps at the call site (CSS `text-transform`) where the design wants them. */
+export const MONTHS = reactive(buildMonths())
+export const MONTHS_SHORT = reactive(buildMonthsShort())
+export const MONTHS_GENITIVE = reactive(buildMonthsGenitive())
 /** Sunday-first (index = Date#getDay()), long form, lowercase in uk — apply caps at the call site. */
-export const WEEKDAYS = Array.from({ length: 7 }, (_, i) => new Date(2020, 0, 5 + i)) // 5 Jan 2020 was a Sunday
-  .map((d) => new Intl.DateTimeFormat(INTL_LOCALE, { weekday: 'long' }).format(d))
-
-/** Sunday-first, short/abbreviated form, dot-stripped like `MONTHS_SHORT`. */
-export const WEEKDAYS_SHORT = Array.from({ length: 7 }, (_, i) => new Date(2020, 0, 5 + i)).map((d) => {
-  const raw = new Intl.DateTimeFormat(INTL_LOCALE, { weekday: 'short' }).format(d).replace('.', '')
-  return raw.charAt(0).toUpperCase() + raw.slice(1)
-})
+export const WEEKDAYS = reactive(buildWeekdays())
+export const WEEKDAYS_SHORT = reactive(buildWeekdaysShort())
 
 /** `Date#getDay()` (Sunday=0) re-based so Monday=0…Sunday=6 — shared by `startOfWeek` and any Monday-first calendar grid. */
 export function isoWeekdayIndex(date: Date): number {
@@ -299,17 +325,36 @@ const YEAR_SUFFIX: Record<string, string> = { uk: ' р.', en: '' }
 export function fullDateLabel(date: Date): string {
   const weekday = WEEKDAYS[date.getDay()]
   const capitalized = weekday.charAt(0).toUpperCase() + weekday.slice(1)
-  return `${capitalized}, ${date.getDate()} ${MONTHS_GENITIVE[date.getMonth()]} ${date.getFullYear()}${YEAR_SUFFIX[locale]}`
+  return `${capitalized}, ${date.getDate()} ${MONTHS_GENITIVE[date.getMonth()]} ${date.getFullYear()}${YEAR_SUFFIX[locale.value]}`
 }
 
 type PluralForms = Partial<Record<Intl.LDMLPluralRule, string>>
 
-const pluralRules = new Intl.PluralRules(INTL_LOCALE)
+let pluralRules = new Intl.PluralRules(INTL_LOCALE)
 
 /** Picks the right plural form for `n` under the current locale's CLDR rules (uk: one/few/many; en: one/other). */
 export function pluralize(n: number, forms: PluralForms): string {
   return forms[pluralRules.select(n)] ?? forms.other ?? ''
 }
+
+// Re-derives every INTL_LOCALE-dependent constant above the instant the app
+// language changes — `flush: 'sync'` so it runs immediately on
+// `locale.value = …` (i18n/locale.ts's `setLocaleSetting`), not batched
+// into the next microtask, closing any gap where a render could read a
+// stale MONTHS/pluralRules between the assignment and this update.
+watch(
+  locale,
+  (loc) => {
+    INTL_LOCALE = BCP47[loc]
+    pluralRules = new Intl.PluralRules(INTL_LOCALE)
+    MONTHS.splice(0, MONTHS.length, ...buildMonths())
+    MONTHS_SHORT.splice(0, MONTHS_SHORT.length, ...buildMonthsShort())
+    MONTHS_GENITIVE.splice(0, MONTHS_GENITIVE.length, ...buildMonthsGenitive())
+    WEEKDAYS.splice(0, WEEKDAYS.length, ...buildWeekdays())
+    WEEKDAYS_SHORT.splice(0, WEEKDAYS_SHORT.length, ...buildWeekdaysShort())
+  },
+  { flush: 'sync' },
+)
 
 interface TimeWords {
   justNow: string
@@ -341,7 +386,7 @@ const TIME_WORDS: Record<string, TimeWords> = {
 
 /** Coarse "N minutes ago" label for status timestamps (sync status, "last seen" etc.) — not for transaction dates. */
 export function relativeTime(ms: number, now: number = Date.now()): string {
-  const words = TIME_WORDS[locale]
+  const words = TIME_WORDS[locale.value]
   const diffSec = Math.max(0, Math.round((now - ms) / 1000))
   if (diffSec < 5) return words.justNow
   if (diffSec < 60) return `${diffSec} ${pluralize(diffSec, words.seconds)} ${words.ago}`

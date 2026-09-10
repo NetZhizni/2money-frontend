@@ -43,6 +43,7 @@
   const showForm = ref(false)
   const editingAccount = ref<Account | null>(null)
   const demoLoading = ref(false)
+  const demoError = ref('')
   const historyAccount = ref<Account | null>(null)
 
   function openAddOperation(account: Account) {
@@ -66,8 +67,15 @@
 
   async function handleLoadDemo() {
     demoLoading.value = true
+    demoError.value = ''
     try {
       await loadDemoData()
+    } catch (err) {
+      // Most likely db/demoData.ts's own "no default categories yet" guard —
+      // reachable now that Settings' "Очистити всі категорії" can leave the
+      // family with none. Surfaced inline since this empty-state button has
+      // no other status area to report it in.
+      demoError.value = (err as Error).message
     } finally {
       demoLoading.value = false
     }
@@ -221,6 +229,7 @@
           >
             {{ demoLoading ? t('accounts.view.loadingDemo') : t('accounts.view.loadDemo') }}
           </button>
+          <p v-if="demoError" class="empty demo-error">{{ demoError }}</p>
         </div>
 
         <div
@@ -344,6 +353,10 @@
 
   .demo-btn {
     padding: 10px 20px;
+  }
+
+  .demo-error {
+    color: var(--expense);
   }
 
   .fab {
