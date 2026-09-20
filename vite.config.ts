@@ -33,8 +33,14 @@ export default defineConfig({
       // globPatterns below (svg/png), so listing them again in includeAssets
       // only duplicated them in the precache manifest — removed.
       manifest: {
-        name: '2Money',
-        short_name: '2Money',
+        // Explicit id/scope (Bubblewrap/PWABuilder read these when generating
+        // the Android package) — kept equal to start_url so the TWA's app
+        // identity stays stable across manifest edits, not left to each
+        // tool's own default-inference.
+        id: '/',
+        scope: '/',
+        name: 'Stork',
+        short_name: 'Stork',
         description: 'Застосунок для ведення сімейних фінансів',
         lang: 'uk',
         theme_color: '#2a78d6',

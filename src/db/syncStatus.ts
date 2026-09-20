@@ -27,7 +27,7 @@ export function markBackendUnreachable() {
 // is what flips backendOnline true).
 window.addEventListener('offline', markBackendUnreachable)
 
-const LAST_SYNCED_KEY = '2money:lastSyncedAt'
+const LAST_SYNCED_KEY = 'stork:lastSyncedAt'
 
 function readStoredLastSyncedAt(): number | null {
   const raw = localStorage.getItem(LAST_SYNCED_KEY)

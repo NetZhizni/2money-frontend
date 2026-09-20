@@ -23,9 +23,9 @@ export interface RemoteConfig {
   features: { receiptScanning: boolean }
 }
 
-const SERVER_URL_KEY = '2money:serverUrl'
-const LOCAL_MODE_KEY = '2money:localMode'
-const REMOTE_CONFIG_CACHE_KEY = '2money:remoteConfig'
+const SERVER_URL_KEY = 'stork:serverUrl'
+const LOCAL_MODE_KEY = 'stork:localMode'
+const REMOTE_CONFIG_CACHE_KEY = 'stork:remoteConfig'
 
 export class RemoteConfigError extends Error {
   code: 'network' | 'invalid'
@@ -85,8 +85,8 @@ export async function fetchRemoteConfig(serverUrl: string): Promise<RemoteConfig
 
   const d = data as { service?: string; firebase?: Partial<FirebaseWebConfig>; features?: { receiptScanning?: boolean } }
   const fb = d?.firebase
-  if (d?.service !== '2money-backend' || !fb?.apiKey || !fb?.projectId || !fb?.appId) {
-    throw new RemoteConfigError('invalid', 'Not a 2Money server (unexpected /api/config/public response)')
+  if (d?.service !== 'stork-backend' || !fb?.apiKey || !fb?.projectId || !fb?.appId) {
+    throw new RemoteConfigError('invalid', 'Not a Stork server (unexpected /api/config/public response)')
   }
 
   return {

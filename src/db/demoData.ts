@@ -1,5 +1,6 @@
 import { useAccountsStore } from '../stores/accounts'
 import { useCategoriesStore } from '../stores/categories'
+import { useTagsStore } from '../stores/tags'
 import { useTransactionsStore } from '../stores/transactions'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
@@ -8,11 +9,12 @@ import { enqueueUpsertMany } from './sync'
 import { newId } from '../utils/id'
 import { convertAmount } from './exchangeRates'
 import { resolveCategoryCurrency } from '../utils/currencies'
+import { monthKeyFromTimestamp, roundToNiceAmount } from '../utils/budget'
 import { DEFAULT_CATEGORY_DEFS, DEFAULT_SUBCATEGORY_DEFS } from './defaultCategories'
 import { t } from '../i18n'
 import type { MessageKey } from '../i18n'
 import type { DefaultCategoryDef } from './defaultCategories'
-import type { Account, Category, Receipt, Transaction, TransactionType } from '../types/models'
+import type { Account, Budget, Category, Receipt, Tag, Transaction, TransactionType } from '../types/models'
 
 const DEMO_MONTHS = 6
 
@@ -149,13 +151,34 @@ const RECEIPT_SPECS: ReceiptSpec[] = [
 ]
 const RECEIPT_COUNT = 12
 
+interface TagSpec {
+  nameKey: MessageKey
+  color: string
+  /** Top-level `defKey`s (see ExpenseSpec/ReceiptItemSpec) this tag can land on — a tag is a cross-cutting label, so most match several unrelated categories rather than just one. */
+  matches: MessageKey[]
+  /** Independent per matching transaction — a transaction can end up carrying more than one tag (e.g. a cafe visit tagged both "business" and, rarely, nothing else), same as a real user would apply them. */
+  chance: number
+}
+
+const TAG_SPECS: TagSpec[] = [
+  { nameKey: 'demo.tag.vacation', color: '#2a78d6', matches: ['seed.expense.travel', 'seed.expense.leisure'], chance: 0.45 },
+  { nameKey: 'demo.tag.renovation', color: '#eb6834', matches: ['seed.expense.home', 'seed.expense.shopping'], chance: 0.3 },
+  { nameKey: 'demo.tag.business', color: '#7e57c2', matches: ['seed.expense.cafes', 'seed.expense.communication', 'seed.expense.transport'], chance: 0.25 },
+  { nameKey: 'demo.tag.gifts', color: '#e87ba4', matches: ['seed.expense.gifts', 'seed.income.gifts'], chance: 0.6 },
+  { nameKey: 'demo.tag.sideIncome', color: '#eda100', matches: ['seed.income.sideJob', 'seed.income.investments'], chance: 0.5 },
+]
+
 /**
  * Populates the app with a realistic, RANDOMIZED demo dataset spanning the
  * last 6 months: a fixed set of accounts (so the mix of account types stays
  * meaningful), 1–10 randomly generated transactions per calendar day across
  * that whole window (expense-heavy, with occasional income and transfers),
  * plus a handful of multi-item "чеки" (see Receipt) to demonstrate that
- * feature too.
+ * feature too, plus a starting set of Budget rows (see views/BudgetDataView.vue)
+ * derived from that same generated spend. A handful of cross-cutting Tag rows
+ * (see TAG_SPECS) are created up front and randomly attached to whichever
+ * generated transactions/receipt items land under a matching category, so
+ * the Tags feature has a realistic, non-trivial dataset to demonstrate too.
  *
  * Transactions are filed under the app's own default categories (see
  * db/defaultCategories.ts) — the SAME ones "Створити базові категорії"
@@ -173,6 +196,7 @@ const RECEIPT_COUNT = 12
 export async function loadDemoData(): Promise<void> {
   const accounts = useAccountsStore()
   const categories = useCategoriesStore()
+  const tags = useTagsStore()
   const transactions = useTransactionsStore()
   const authStore = useAuthStore()
   const settings = useSettingsStore()
@@ -211,6 +235,27 @@ export async function loadDemoData(): Promise<void> {
   async function subcategoryFor(key: MessageKey): Promise<Category | undefined> {
     if (!subcategoryCache.has(key)) subcategoryCache.set(key, await ensureDefaultSubcategory(key))
     return subcategoryCache.get(key)
+  }
+
+  // Same lazily-reuse-by-name pattern as ensureDefaultSubcategory above —
+  // tags are a shared family resource that reset.ts never wipes (see its own
+  // doc comment), so re-running demo data after a reset must reuse whatever
+  // this function already created instead of piling up duplicates.
+  async function ensureTag(spec: TagSpec): Promise<Tag> {
+    const name = t(spec.nameKey)
+    const existing = tags.all.find((tg) => tg.name === name)
+    if (existing) return existing
+    return tags.add({ name, color: spec.color })
+  }
+  const tagByKey = new Map<MessageKey, Tag>()
+  for (const spec of TAG_SPECS) {
+    tagByKey.set(spec.nameKey, await ensureTag(spec))
+  }
+
+  /** Rolls each TAG_SPEC matching `defKey` independently — returns `undefined` (not `[]`) when none land, matching Transaction.tagIds's own "absent means no tags" convention. */
+  function tagIdsFor(defKey: MessageKey): string[] | undefined {
+    const ids = TAG_SPECS.filter((spec) => spec.matches.includes(defKey) && Math.random() < spec.chance).map((spec) => tagByKey.get(spec.nameKey)!.id)
+    return ids.length ? ids : undefined
   }
 
   // Fail fast, before creating any demo accounts, if none of the categories
@@ -382,6 +427,7 @@ export async function loadDemoData(): Promise<void> {
         currency,
         toAmount,
         note: randomNote(spec),
+        tagIds: tagIdsFor(spec.defKey),
         createdAt: now,
         updatedAt: now,
       })
@@ -426,6 +472,7 @@ export async function loadDemoData(): Promise<void> {
         currency: receiptCurrency,
         toAmount: await convertAmount(itemAmount, receiptCurrency, categoryCurrency, when.getTime()),
         receiptId,
+        tagIds: tagIdsFor(item.defKey),
         createdAt: now,
         updatedAt: now,
       })
@@ -443,10 +490,74 @@ export async function loadDemoData(): Promise<void> {
     })
   }
 
+  // A plausible starting point for the Budget section (see
+  // views/BudgetDataView.vue) — otherwise it'd be completely empty on first
+  // look. Anchored to last month's ACTUAL demo spend/income above (rounded to
+  // a "human-picked" figure, nudged up or down a bit) rather than a made-up
+  // number, so it lines up with what the page's own ring/progress actually
+  // shows. Roughly half the categories also get THIS month's budget already
+  // set, so the page demonstrates both states right away: some categories
+  // already tracked, others offering last month's amount to copy over.
+  const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1).getTime()
+  const prevMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59, 999).getTime()
+  const prevMonthKey = monthKeyFromTimestamp(prevMonthStart)
+  const currentMonthKey = monthKeyFromTimestamp(today.getTime())
+
+  const prevMonthActual: Record<string, number> = {}
+  for (const tx of newTransactions) {
+    if (tx.date < prevMonthStart || tx.date > prevMonthEnd) continue
+    if (tx.type !== 'expense' && tx.type !== 'income') continue
+    if (!tx.categoryId) continue
+    // `toAmount` already holds the category-currency amount (see its own
+    // comment above, near accountCurrency) — falls back to `amount` only for
+    // the rare row where conversion wasn't needed and it wasn't computed.
+    prevMonthActual[tx.categoryId] = (prevMonthActual[tx.categoryId] ?? 0) + (tx.toAmount ?? tx.amount)
+  }
+
+  const newBudgets: Budget[] = []
+  const budgetCategories = [...EXPENSE_SPECS, ...INCOME_SPECS]
+    .map((spec) => byDef(defByKey(spec.defKey)))
+    .filter((c): c is Category => !!c)
+
+  for (const category of budgetCategories) {
+    const actual = prevMonthActual[category.id]
+    if (!actual) continue
+    const categoryCurrency = resolveCategoryCurrency(category, settings.baseCurrency)
+    const prevAmount = roundToNiceAmount(actual * randFloat(0.9, 1.15))
+    newBudgets.push({
+      id: newId(),
+      ownerId,
+      categoryId: category.id,
+      amount: prevAmount,
+      currency: categoryCurrency,
+      period: 'monthly',
+      month: prevMonthKey,
+      createdAt: now,
+    })
+
+    if (Math.random() < 0.5) {
+      const curAmount = Math.random() < 0.7 ? prevAmount : roundToNiceAmount(prevAmount * randFloat(0.9, 1.15))
+      newBudgets.push({
+        id: newId(),
+        ownerId,
+        categoryId: category.id,
+        amount: curAmount,
+        currency: categoryCurrency,
+        period: 'monthly',
+        month: currentMonthKey,
+        createdAt: now,
+      })
+    }
+  }
+
   await db.transactions.bulkPut(newTransactions)
   await enqueueUpsertMany('transactions', ownerId, newTransactions)
   if (newReceipts.length) {
     await db.receipts.bulkPut(newReceipts)
     await enqueueUpsertMany('receipts', ownerId, newReceipts)
+  }
+  if (newBudgets.length) {
+    await db.budgets.bulkPut(newBudgets)
+    await enqueueUpsertMany('budgets', ownerId, newBudgets)
   }
 }

@@ -9,6 +9,11 @@ import type { CurrencyDisplayStyle } from '../../utils/format'
 // AmountKeypad the same way TransactionFormModal.vue does, just outside a
 // transaction form. See AmountFieldButton.vue for the field it's meant to
 // sit behind.
+//
+// The default slot forwards straight into AmountKeypad's own slot (between
+// its display and the keypad grid) — optional, for a caller that wants a
+// quick-pick row there (see BudgetDataView.vue's suggestion buttons); every
+// other caller just leaves it empty.
 const props = defineProps<{
   open: boolean
   title: string
@@ -54,6 +59,8 @@ function confirm() {
       :accent-color="accentColor"
       @update:model-value="(v) => (pending = v)"
       @submit="confirm"
-    />
+    >
+      <slot />
+    </AmountKeypad>
   </Modal>
 </template>

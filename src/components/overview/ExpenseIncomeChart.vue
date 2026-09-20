@@ -23,9 +23,20 @@ export interface PeriodBar {
   income: number
 }
 
-const props = defineProps<{ bars: PeriodBar[]; currency: string }>()
+/**
+ * `kind` narrows the chart to a single series (Overview's Витрати/Доходи
+ * toggle) — omitted, it renders the original combined view (both bars plus
+ * the net-balance line), same as before that toggle existed.
+ */
+const props = defineProps<{ bars: PeriodBar[]; currency: string; kind?: 'expense' | 'income' }>()
 
 const { colors } = useChartColors()
+
+const title = computed(() => {
+  if (props.kind === 'expense') return t('overview.expenses')
+  if (props.kind === 'income') return t('overview.income')
+  return t('overview.expenseIncomeTitle')
+})
 
 const chartEl = ref<HTMLElement | null>(null)
 
@@ -93,76 +104,102 @@ const sharedAxes = computed(() => ({
   },
 }))
 
-// Default view: expense/income columns with the net-balance trend overlaid as
-// a line on the same axis — replaces what used to be two separate cards
-// (a bar chart and a standalone "Динаміка чистого балансу" area chart) with
-// one chart that shows both at a glance.
-const barsOption = computed<EChartsOption>(() => ({
-  backgroundColor: 'transparent',
-  color: [colors.value.expense, colors.value.income, colors.value.accent],
-  ...sharedAxes.value,
-  legend: {
-    bottom: 0,
-    textStyle: { color: colors.value.textSecondary },
-    itemWidth: 10,
-    itemHeight: 10,
-  },
-  series: [
-    {
-      name: t('overview.expenses'),
-      type: 'bar',
-      data: props.bars.map((b) => b.expense),
-      barCategoryGap: '35%',
-      itemStyle: { borderRadius: 4 },
+// Default (no `kind`) view: expense/income columns with the net-balance
+// trend overlaid as a line on the same axis — replaces what used to be two
+// separate cards (a bar chart and a standalone "Динаміка чистого балансу"
+// area chart) with one chart that shows both at a glance. With `kind` set,
+// this is just that one series' columns — Overview renders it as its own
+// card instead of sharing one chart between both types.
+const barsOption = computed<EChartsOption>(() => {
+  if (props.kind) {
+    const color = props.kind === 'expense' ? colors.value.expense : colors.value.income
+    return {
+      backgroundColor: 'transparent',
+      color: [color],
+      ...sharedAxes.value,
+      series: [
+        {
+          name: title.value,
+          type: 'bar',
+          data: props.bars.map((b) => b[props.kind!]),
+          barCategoryGap: '35%',
+          itemStyle: { borderRadius: 4 },
+        },
+      ],
+    }
+  }
+  return {
+    backgroundColor: 'transparent',
+    color: [colors.value.expense, colors.value.income, colors.value.accent],
+    ...sharedAxes.value,
+    legend: {
+      bottom: 0,
+      textStyle: { color: colors.value.textSecondary },
+      itemWidth: 10,
+      itemHeight: 10,
     },
-    {
-      name: t('overview.income'),
-      type: 'bar',
-      data: props.bars.map((b) => b.income),
-      itemStyle: { borderRadius: 4 },
-    },
-    {
-      name: t('overview.netBalance'),
-      type: 'line',
-      data: props.bars.map((b) => b.income - b.expense),
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 6,
-      lineStyle: { width: 3 },
-    },
-  ],
-}))
+    series: [
+      {
+        name: t('overview.expenses'),
+        type: 'bar',
+        data: props.bars.map((b) => b.expense),
+        barCategoryGap: '35%',
+        itemStyle: { borderRadius: 4 },
+      },
+      {
+        name: t('overview.income'),
+        type: 'bar',
+        data: props.bars.map((b) => b.income),
+        itemStyle: { borderRadius: 4 },
+      },
+      {
+        name: t('overview.netBalance'),
+        type: 'line',
+        data: props.bars.map((b) => b.income - b.expense),
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 3 },
+      },
+    ],
+  }
+})
 
-// Trend view: net-balance-only area chart, for a cleaner read of the overall
-// direction across the period without the column clutter.
-const trendOption = computed<EChartsOption>(() => ({
-  backgroundColor: 'transparent',
-  ...sharedAxes.value,
-  series: [
-    {
-      name: t('overview.netBalance'),
-      type: 'line',
-      data: props.bars.map((b) => b.income - b.expense),
-      smooth: true,
-      showSymbol: false,
-      lineStyle: { width: 2.5, color: colors.value.accent },
-      itemStyle: { color: colors.value.accent },
-      areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0,
-          y: 0,
-          x2: 0,
-          y2: 1,
-          colorStops: [
-            { offset: 0, color: withAlpha(colors.value.accent, 0.35) },
-            { offset: 1, color: withAlpha(colors.value.accent, 0) },
-          ],
+// Trend view: an area chart for a cleaner read of the overall direction
+// across the period without the column clutter — net balance by default,
+// or (with `kind` set) that one series' own value trend.
+const trendOption = computed<EChartsOption>(() => {
+  const color = props.kind === 'expense' ? colors.value.expense : props.kind === 'income' ? colors.value.income : colors.value.accent
+  const data = props.kind ? props.bars.map((b) => b[props.kind!]) : props.bars.map((b) => b.income - b.expense)
+  return {
+    backgroundColor: 'transparent',
+    ...sharedAxes.value,
+    series: [
+      {
+        name: props.kind ? title.value : t('overview.netBalance'),
+        type: 'line',
+        data,
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2.5, color },
+        itemStyle: { color },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0,
+            y: 0,
+            x2: 0,
+            y2: 1,
+            colorStops: [
+              { offset: 0, color: withAlpha(color, 0.35) },
+              { offset: 1, color: withAlpha(color, 0) },
+            ],
+          },
         },
       },
-    },
-  ],
-}))
+    ],
+  }
+})
 
 const option = computed<EChartsOption>(() => (view.value === 'bars' ? barsOption.value : trendOption.value))
 
@@ -172,7 +209,7 @@ useECharts(chartEl, option)
 <template>
   <div class="chart-wrap">
     <div class="chart-head">
-      <h3 class="section-title">{{ t('overview.expenseIncomeTitle') }}</h3>
+      <h3 class="section-title">{{ title }}</h3>
       <Segmented class="view-toggle" :model-value="view" :options="viewOptions" @update:model-value="(v) => (view = v as ViewMode)" />
     </div>
     <div class="chart-body">

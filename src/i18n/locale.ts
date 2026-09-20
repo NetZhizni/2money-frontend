@@ -108,7 +108,7 @@ export function detectLocale(): Locale {
 /** The Settings screen's language field: 'system' follows the OS/browser (via detectLocale); an explicit `Locale` is an override. */
 export type LocaleSetting = 'system' | Locale
 
-const STORAGE_KEY = '2money:locale'
+const STORAGE_KEY = 'stork:locale'
 
 // Separate from STORAGE_KEY above on purpose: 'system' is itself a valid,
 // deliberate choice on the language-onboarding screen (see
@@ -117,7 +117,7 @@ const STORAGE_KEY = '2money:locale'
 // thing that does, and it's set unconditionally by setLocaleSetting below
 // regardless of which option was picked (including a later change from
 // Settings, which harmlessly re-confirms it).
-const CHOSEN_KEY = '2money:locale-chosen'
+const CHOSEN_KEY = 'stork:locale-chosen'
 
 /** Whether the user has ever gone through the language choice — either the first-launch screen or Settings → Мова. Gates App.vue's LanguageOnboardingView. */
 export function hasChosenLocale(): boolean {

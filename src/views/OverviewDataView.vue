@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useTransactionsStore } from '../stores/transactions'
 import { useCategoriesStore } from '../stores/categories'
+import { useTagsStore } from '../stores/tags'
 import { useAllAccountsStore } from '../stores/allAccounts'
 import { useSettingsStore } from '../stores/settings'
 import { usePeriodStore, PERIOD_TOTAL_LABEL_KEY } from '../stores/period'
@@ -13,21 +14,32 @@ import ExpenseIncomeChart, { type PeriodBar } from '../components/overview/Expen
 import CategoryDonutChart from '../components/overview/CategoryDonutChart.vue'
 import CategoryRankList from '../components/overview/CategoryRankList.vue'
 import MdiIcon from '../components/common/MdiIcon.vue'
+import Segmented from '../components/common/Segmented.vue'
 import { formatMoney, startOfMonth, endOfMonth, MONTHS_SHORT } from '../utils/format'
 import { resolveCategoryCurrency } from '../utils/currencies'
 import { otherCurrencyAmount as resolveOtherCurrencyAmount, signedAmountInCurrency } from '../utils/transactionAmounts'
 import { isCrossProfileTransfer, transferCategoryLabel, TRANSFER_CATEGORY_ICON, TRANSFER_CATEGORY_COLOR } from '../utils/transferAnalytics'
 import { t } from '../i18n'
-import type { Transaction } from '../types/models'
+import type { CategoryKind, Transaction } from '../types/models'
 
 const transactions = useTransactionsStore()
 const categories = useCategoriesStore()
+const tags = useTagsStore()
 const allAccounts = useAllAccountsStore()
 const settings = useSettingsStore()
 const period = usePeriodStore()
 const viewAs = useViewAsStore()
 const displayCurrency = useBaseCurrency() // name kept: this view fully normalizes to the base currency, same role the old override-aware composable played
 const router = useRouter()
+
+// The Витрати/Доходи switch atop the page — narrows every KPI, chart and
+// ranking below to just the selected type. Named/typed the same way
+// CategoriesDataView.vue's and BudgetDataView.vue's own toggle are.
+const kind = ref<CategoryKind>('expense')
+const kindOptions = computed(() => [
+  { value: 'expense', label: t('overview.expenses') },
+  { value: 'income', label: t('overview.income') },
+])
 
 /** See utils/transactionAmounts.ts's otherCurrencyAmount — resolvers are this view's own account/category lookups. */
 function otherCurrencyAmount(t: Transaction): { amount: number; currency: string } | null {
@@ -208,12 +220,13 @@ const periodBars = computed<PeriodBar[]>(() => {
   })
 })
 
-const transactionCount = computed(() => periodTransactions.value.length)
-const expenseCount = computed(() => periodTransactions.value.filter((t) => t.type === 'expense').length)
-const avgExpense = computed(() => (expenseCount.value > 0 ? expenseTotal.value / expenseCount.value : 0))
+// The active-kind counterpart of expenseTotal/incomeTotal.
+const activeTotal = computed(() => (kind.value === 'income' ? incomeTotal.value : expenseTotal.value))
+const transactionCount = computed(() => periodTransactions.value.filter((t) => t.type === kind.value).length)
+const avgPerTransaction = computed(() => (transactionCount.value > 0 ? activeTotal.value / transactionCount.value : 0))
 
-const dailyAvg = computed(() => expenseTotal.value / periodDays.value)
-const weeklyAvg = computed(() => (expenseTotal.value / periodDays.value) * 7)
+const dailyAvg = computed(() => activeTotal.value / periodDays.value)
+const weeklyAvg = computed(() => (activeTotal.value / periodDays.value) * 7)
 // expenseTotal/incomeTotal/netBalance are already in the shown currency
 // (every per-transaction sum above goes through amountInBase) — kept as
 // their own computed refs (rather than used directly) only because
@@ -228,10 +241,15 @@ const animatedNetBalance = useCountUp(displayNetBalance)
 
 const periodTotalLabel = computed(() => t(PERIOD_TOTAL_LABEL_KEY[period.granularity]))
 
-const expenseRanking = computed(() => {
+/**
+ * Category ranking for one kind — the Витрати/Доходи toggle needs the same
+ * breakdown for either. `kind` here shadows the outer ref, same as
+ * BudgetDataView.vue's own buildSection(kind, …) helper.
+ */
+function rankingFor(kind: CategoryKind) {
   const rows: Record<string, number> = {}
   for (const t of periodTransactions.value) {
-    if (t.type !== 'expense') continue
+    if (t.type !== kind) continue
     const id = t.categoryId
     if (!id) continue
     rows[id] = (rows[id] ?? 0) + amountInBase(t)
@@ -247,21 +265,55 @@ const expenseRanking = computed(() => {
     }
   })
   // Transfers have no category of their own, so a cross-profile transfer
-  // you sent gets its own pseudo-entry here instead of silently disappearing.
-  if (crossProfileTransferExpense.value > 0) {
+  // sent/received gets its own pseudo-entry here instead of silently disappearing.
+  const transferAmount = kind === 'expense' ? crossProfileTransferExpense.value : crossProfileTransferIncome.value
+  if (transferAmount > 0) {
     entries.push({
       id: '__transfers__',
       name: transferCategoryLabel(),
       icon: TRANSFER_CATEGORY_ICON,
       color: TRANSFER_CATEGORY_COLOR,
-      amount: crossProfileTransferExpense.value,
+      amount: transferAmount,
     })
   }
   return entries.sort((a, b) => b.amount - a.amount).slice(0, 8)
-})
+}
+const activeRanking = computed(() => rankingFor(kind.value))
+
+// Tags are optional and many-to-many (see types/models.ts's Tag) — an
+// operation carrying two tags counts its full amount toward both, so unlike
+// rankingFor above these rows don't add up to expenseTotal/incomeTotal and
+// aren't shown as a donut (a "parts of a whole" chart would misrepresent
+// that overlap). A plain ranked list is still a meaningful "what am I
+// spending/earning under this label" view.
+const TAG_ICON = 'mdiTagOutline'
+function tagRankingFor(kind: CategoryKind) {
+  const rows: Record<string, number> = {}
+  for (const t of periodTransactions.value) {
+    if (t.type !== kind || !t.tagIds?.length) continue
+    const amount = amountInBase(t)
+    for (const tagId of t.tagIds) rows[tagId] = (rows[tagId] ?? 0) + amount
+  }
+  return Object.entries(rows)
+    .map(([id, amount]) => {
+      const tg = tags.byId(id)
+      return { id, name: tg?.name ?? '—', icon: TAG_ICON, color: tg?.color ?? '#9a9a9e', amount }
+    })
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 8)
+}
+const activeTagRanking = computed(() => tagRankingFor(kind.value))
+
+function openTagOperations(tagId: string) {
+  router.push({ path: '/operations', query: { tag: tagId } })
+}
 </script>
 
 <template>
+  <!-- The top-row/balance-card summary is shown before the toggle, not
+       inside its slot, so both totals and the balance stay visible
+       whichever side is currently open — same reasoning as
+       BudgetDataView.vue's own .plan-summary. -->
   <div class="top-row">
     <div class="stat-tile expense">
       <span class="stat-label">{{ t('overview.expenses') }}</span>
@@ -292,52 +344,89 @@ const expenseRanking = computed(() => {
     </div>
   </div>
 
-  <div v-if="periodBars.length" class="card">
-    <ExpenseIncomeChart :key="`bars-${period.granularity}-${period.start}`" :bars="periodBars" :currency="displayCurrency.code" />
-  </div>
+  <Segmented
+    class="type-toggle"
+    :model-value="kind"
+    :options="kindOptions"
+    @update:model-value="(v) => (kind = v as CategoryKind)"
+  >
+    <!-- One panel, reactive to `kind` — same recipe as CategoriesDataView.vue's
+         ring/grid and BudgetDataView.vue's section-header/rows: single markup
+         driven by the toggle, wrapped in Segmented's slot so switching sides
+         gets its slide/fade transition instead of two mirrored v-if blocks.
+         .panel-stack spaces its cards the same way AccountsView.vue's own
+         .list does (gap: 10px) — the panel div itself has no such gap, so
+         without this its children would stack flush against each other. -->
+    <div class="panel-stack">
+      <div v-if="periodBars.length" class="card">
+        <ExpenseIncomeChart
+          :key="`bars-${period.granularity}-${period.start}`"
+          :kind="kind"
+          :bars="periodBars"
+          :currency="displayCurrency.code"
+        />
+      </div>
 
-  <div class="avg-row">
-    <div class="avg-tile">
-      <span class="avg-label">{{ t('overview.dayAvg') }}</span>
-      <span class="avg-value">{{ formatMoney(dailyAvg, displayCurrency.code) }}</span>
-    </div>
-    <div class="avg-tile">
-      <span class="avg-label">{{ t('overview.weekAvg') }}</span>
-      <span class="avg-value">{{ formatMoney(weeklyAvg, displayCurrency.code) }}</span>
-    </div>
-    <div class="avg-tile">
-      <span class="avg-label">{{ periodTotalLabel }}</span>
-      <span class="avg-value">{{ formatMoney(displayExpenseTotal, displayCurrency.code) }}</span>
-    </div>
-  </div>
+      <div class="avg-row">
+        <div class="avg-tile">
+          <span class="avg-label">{{ t('overview.dayAvg') }}</span>
+          <span class="avg-value">{{ formatMoney(dailyAvg, displayCurrency.code) }}</span>
+        </div>
+        <div class="avg-tile">
+          <span class="avg-label">{{ t('overview.weekAvg') }}</span>
+          <span class="avg-value">{{ formatMoney(weeklyAvg, displayCurrency.code) }}</span>
+        </div>
+        <div class="avg-tile">
+          <span class="avg-label">{{ periodTotalLabel }}</span>
+          <span class="avg-value">{{ formatMoney(activeTotal, displayCurrency.code) }}</span>
+        </div>
+      </div>
 
-  <div class="avg-row">
-    <div class="avg-tile">
-      <span class="avg-label">{{ t('overview.transactionCount') }}</span>
-      <span class="avg-value">{{ transactionCount }}</span>
-    </div>
-    <div class="avg-tile">
-      <span class="avg-label">{{ t('overview.avgReceipt') }}</span>
-      <span class="avg-value">{{ formatMoney(avgExpense, displayCurrency.code) }}</span>
-    </div>
-  </div>
+      <div class="avg-row">
+        <div class="avg-tile">
+          <span class="avg-label">{{ t('overview.transactionCount') }}</span>
+          <span class="avg-value">{{ transactionCount }}</span>
+        </div>
+        <div class="avg-tile">
+          <span class="avg-label">{{ t(kind === 'income' ? 'overview.avgIncome' : 'overview.avgReceipt') }}</span>
+          <span class="avg-value">{{ formatMoney(avgPerTransaction, displayCurrency.code) }}</span>
+        </div>
+      </div>
 
-  <div class="card">
-    <h3 class="section-title">{{ t('overview.expensesByCategory') }}</h3>
-    <CategoryDonutChart
-      :key="`donut-${period.granularity}-${period.start}`"
-      :segments="expenseRanking"
-      :currency="displayCurrency.code"
-    />
-  </div>
+      <div class="card">
+        <h3 class="section-title">
+          {{ t('overview.categoriesTitle', { type: t(kind === 'income' ? 'overview.income' : 'overview.expenses') }) }}
+        </h3>
+        <CategoryDonutChart
+          :key="`donut-${period.granularity}-${period.start}`"
+          :segments="activeRanking"
+          :currency="displayCurrency.code"
+        />
+        <CategoryRankList :rows="activeRanking" :currency="displayCurrency.code" @select="openCategoryOperations" />
+      </div>
 
-  <div class="card">
-    <h3 class="section-title">{{ t('overview.topExpenseCategories') }}</h3>
-    <CategoryRankList :rows="expenseRanking" :currency="displayCurrency.code" @select="openCategoryOperations" />
-  </div>
+      <div v-if="activeTagRanking.length" class="card">
+        <h3 class="section-title">
+          {{ t('overview.tagsTitle', { type: t(kind === 'income' ? 'overview.income' : 'overview.expenses') }) }}
+        </h3>
+        <CategoryRankList :rows="activeTagRanking" :currency="displayCurrency.code" @select="openTagOperations" />
+      </div>
+    </div>
+  </Segmented>
 </template>
 
 <style lang="scss" scoped>
+.type-toggle {
+  max-width: 260px;
+  margin: 0 auto;
+}
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .top-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -479,6 +568,14 @@ const expenseRanking = computed(() => {
   font-size: 14px;
   margin: 0 0 14px;
   color: var(--text-primary);
+}
+
+// The category cards stack a donut and its ranked list under one shared
+// title (see the categoriesTitle cards above) — both are separate child
+// components, so this spaces their root elements apart the same way `gap`
+// would if they were plain siblings in one flex/grid container.
+.card > .chart-wrap + .rank-list {
+  margin-top: 18px;
 }
 
 .avg-row {

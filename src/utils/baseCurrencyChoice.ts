@@ -14,7 +14,7 @@ import { COMMON_CURRENCIES } from './currencies'
  * never overriding one that already exists. After that it's just a normal
  * per-profile setting, changeable anytime from Settings (same as language).
  */
-const STORAGE_KEY = '2money:base-currency-chosen'
+const STORAGE_KEY = 'stork:base-currency-chosen'
 
 /** Whether this device has ever gone through the base-currency choice — gates App.vue's BaseCurrencyOnboardingView. */
 export function hasChosenBaseCurrency(): boolean {

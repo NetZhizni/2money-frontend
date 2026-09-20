@@ -9,10 +9,12 @@ import Segmented from '../common/Segmented.vue'
 import AmountKeypad from './AmountKeypad.vue'
 import AccountPickerModal from './AccountPickerModal.vue'
 import CategoryPickerModal from './CategoryPickerModal.vue'
+import TagPickerModal from './TagPickerModal.vue'
 import OperationDateModal from './OperationDateModal.vue'
 import { useAccountsStore } from '../../stores/accounts'
 import { useAllAccountsStore } from '../../stores/allAccounts'
 import { useCategoriesStore } from '../../stores/categories'
+import { useTagsStore } from '../../stores/tags'
 import { useTransactionsStore } from '../../stores/transactions'
 import { useSettingsStore } from '../../stores/settings'
 import { useTemplatesStore } from '../../stores/templates'
@@ -89,6 +91,7 @@ const router = useRouter()
 const accounts = useAccountsStore()
 const allAccountsStore = useAllAccountsStore()
 const categories = useCategoriesStore()
+const tagsStore = useTagsStore()
 const transactions = useTransactionsStore()
 const settings = useSettingsStore()
 const templates = useTemplatesStore()
@@ -240,6 +243,7 @@ function buildForm() {
     toAmount: props.transaction?.toAmount ?? props.presetToAmount ?? (undefined as number | undefined),
     date: todayDateInputValue(props.transaction?.date ?? props.presetDate),
     note: props.transaction?.note ?? props.presetNote ?? '',
+    tagIds: props.transaction?.tagIds ?? ([] as string[]),
     makeRecurring: false,
     frequency: 'monthly' as RecurringFrequency,
     interval: 1,
@@ -257,6 +261,7 @@ const accountTouched = ref(false)
 // 'from'/'to' (transfers need both); category picking has only one slot.
 const showAccountPicker = ref<'from' | 'to' | null>(null)
 const showCategoryPicker = ref(false)
+const showTagPicker = ref(false)
 const showDatePicker = ref(false)
 
 // Bumped on every (re)open and used as AmountKeypad's `:key` — the keypad
@@ -278,6 +283,7 @@ watch(
     locallyDetached.value = false
     showAccountPicker.value = null
     showCategoryPicker.value = false
+    showTagPicker.value = false
     showDatePicker.value = false
     formResetKey.value++
   },
@@ -529,6 +535,11 @@ function selectCategory(id: string) {
   showCategoryPicker.value = false
 }
 
+const tagsSummary = computed(() => {
+  const names = form.tagIds.map((id) => tagsStore.byId(id)?.name).filter((name): name is string => !!name)
+  return names.length ? names.join(', ') : t('transactions.form.noTags')
+})
+
 // ---------- Date popup ----------
 
 const FREQUENCY_LABEL_KEYS: Record<RecurringFrequency, MessageKey> = {
@@ -589,6 +600,13 @@ async function submit() {
     toAmount: isDualCurrency.value ? form.toAmount : undefined,
     currency: currency.value,
     note: form.note.trim() || undefined,
+    // `form` is a Vue reactive() object, so `form.tagIds` is a reactive Proxy
+    // array, not a plain one — Dexie's `put()` structured-clones the payload
+    // straight into IndexedDB, which throws DataCloneError on a Proxy (same
+    // reason stores/transactions.ts's update() has to toRaw() `current`
+    // before merging it in). Every other field here is a primitive, so this
+    // is the one that needs unwrapping; spreading into a fresh array does that.
+    tagIds: [...form.tagIds],
   }
 
   if (isEdit.value && props.transaction) {
@@ -735,6 +753,13 @@ function handleDuplicate() {
       </template>
     </FieldRow>
 
+    <FieldRow tag="button" icon="mdiTagOutline" :label="t('transactions.form.tagsLabel')" class="tags-row" @click="showTagPicker = true">
+      <span class="field-row-value">{{ tagsSummary }}</span>
+      <template #trailing>
+        <MdiIcon name="mdiChevronDown" :size="18" color="var(--text-muted)" />
+      </template>
+    </FieldRow>
+
     <div v-if="!isEdit && form.type !== 'transfer' && !deferSave" class="recurring-field">
       <FieldRow tag="label" icon="mdiRepeat">
         <span class="field-row-value">{{ t('transactions.form.makeRecurring') }}</span>
@@ -810,6 +835,13 @@ function handleDuplicate() {
     :selected-id="form.categoryId"
     @close="showCategoryPicker = false"
     @select="selectCategory"
+  />
+
+  <TagPickerModal
+    :open="showTagPicker"
+    :selected-ids="form.tagIds"
+    @close="showTagPicker = false"
+    @update:selected-ids="(ids) => (form.tagIds = ids)"
   />
 
   <OperationDateModal

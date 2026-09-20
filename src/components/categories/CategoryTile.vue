@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import IconCircle from '../common/IconCircle.vue'
+import CategoryBudgetIcon from './CategoryBudgetIcon.vue'
 import { formatMoney, type CurrencyDisplayStyle } from '../../utils/format'
 import type { BudgetProgress } from '../../utils/budget'
+import type { CategoryKind } from '../../types/models'
 
 const props = defineProps<{
   name: string
@@ -16,11 +17,35 @@ const props = defineProps<{
   currencyDisplay?: CurrencyDisplayStyle | null
   budget?: BudgetProgress | null
   budgetLabel?: string
+  // Only meaningful together with `budget` — the transfer tile has neither.
+  // Decides whether "over" reads as bad (spent past an expense limit) —
+  // exceeding an income goal is good news and never flagged this way — see
+  // remainingLabel/overBudget below. The icon itself always stays the
+  // category's own color regardless (see CategoryBudgetIcon below); only the
+  // remaining figure's text turns red.
+  kind?: CategoryKind
 }>()
 
 defineEmits<{ click: []; longpress: [] }>()
 
 const hasAmount = computed(() => props.amount > 0)
+
+// Exceeding an EXPENSE budget is bad (overspent) but exceeding an INCOME one
+// is good (earned more than planned) — never flagged red for the latter.
+const overBudget = computed(() => !!props.budget?.over && props.kind !== 'income')
+
+// Bare remaining figure (no sign) shown below the spent amount, muted —
+// turns red once it's actually negative (over an expense budget). Always
+// rendered (falling back to a blank space with no budget) together with
+// .remaining's min-height so every tile in the grid reserves the same
+// height regardless of whether it has a budget, keeping the grid row-aligned.
+const remainingLabel = computed(() => {
+  const b = props.budget
+  if (!b) return ''
+  const remaining = b.amount - b.spent
+  return formatMoney(remaining, props.currency, { currencyDisplay: props.currencyDisplay })
+})
+
 let pressTimer: ReturnType<typeof setTimeout> | null = null
 
 function onPointerDown(emitLong: () => void) {
@@ -39,18 +64,12 @@ function onPointerUp() {
     @pointerup="onPointerUp"
     @pointerleave="onPointerUp"
   >
-    <IconCircle :icon="icon" :color="color" :muted="!hasAmount" :size="56" />
+    <span class="remaining" :class="{ bad: overBudget }">{{ remainingLabel || ' ' }}</span>
+    <CategoryBudgetIcon :icon="icon" :color="color" :muted="!hasAmount" :pct="budget?.pct" :size="56" :title="budgetLabel" />
     <span class="name">{{ name }}</span>
     <span class="amount" :style="{ color: hasAmount ? color : 'var(--text-muted)' }">
       {{ formatMoney(amount, currency, { currencyDisplay }) }}
     </span>
-    <div class="budget-track" :class="{ 'budget-track--empty': !budget }" :title="budgetLabel">
-      <div
-        v-if="budget"
-        class="budget-fill"
-        :style="{ width: `${budget.pct}%`, background: budget.over ? 'var(--expense)' : color }"
-      />
-    </div>
   </button>
 </template>
 
@@ -60,7 +79,7 @@ function onPointerUp() {
   flex-direction: column;
   align-items: center;
   width: 90px;
-  gap: 6px;
+  gap: 4px;
   background: transparent;
   border: none;
   padding: 2px;
@@ -82,20 +101,18 @@ function onPointerUp() {
   @include lineClamp(1);
 }
 
-.budget-track {
-  width: 44px;
-  height: 3px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-2);
+.remaining {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  min-height: 15px;
+  max-width: 100%;
+  white-space: nowrap;
   overflow: hidden;
-  margin-top: 1px;
+  text-overflow: ellipsis;
 }
 
-.budget-track--empty {
-  visibility: hidden;
-}
-
-.budget-fill {
-  height: 100%;
+.remaining.bad {
+  color: var(--expense);
 }
 </style>

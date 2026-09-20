@@ -8,6 +8,7 @@ import { t } from '../i18n'
 const RESOURCE_PATH: Record<SyncableEntity, string> = {
   accounts: 'accounts',
   categories: 'categories',
+  tags: 'tags',
   transactions: 'transactions',
   recurringTemplates: 'recurring-templates',
   budgets: 'budgets',
@@ -156,7 +157,7 @@ async function pullEntity(entity: SyncableEntity, opts?: { scope: 'all' }): Prom
  * feature needs: that data has to already be synced locally, not fetched
  * on demand only when such a view is opened.
  */
-const SYNC_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets', 'receipts']
+const SYNC_ENTITIES: SyncableEntity[] = ['accounts', 'categories', 'tags', 'transactions', 'recurringTemplates', 'budgets', 'receipts']
 
 /**
  * Pulls a batch of entities (each via `pullEntity`), tolerating individual
@@ -221,11 +222,12 @@ export async function resyncFromServer(currentUserId: string | null): Promise<vo
 
   await db.transaction(
     'rw',
-    [db.accounts, db.categories, db.transactions, db.recurringTemplates, db.budgets, db.receipts, db.syncCursors, db.users, db.outbox],
+    [db.accounts, db.categories, db.tags, db.transactions, db.recurringTemplates, db.budgets, db.receipts, db.syncCursors, db.users, db.outbox],
     async () => {
       await Promise.all([
         db.accounts.clear(),
         db.categories.clear(),
+        db.tags.clear(),
         db.transactions.clear(),
         db.recurringTemplates.clear(),
         db.budgets.clear(),
@@ -322,6 +324,17 @@ export async function pullAllTransactions(): Promise<void> {
 export async function pullAllCategories(): Promise<void> {
   if (!navigator.onLine) return
   await pullEntity('categories', { scope: 'all' })
+}
+
+/**
+ * Refreshes the whole family's active tags into `tags` — same reasoning as
+ * pullAllCategories: tags ARE the shared family resource (see
+ * stores/tags.ts, which reads this same table entirely unfiltered), so this
+ * is simply the only network fetch `tags` ever needs.
+ */
+export async function pullAllTags(): Promise<void> {
+  if (!navigator.onLine) return
+  await pullEntity('tags', { scope: 'all' })
 }
 
 /**

@@ -340,8 +340,8 @@ async function wipeLocalState(): Promise<void> {
     // the new session even signs in. Per-device UI preferences (locale,
     // number/date format, theme) are deliberately left alone — those
     // aren't tied to any server/account.
-    localStorage.removeItem('2money:profile')
-    localStorage.removeItem('2money:lastSyncedAt')
+    localStorage.removeItem('stork:profile')
+    localStorage.removeItem('stork:lastSyncedAt')
   } catch {
     // Storage unavailable — the reload below still resets every in-memory singleton either way.
   }

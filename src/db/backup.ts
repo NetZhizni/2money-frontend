@@ -5,15 +5,18 @@ import {
   pullAllBudgets,
   pullAllCategories,
   pullAllReceipts,
+  pullAllTags,
   pullAllTemplates,
   pullAllTransactions,
 } from './sync'
 import { downloadFile } from '../utils/download'
 import { newId } from '../utils/id'
 import { isCrossProfileTransfer } from '../utils/transferAnalytics'
+import { monthKeyFromTimestamp } from '../utils/budget'
 import http from '../api/http'
 import { useAccountsStore } from '../stores/accounts'
 import { useCategoriesStore } from '../stores/categories'
+import { useTagsStore } from '../stores/tags'
 import { useTransactionsStore } from '../stores/transactions'
 import { useTemplatesStore } from '../stores/templates'
 import { useBudgetsStore } from '../stores/budgets'
@@ -21,7 +24,7 @@ import { useReceiptsStore } from '../stores/receipts'
 import { useSettingsStore } from '../stores/settings'
 import { useAuthStore } from '../stores/auth'
 import { useViewAsStore } from '../stores/viewAs'
-import type { Account, Budget, Category, Receipt, RecurringTemplate, Transaction, UserRole } from '../types/models'
+import type { Account, Budget, Category, Receipt, RecurringTemplate, Tag, Transaction, UserRole } from '../types/models'
 import { t } from '../i18n'
 
 export interface BackupPayload {
@@ -37,6 +40,12 @@ export interface BackupPayload {
   // as it always was for those older files. Every new export always
   // includes it (see exportData()/extractPersonalSlice()).
   receipts?: Receipt[]
+  // Same backward-compat treatment as `receipts` above — a file exported
+  // before Tag existed has none. Unlike accounts/transactions/etc., tags are
+  // the shared family resource (see stores/tags.ts): applyBackup() never
+  // deletes them, only reconciles by name against what the family already
+  // has, same as categories.
+  tags?: Tag[]
   exchangeRates: unknown[]
   // Absent when this payload was extracted from a FamilyBackupPayload (see
   // extractPersonalSlice) — a family export has no per-member settings to
@@ -74,6 +83,7 @@ export interface FamilyBackupPayload {
   templates: RecurringTemplate[]
   budgets: Budget[]
   receipts: Receipt[]
+  tags: Tag[]
   exchangeRates: unknown[]
 }
 
@@ -217,9 +227,9 @@ function synthesizeTransferCategoriesFromFamilyBackup(
  * (stores/viewAs.ts) currently points at, and transactions additionally
  * surface any cross-profile transfer you're merely a participant in —
  * reading `.all` here would let either one silently pull another family
- * member's data into your backup file. Categories are the one deliberately
- * shared, family-wide resource, so they're read from their store as-is;
- * recurring templates are always queried by the real signed-in uid
+ * member's data into your backup file. Categories and tags are the two
+ * deliberately shared, family-wide resources, so they're read from their
+ * stores as-is; recurring templates are always queried by the real signed-in uid
  * regardless of viewAs, so that store is safe to read directly too.
  *
  * Cross-profile transfers (sent by this profile, or received from someone
@@ -235,6 +245,7 @@ export async function exportData(): Promise<BackupPayload> {
   if (!uid) throw new Error(t('sync.mustSignIn'))
 
   const categories = useCategoriesStore()
+  const tags = useTagsStore()
   const templates = useTemplatesStore()
   const settings = useSettingsStore()
 
@@ -259,6 +270,7 @@ export async function exportData(): Promise<BackupPayload> {
     templates: templates.all,
     budgets: budgetRows,
     receipts: receiptRows,
+    tags: tags.all,
     exchangeRates: await db.exchangeRates.toArray(),
     settings: { baseCurrency: settings.baseCurrency, theme: settings.theme },
   }
@@ -266,18 +278,18 @@ export async function exportData(): Promise<BackupPayload> {
 
 export function downloadBackup(payload: BackupPayload): void {
   const stamp = new Date(payload.exportedAt).toISOString().slice(0, 10)
-  downloadFile(JSON.stringify(payload, null, 2), `2money-backup-${stamp}.json`, 'application/json')
+  downloadFile(JSON.stringify(payload, null, 2), `stork-backup-${stamp}.json`, 'application/json')
 }
 
 export function downloadFamilyBackup(payload: FamilyBackupPayload): void {
   const stamp = new Date(payload.exportedAt).toISOString().slice(0, 10)
-  downloadFile(JSON.stringify(payload, null, 2), `2money-family-backup-${stamp}.json`, 'application/json')
+  downloadFile(JSON.stringify(payload, null, 2), `stork-family-backup-${stamp}.json`, 'application/json')
 }
 
 /**
  * Owner-only export of literally everyone's data — every family member's
  * accounts/transactions/recurring templates/budgets/receipts, plus the
- * shared categories and the member directory (with email/role, fetched
+ * shared categories/tags and the member directory (with email/role, fetched
  * directly via the admin API rather than through stores/admin.ts's own
  * load() — that one swallows failures into a `.error` ref instead of
  * throwing, which would silently ship a backup with an empty `users` list
@@ -312,9 +324,10 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
     pullAllTemplates(),
     pullAllBudgets(),
     pullAllReceipts(),
+    pullAllTags(),
   ])
 
-  const [usersResponse, accounts, categories, transactions, templates, budgets, receipts, exchangeRates] = await Promise.all([
+  const [usersResponse, accounts, categories, transactions, templates, budgets, receipts, tags, exchangeRates] = await Promise.all([
     http.get<FamilyBackupUser[]>('/admin/users'),
     db.accounts.toArray(),
     db.categories.toArray(),
@@ -322,6 +335,7 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
     db.recurringTemplates.toArray(),
     db.budgets.toArray(),
     db.receipts.toArray(),
+    db.tags.toArray(),
     db.exchangeRates.toArray(),
   ])
 
@@ -335,6 +349,7 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
     templates,
     budgets,
     receipts,
+    tags,
     exchangeRates,
   }
 }
@@ -361,9 +376,9 @@ function matchFamilyBackupUser(family: FamilyBackupPayload, email: string): Fami
  * pipeline mergeData() already uses for a personal export — see
  * mergeBackupFile()'s doc comment for the full story. `oldOwnerId` is this
  * member's id in the OLD family (see matchFamilyBackupUser). Everything not
- * owned by them is dropped except categories (shared, kept in full — the
- * existing reconciliation in applyBackup() converges every member's import
- * of the same file onto one shared set regardless of import order) and any
+ * owned by them is dropped except categories and tags (shared, kept in full
+ * — the existing reconciliation in applyBackup() converges every member's
+ * import of the same file onto one shared set regardless of import order) and any
  * cross-profile transfer they were the receiving end of, folded into a
  * synthetic category exactly like exportData() would — the sending side's
  * account belongs to a profile this single member's import has no way to
@@ -390,6 +405,7 @@ function extractPersonalSlice(family: FamilyBackupPayload, oldOwnerId: string): 
     templates: family.templates.filter((tpl) => tpl.ownerId === oldOwnerId),
     budgets: family.budgets.filter((b) => b.ownerId === oldOwnerId),
     receipts: family.receipts.filter((r) => r.ownerId === oldOwnerId),
+    tags: family.tags,
     exchangeRates: family.exchangeRates,
   }
 }
@@ -534,13 +550,14 @@ async function wipeOwnPersonalData(ownerId: string): Promise<void> {
  * actually entered. The counterparty's own copy of a transfer you DO own is
  * unaffected either way, since it's the same shared document elsewhere.
  *
- * Categories are the one exception: a shared, family-wide resource (see
- * stores/categories.ts), so they're never deleted here — only reconciled
- * against what the family already has (see below).
+ * Categories and tags are the exception: shared, family-wide resources (see
+ * stores/categories.ts, stores/tags.ts), so they're never deleted here —
+ * only reconciled against what the family already has (see below).
  */
 async function applyBackup(payload: BackupPayload, ownerId: string): Promise<void> {
   const accounts = useAccountsStore()
   const categories = useCategoriesStore()
+  const tags = useTagsStore()
   const transactions = useTransactionsStore()
   const templates = useTemplatesStore()
   const budgets = useBudgetsStore()
@@ -610,6 +627,25 @@ async function applyBackup(payload: BackupPayload, ownerId: string): Promise<voi
     remainingCategories = remainingCategories.filter((c) => !batchIds.has(c.id))
   }
 
+  // Tags are flat (no parentId), so unlike categories above this needs no
+  // dependency ordering — same reconcile-by-name, never-delete treatment,
+  // just a single pass. A transaction's own tagIds are remapped through this
+  // further down, once every tag has a resolved (matched-or-created) id.
+  const tagIdMap = new Map<string, string>()
+  const liveTags = [...tags.all]
+  for (const tg of payload.tags ?? []) {
+    const match = liveTags.find((x) => x.name === tg.name)
+    let resolvedId: string
+    if (match) {
+      resolvedId = match.id
+    } else {
+      const created = await tags.add({ name: tg.name, color: tg.color })
+      liveTags.push(created)
+      resolvedId = created.id
+    }
+    tagIdMap.set(tg.id, resolvedId)
+  }
+
   // Templates only reference accounts/categories, so they can go in right
   // after those maps are ready — before transactions, since a transaction
   // generated from a template points back at it via templateId.
@@ -652,6 +688,7 @@ async function applyBackup(payload: BackupPayload, ownerId: string): Promise<voi
       categoryId,
       subcategoryId,
       templateId,
+      tagIds,
       ...rest
     } = tx
     await transactions.add({
@@ -666,11 +703,24 @@ async function applyBackup(payload: BackupPayload, ownerId: string): Promise<voi
       // render one; a missing receipt just ungroups the transaction).
       templateId: templateId ? templateIdMap.get(templateId) : undefined,
       receiptId: receiptId ? receiptIdMap.get(receiptId) : undefined,
+      // Re-pointed at each tag's matched-or-created id via tagIdMap above; a
+      // ref that somehow isn't in the map (payload.tags missing a row its
+      // own transactions reference) is dropped rather than left dangling,
+      // same as templateId/receiptId. Optional chaining short-circuits the
+      // whole expression to `undefined` when `tagIds` itself is absent.
+      tagIds: tagIds?.map((id) => tagIdMap.get(id)).filter((id): id is string => !!id),
     })
   }
   for (const b of budgetsToImport) {
-    const { id: _id, ownerId: _o, createdAt: _c, categoryId, ...rest } = b
-    await budgets.add({ ...rest, categoryId: categoryIdMap.get(categoryId) ?? categoryId })
+    const { id: _id, ownerId: _o, createdAt, categoryId, month, ...rest } = b
+    await budgets.add({
+      ...rest,
+      categoryId: categoryIdMap.get(categoryId) ?? categoryId,
+      // A file exported before Budget.month existed has none — anchor it to
+      // the month it was created in, same fallback the backend applies to
+      // pre-existing rows (see the add-budget-month migration).
+      month: month ?? monthKeyFromTimestamp(createdAt),
+    })
   }
 
   // Absent when this payload came from extractPersonalSlice() — see

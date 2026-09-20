@@ -12,6 +12,7 @@ import { useAccountsStore } from '../../stores/accounts'
 import { useCategoriesStore } from '../../stores/categories'
 import { useTransactionsStore } from '../../stores/transactions'
 import { useAuthStore } from '../../stores/auth'
+import { useTagsStore } from '../../stores/tags'
 import { useServerStore } from '../../stores/server'
 import { useChangeServer } from '../../composables/useChangeServer'
 import { useViewAsStore } from '../../stores/viewAs'
@@ -59,6 +60,7 @@ const accounts = useAccountsStore()
 const categories = useCategoriesStore()
 const transactions = useTransactionsStore()
 const authStore = useAuthStore()
+const tags = useTagsStore()
 const server = useServerStore()
 const viewAs = useViewAsStore()
 const popups = usePopupsStore()
@@ -444,6 +446,11 @@ function openAdmin() {
   router.push('/admin')
 }
 
+function openTags() {
+  emit('close')
+  router.push('/tags')
+}
+
 async function handleSignOut() {
   await authStore.signOut()
   emit('close')
@@ -582,6 +589,16 @@ async function handleSignOut() {
           {{ dateFormatLabel }}
         </button>
         <p class="hint">{{ t('layout.settings.dateFormatHint') }}</p>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title">{{ t('layout.settings.section.tags') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.tagsLabel', { count: tags.all.length }) }}</label>
+        <p class="hint">{{ t('layout.settings.tagsHint') }}</p>
+        <button class="btn btn-secondary" @click="openTags">{{ t('layout.settings.manageTags') }}</button>
       </div>
     </div>
 

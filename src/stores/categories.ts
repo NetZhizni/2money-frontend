@@ -126,15 +126,19 @@ export const useCategoriesStore = defineStore('categories', () => {
     return ids
   }
 
-  /** Hard delete: removes the category, all its subcategories, and every transaction tied to any of them. */
+  /**
+   * Hard delete: removes the category, all its subcategories, and every
+   * transaction tied to any of them. Two bulk operations (all matching
+   * transactions, then all the categories themselves) rather than cascading
+   * one category at a time — see removeManyLocal's doc comment for why
+   * one-at-a-time was slow.
+   */
   async function remove(id: string): Promise<void> {
     assertWritable()
     const transactions = useTransactionsStore()
     const ids = collectWithDescendants(id)
-    for (const categoryId of ids) {
-      await transactions.removeByCategory(categoryId)
-      await collection.removeLocal(categoryId)
-    }
+    await transactions.removeByCategories(ids)
+    await collection.removeManyLocal(ids)
   }
 
   /**
@@ -142,15 +146,20 @@ export const useCategoriesStore = defineStore('categories', () => {
    * any of them — the "Очистити всі категорії" danger-zone action in
    * Settings, for wiping a mismatched-language or otherwise-stale category
    * set before reseeding it (see db/seed.ts's `seedDefaultCategoriesNow`).
-   * Loops `remove()` one top-level category at a time so the exact same
-   * cascade (subcategories, then every linked transaction) applies to each.
+   * Every category id is collected up front and removed via the same two
+   * bulk operations `remove()` uses (all matching transactions, then all
+   * categories) instead of cascading through `remove()` one top-level
+   * category at a time — that looped single-row deletes, and each one
+   * re-triggers a full re-query/re-sort of the whole transactions table
+   * (see db/useSyncedCollection.ts's removeManyLocal), which made clearing a
+   * large category set visibly slow.
    */
   async function removeAll(): Promise<void> {
     assertWritable()
-    const topLevelIds = collection.all.value.filter((c) => c.parentId === null).map((c) => c.id)
-    for (const id of topLevelIds) {
-      await remove(id)
-    }
+    const transactions = useTransactionsStore()
+    const ids = collection.all.value.map((c) => c.id)
+    await transactions.removeByCategories(ids)
+    await collection.removeManyLocal(ids)
   }
 
   /**

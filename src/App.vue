@@ -25,6 +25,7 @@
   import { useSettingsStore } from './stores/settings'
   import { useAccountsStore } from './stores/accounts'
   import { useCategoriesStore } from './stores/categories'
+  import { useTagsStore } from './stores/tags'
   import { useTransactionsStore } from './stores/transactions'
   import { useTemplatesStore } from './stores/templates'
   import { useBudgetsStore } from './stores/budgets'
@@ -46,6 +47,7 @@
   const settings = useSettingsStore()
   const accounts = useAccountsStore()
   const categories = useCategoriesStore()
+  const tags = useTagsStore()
   const transactions = useTransactionsStore()
   const templates = useTemplatesStore()
   const budgets = useBudgetsStore()
@@ -144,6 +146,7 @@
     settings.reset()
     accounts.reset()
     categories.reset()
+    tags.reset()
     transactions.reset()
     templates.reset()
     budgets.reset()
@@ -164,6 +167,7 @@
       settings.load(),
       accounts.load(),
       categories.load(),
+      tags.load(),
       transactions.load(),
       templates.load(),
       budgets.load(),

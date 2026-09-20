@@ -11,6 +11,7 @@ import { updatePageTransition } from '../composables/usePageTransition'
 const routes = [
   { path: '/', redirect: '/categories' },
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
+  { path: '/tags', name: 'tags', component: () => import('../views/TagsView.vue') },
   {
     path: '/categories',
     component: () => import('../views/PeriodPageView.vue'),
@@ -20,6 +21,11 @@ const routes = [
     path: '/operations',
     component: () => import('../views/PeriodPageView.vue'),
     children: [{ path: '', name: 'operations', component: () => import('../views/OperationsDataView.vue') }],
+  },
+  {
+    path: '/budget',
+    component: () => import('../views/PeriodPageView.vue'),
+    children: [{ path: '', name: 'budget', component: () => import('../views/BudgetDataView.vue') }],
   },
   {
     path: '/overview',

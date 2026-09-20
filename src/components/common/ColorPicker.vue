@@ -4,49 +4,64 @@
   const props = defineProps<{ modelValue: string }>()
   const emit = defineEmits<{ 'update:modelValue': [string] }>()
 
-  // The app's core accent colors first (already used across existing accounts/
-  // categories), then a broader Material-ish spread per hue so the picker has
-  // enough range without the user falling back to the custom input every time.
+  // Sorted as a continuous hue gradient (red -> orange -> yellow -> green ->
+  // teal -> blue -> indigo -> purple -> pink), with a few colors added to
+  // smooth out gaps in the spectrum (yellow, yellow-green, blue-violet).
+  // Muted/neutral tones (brown, grey, blue-grey) have no meaningful hue, so
+  // they're grouped separately at the end, ordered light to dark.
   const SWATCHES = [
-    '#2a78d6',
-    '#eb6834',
-    '#1baf7a',
-    '#eda100',
-    '#e87ba4',
-    '#008300',
-    '#4a3aa7',
-    '#e34948',
-    '#8d6e63',
-    '#8a8d91',
-    '#00838f',
-    '#5d4037',
-    '#c2185b',
-    '#455a64',
-    '#d32f2f',
-    '#ff7043',
-    '#f57f17',
-    '#43a047',
-    '#26a69a',
-    '#42a5f5',
-    '#7e57c2',
-    '#ab47bc',
-    '#ec407a',
-    '#795548',
+    // Red
     '#c62828',
+    '#d32f2f',
+    '#e34948',
     '#ef5350',
+    // Orange
+    '#ff7043',
+    '#eb6834',
+    '#f57f17',
+    // Amber / yellow
+    '#eda100',
     '#ffca28',
+    '#ffeb3b',
+    // Yellow-green / green
+    '#7cb342',
+    '#008300',
+    '#43a047',
     '#66bb6a',
+    // Teal
+    '#1baf7a',
+    '#26a69a',
     '#4db6ac',
+    '#00838f',
+    // Blue
+    '#42a5f5',
     '#1976d2',
+    '#2a78d6',
+    '#5c6bc0',
+    // Indigo / purple
+    '#4a3aa7',
     '#5e35b1',
+    '#7e57c2',
+    // Magenta / pink
     '#9c27b0',
+    '#ab47bc',
+    '#c2185b',
+    '#ec407a',
     '#f06292',
+    '#e87ba4',
+    // Brown
+    '#8d6e63',
+    '#795548',
     '#6d4c41',
-    '#37474f',
-    '#78909c',
-    '#9a9a9e',
-    '#616161',
+    '#5d4037',
+    // Grey / blue-grey
     '#bdbdbd',
+    '#9a9a9e',
+    '#8a8d91',
+    '#78909c',
+    '#616161',
+    '#455a64',
+    '#37474f',
     '#212121',
   ]
 </script>
@@ -83,8 +98,9 @@
 
   .swatches {
     display: grid;
-    grid-template-columns: repeat(auto-fill, 30px);
+    grid-template-columns: repeat(auto-fill, minmax(30px, 1fr));
     justify-items: center;
+    align-items: center;
     gap: 10px;
     height: 220px;
     @include overflow(y);
@@ -112,8 +128,12 @@
   }
 
   .custom input {
+    min-width: 30px;
     width: 30px;
-    height: 38px;
+    max-width: 30px;
+    min-height: 30px;
+    height: 30px;
+    max-height: 30px;
     border: none;
     background: none;
     padding: 0;

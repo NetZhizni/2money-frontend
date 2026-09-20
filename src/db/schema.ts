@@ -1,5 +1,6 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Account, AppSettings, Budget, Category, ExchangeRateEntry, Receipt, RecurringTemplate, Transaction } from '../types/models'
+import type { Account, AppSettings, Budget, Category, ExchangeRateEntry, Receipt, RecurringTemplate, Tag, Transaction } from '../types/models'
+import { monthKeyFromTimestamp } from '../utils/budget'
 
 /** Minimal family-directory row — mirrors GET /api/users (id/displayName/photoUrl/color only, no email/role). */
 export interface UserDirectoryEntry {
@@ -9,7 +10,7 @@ export interface UserDirectoryEntry {
   color: string
 }
 
-export type SyncableEntity = 'accounts' | 'categories' | 'transactions' | 'recurringTemplates' | 'budgets' | 'receipts'
+export type SyncableEntity = 'accounts' | 'categories' | 'tags' | 'transactions' | 'recurringTemplates' | 'budgets' | 'receipts'
 
 /**
  * One queued local mutation, replayed against the API once online (see
@@ -54,6 +55,7 @@ export interface SyncCursor {
 export class AppDB extends Dexie {
   accounts!: EntityTable<Account, 'id'>
   categories!: EntityTable<Category, 'id'>
+  tags!: EntityTable<Tag, 'id'>
   transactions!: EntityTable<Transaction, 'id'>
   recurringTemplates!: EntityTable<RecurringTemplate, 'id'>
   budgets!: EntityTable<Budget, 'id'>
@@ -65,7 +67,7 @@ export class AppDB extends Dexie {
   exchangeRates!: EntityTable<ExchangeRateEntry, 'id'>
 
   constructor() {
-    super('2money')
+    super('stork')
 
     this.version(1).stores({
       accounts: 'id, ownerId, updatedAt, archived',
@@ -89,6 +91,33 @@ export class AppDB extends Dexie {
       transactions: 'id, *participantIds, accountId, toAccountId, date, updatedAt, receiptId',
       receipts: 'id, ownerId, updatedAt',
     })
+
+    // Adds `tags` (see types/models.ts's Tag) and a multi-entry index on
+    // transactions.tagIds, mirroring *participantIds above.
+    this.version(3).stores({
+      transactions: 'id, *participantIds, accountId, toAccountId, date, updatedAt, receiptId, *tagIds',
+      tags: 'id, ownerId, updatedAt',
+    })
+
+    // Adds `month` (see types/models.ts's Budget) so a category can carry a
+    // distinct budget per calendar month instead of one that silently
+    // applied forever — and a compound index so a (categoryId, month) lookup
+    // (stores/budgets.ts's forCategory) doesn't need a full table scan.
+    // Existing rows predate the field; same backfill rule as the backend's
+    // add-budget-month migration — anchor each to the month it was created
+    // in, since that's the only month it's actually known to apply to.
+    this.version(4)
+      .stores({
+        budgets: 'id, ownerId, categoryId, month, updatedAt, [categoryId+month]',
+      })
+      .upgrade((tx) =>
+        tx
+          .table('budgets')
+          .toCollection()
+          .modify((b: Budget) => {
+            if (!b.month) b.month = monthKeyFromTimestamp(b.createdAt)
+          }),
+      )
   }
 }
 

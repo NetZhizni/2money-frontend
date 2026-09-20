@@ -10,7 +10,8 @@ import type { MessageKey } from '../i18n'
  */
 export const NAV_TABS: Array<{ to: string; labelKey: MessageKey; icon: string; hasPeriod?: boolean }> = [
   { to: '/accounts', labelKey: 'layout.nav.accounts', icon: 'mdiWalletOutline' },
-  { to: '/categories', labelKey: 'layout.nav.categories', icon: 'mdiChartDonut', hasPeriod: true },
   { to: '/operations', labelKey: 'layout.nav.operations', icon: 'mdiNotebookOutline', hasPeriod: true },
+  { to: '/categories', labelKey: 'layout.nav.categories', icon: 'mdiChartDonut', hasPeriod: true },
+  { to: '/budget', labelKey: 'layout.nav.budget', icon: 'mdiPiggyBankOutline', hasPeriod: true },
   { to: '/overview', labelKey: 'layout.nav.overview', icon: 'mdiFinance', hasPeriod: true },
 ]

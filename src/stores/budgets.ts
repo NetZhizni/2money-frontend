@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
+import { shiftMonthKey } from '../utils/budget'
 import { useAuthStore } from './auth'
 import { useViewAsStore } from './viewAs'
 import { assertWritable } from './guards'
@@ -42,8 +43,30 @@ export const useBudgetsStore = defineStore('budgets', () => {
     await collection.removeLocal(id)
   }
 
-  function forCategory(categoryId: string): Budget | undefined {
-    return collection.all.value.find((b) => b.categoryId === categoryId)
+  function forCategory(categoryId: string, month: string): Budget | undefined {
+    return collection.all.value.find((b) => b.categoryId === categoryId && b.month === month)
+  }
+
+  function forMonth(month: string): Budget[] {
+    return collection.all.value.filter((b) => b.month === month)
+  }
+
+  /**
+   * Fills in `month` with whichever of THIS profile's own categories have a
+   * budget the previous month but none yet this one — one tap instead of
+   * re-entering every amount by hand (see BudgetDataView.vue's "copy from
+   * previous month" button). Never overwrites a budget already set for
+   * `month`, so it's always safe to offer again even after a partial copy.
+   * Returns how many were created.
+   */
+  async function copyFromPreviousMonth(month: string): Promise<number> {
+    const previousMonth = shiftMonthKey(month, -1)
+    const already = new Set(forMonth(month).map((b) => b.categoryId))
+    const toCopy = forMonth(previousMonth).filter((b) => !already.has(b.categoryId))
+    for (const b of toCopy) {
+      await add({ categoryId: b.categoryId, amount: b.amount, currency: b.currency, period: b.period, month })
+    }
+    return toCopy.length
   }
 
   return {
@@ -56,5 +79,7 @@ export const useBudgetsStore = defineStore('budgets', () => {
     update,
     remove,
     forCategory,
+    forMonth,
+    copyFromPreviousMonth,
   }
 })

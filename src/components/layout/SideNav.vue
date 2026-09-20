@@ -27,7 +27,7 @@ function onTabClick(tab: (typeof tabs)[number]) {
   <nav class="side-nav">
     <div class="brand">
       <MdiIcon name="mdiWalletOutline" :size="26" color="var(--accent)" />
-      <span>2Money</span>
+      <span>Stork</span>
     </div>
     <RouterLink
       v-for="tab in tabs"

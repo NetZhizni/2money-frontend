@@ -54,7 +54,7 @@ const {
   <div class="login-shell">
     <div class="card">
       <MdiIcon name="mdiWalletOutline" :size="48" color="var(--accent)" />
-      <h1>2Money</h1>
+      <h1>Stork</h1>
       <p class="hint">{{ t('login.signInHint') }}</p>
 
       <button class="btn btn-primary signin-btn" :disabled="signingIn" @click="handleSignIn">

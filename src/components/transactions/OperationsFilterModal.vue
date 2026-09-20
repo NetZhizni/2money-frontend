@@ -5,6 +5,7 @@ import IconCircle from '../common/IconCircle.vue'
 import AmountFieldButton from '../common/AmountFieldButton.vue'
 import { useAccountsStore } from '../../stores/accounts'
 import { useCategoriesStore } from '../../stores/categories'
+import { useTagsStore } from '../../stores/tags'
 import { useSettingsStore } from '../../stores/settings'
 import { t } from '../../i18n'
 import type { MessageKey } from '../../i18n'
@@ -14,6 +15,7 @@ export interface OperationsFilters {
   accountIds: string[]
   types: TransactionType[]
   categoryIds: string[] // top-level and/or subcategory ids, matched against a transaction's own categoryId/subcategoryId
+  tagIds: string[] // matched against a transaction's own tagIds — ANY overlap counts (see Transaction.tagIds)
   minAmount: number | null
   maxAmount: number | null
   dateFrom: string // yyyy-mm-dd, empty = unset
@@ -25,6 +27,7 @@ const emit = defineEmits<{ 'update:modelValue': [OperationsFilters]; close: [] }
 
 const accounts = useAccountsStore()
 const categories = useCategoriesStore()
+const tags = useTagsStore()
 const settings = useSettingsStore()
 const form = reactive<OperationsFilters>({ ...props.modelValue })
 
@@ -64,6 +67,12 @@ function toggleCategory(id: string) {
   else form.categoryIds.splice(idx, 1)
 }
 
+function toggleTag(id: string) {
+  const idx = form.tagIds.indexOf(id)
+  if (idx === -1) form.tagIds.push(id)
+  else form.tagIds.splice(idx, 1)
+}
+
 function apply() {
   emit('update:modelValue', { ...form })
   emit('close')
@@ -73,6 +82,7 @@ function resetAll() {
   form.accountIds = []
   form.types = []
   form.categoryIds = []
+  form.tagIds = []
   form.minAmount = null
   form.maxAmount = null
   form.dateFrom = ''
@@ -124,6 +134,22 @@ function resetAll() {
             </button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>{{ t('transactions.filter.tags') }}</label>
+      <div class="chip-grid">
+        <button
+          v-for="tg in tags.all"
+          :key="tg.id"
+          class="acc-chip"
+          :class="{ selected: form.tagIds.includes(tg.id) }"
+          @click="toggleTag(tg.id)"
+        >
+          <IconCircle icon="mdiTagOutline" :color="tg.color" :size="28" />
+          <span>{{ tg.name }}</span>
+        </button>
       </div>
     </div>
 

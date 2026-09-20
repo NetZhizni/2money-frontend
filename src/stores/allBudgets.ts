@@ -47,8 +47,8 @@ export const useAllBudgetsStore = defineStore('allBudgets', () => {
     loaded.value = false
   }
 
-  function forCategory(categoryId: string, ownerId: string): Budget | undefined {
-    return all.value.find((b) => b.categoryId === categoryId && b.ownerId === ownerId)
+  function forCategory(categoryId: string, ownerId: string, month: string): Budget | undefined {
+    return all.value.find((b) => b.categoryId === categoryId && b.ownerId === ownerId && b.month === month)
   }
 
   return { all, loaded, load, reset, forCategory }

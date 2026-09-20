@@ -97,8 +97,26 @@ export interface Transaction {
   note?: string
   templateId?: string // set if generated from a RecurringTemplate
   receiptId?: string | null // set when saved from a scanned receipt (see Receipt) — groups it with the receipt's other operations
+  tagIds?: string[] // ids of Tag rows attached to this operation (see Tag below) — absent/undefined on older records means "no tags", same as an empty array
   createdAt: number
   updatedAt: number
+}
+
+/**
+ * A free-form label a transaction can carry any number of (see
+ * Transaction.tagIds) — unlike Category (one per operation, hierarchical,
+ * required for expense/income), a tag is optional, flat, and many-to-many:
+ * "Відпустка 2026" can span transactions across several categories and
+ * accounts. Shared across the whole family, same as Category (see
+ * stores/tags.ts) — `ownerId` is create-time provenance only, never an
+ * access filter.
+ */
+export interface Tag {
+  id: string
+  ownerId: string
+  name: string
+  color: string
+  createdAt: number
 }
 
 export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -130,6 +148,8 @@ export interface Budget {
   amount: number
   currency: string
   period: 'monthly' // extensible later
+  /** The specific calendar month this limit applies to, as 'YYYY-MM' (see utils/budget.ts's monthKey) — a category can have a distinct budget per month instead of one that silently applies forever. */
+  month: string
   createdAt: number
 }
 

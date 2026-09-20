@@ -26,12 +26,7 @@ const chartEl = ref<HTMLElement | null>(null)
 
 const option = computed<EChartsOption>(() => ({
   backgroundColor: 'transparent',
-  legend: {
-    bottom: 0,
-    textStyle: { color: colors.value.textSecondary },
-    itemWidth: 10,
-    itemHeight: 10,
-  },
+  legend: { show: false },
   tooltip: {
     trigger: 'item',
     backgroundColor: colors.value.surface,
@@ -43,7 +38,7 @@ const option = computed<EChartsOption>(() => ({
     {
       type: 'pie',
       radius: ['55%', '80%'],
-      center: ['50%', '42%'],
+      center: ['50%', '50%'],
       avoidLabelOverlap: false,
       label: { show: false },
       itemStyle: { borderColor: colors.value.surface, borderWidth: 2 },
@@ -57,7 +52,7 @@ useECharts(chartEl, option)
 
 <template>
   <div class="chart-wrap" :style="{ minHeight: `${CHART_HEIGHT}px` }">
-    <p v-if="!segments.length" class="empty">{{ t('overview.noExpensesForPeriod') }}</p>
+    <p v-if="!segments.length" class="empty">{{ t('overview.noDataForPeriod') }}</p>
     <div v-else ref="chartEl" class="chart" :style="{ height: `${CHART_HEIGHT}px` }" />
   </div>
 </template>

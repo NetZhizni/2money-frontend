@@ -7,6 +7,7 @@
   import { useAllReceiptsStore } from '../stores/allReceipts'
   import { useProfilesStore } from '../stores/profiles'
   import { useCategoriesStore } from '../stores/categories'
+  import { useTagsStore } from '../stores/tags'
   import { useViewAsStore } from '../stores/viewAs'
   import { usePeriodStore } from '../stores/period'
   import { usePopupsStore } from '../stores/popups'
@@ -39,6 +40,7 @@
   const receiptsStore = useReceiptsStore()
   const profiles = useProfilesStore()
   const categories = useCategoriesStore()
+  const tagsStore = useTagsStore()
   const viewAs = useViewAsStore()
   const period = usePeriodStore()
   const popups = usePopupsStore()
@@ -73,11 +75,24 @@
     router.replace({ path: '/operations' })
   }
 
+  // Optional ?tag=<id> filter, arrived from "Витрати за тегами" on Overview.
+  const filterTagId = computed(() =>
+    typeof route.query.tag === 'string' ? route.query.tag : null,
+  )
+  const filterTag = computed(() =>
+    filterTagId.value ? tagsStore.byId(filterTagId.value) : null,
+  )
+
+  function clearTagFilter() {
+    router.replace({ path: '/operations' })
+  }
+
   const showFilterModal = ref(false)
   const filters = ref<OperationsFilters>({
     accountIds: [],
     types: [],
     categoryIds: [],
+    tagIds: [],
     minAmount: null,
     maxAmount: null,
     dateFrom: '',
@@ -89,6 +104,7 @@
       filters.value.accountIds.length > 0 ||
       filters.value.types.length > 0 ||
       filters.value.categoryIds.length > 0 ||
+      filters.value.tagIds.length > 0 ||
       filters.value.minAmount != null ||
       filters.value.maxAmount != null ||
       hasCustomDateRange.value,
@@ -98,6 +114,7 @@
     if (filters.value.accountIds.length) n++
     if (filters.value.types.length) n++
     if (filters.value.categoryIds.length) n++
+    if (filters.value.tagIds.length) n++
     if (filters.value.minAmount != null || filters.value.maxAmount != null) n++
     if (hasCustomDateRange.value) n++
     return n
@@ -108,6 +125,7 @@
       accountIds: [],
       types: [],
       categoryIds: [],
+      tagIds: [],
       minAmount: null,
       maxAmount: null,
       dateFrom: '',
@@ -137,6 +155,9 @@
         (t) => t.accountId === filterAccountId.value || t.toAccountId === filterAccountId.value,
       )
     }
+    if (filterTagId.value) {
+      list = list.filter((t) => t.tagIds?.includes(filterTagId.value!))
+    }
     if (filters.value.accountIds.length) {
       list = list.filter(
         (t) =>
@@ -156,6 +177,9 @@
           (t.categoryId && filters.value.categoryIds.includes(t.categoryId)) ||
           (t.subcategoryId && filters.value.categoryIds.includes(t.subcategoryId)),
       )
+    }
+    if (filters.value.tagIds.length) {
+      list = list.filter((t) => t.tagIds?.some((id) => filters.value.tagIds.includes(id)))
     }
     if (filters.value.minAmount != null) {
       list = list.filter(
@@ -313,6 +337,11 @@
 
   function rowSign(t: Transaction): string {
     return t.type === 'expense' ? '-' : t.type === 'income' ? '+' : ''
+  }
+
+  /** This operation's tags, resolved to their current name/color — silently drops a dangling id (a tag deleted since, see stores/tags.ts's remove()) rather than rendering an empty/broken chip for it. */
+  function visibleTags(tx: Transaction) {
+    return (tx.tagIds ?? []).map((id) => tagsStore.byId(id)).filter((tg): tg is NonNullable<typeof tg> => !!tg)
   }
 
   /**
@@ -563,6 +592,24 @@
       </button>
     </div>
     <div
+      v-if="filterTag"
+      class="filter-chip"
+    >
+      <IconCircle
+        icon="mdiTagOutline"
+        :color="filterTag.color"
+        :size="24"
+      />
+      <span>{{ t('transactions.ops.tagChip', { name: filterTag.name }) }}</span>
+      <button
+        class="clear-filter"
+        :aria-label="t('transactions.ops.removeFilterAria')"
+        @click="clearTagFilter"
+      >
+        ✕
+      </button>
+    </div>
+    <div
       v-if="hasActiveFilters"
       class="filter-chip"
     >
@@ -630,7 +677,9 @@
         ? t('transactions.ops.emptyForCategory')
         : filterAccount
           ? t('transactions.ops.emptyForAccount')
-          : t('transactions.ops.emptyForPeriod')
+          : filterTag
+            ? t('transactions.ops.emptyForTag')
+            : t('transactions.ops.emptyForPeriod')
     }}
   </div>
 
@@ -721,6 +770,16 @@
               class="row-note"
               >{{ row.tx.note }}</span
             >
+            <span v-if="visibleTags(row.tx).length" class="row-tags">
+              <span
+                v-for="tg in visibleTags(row.tx)"
+                :key="tg.id"
+                class="row-tag-chip"
+                :style="{ background: tg.color }"
+              >
+                {{ tg.name }}
+              </span>
+            </span>
           </div>
           <span class="row-amount-col">
             <span
@@ -1077,6 +1136,23 @@
     font-size: 12px;
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .row-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 3px;
+  }
+
+  .row-tag-chip {
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+    border-radius: var(--radius-pill);
+    padding: 3px 8px;
+    @include lineClamp(1);
   }
 
   .row-amount-col {

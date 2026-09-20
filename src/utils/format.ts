@@ -42,7 +42,7 @@ const NUMBER_FORMAT_LOCALE: Record<Exclude<NumberFormatStyle, 'auto'>, string> =
   eu: 'de-DE', // 1.234,56
 }
 
-const NUMBER_FORMAT_STORAGE_KEY = '2money:numberFormat'
+const NUMBER_FORMAT_STORAGE_KEY = 'stork:numberFormat'
 
 export function getNumberFormatSetting(): NumberFormatStyle {
   try {
@@ -82,7 +82,7 @@ function numberFormatLocale(style: NumberFormatStyle): string {
 
 export type CurrencyDisplayStyle = 'symbol' | 'narrowSymbol' | 'code' | 'name'
 
-const CURRENCY_DISPLAY_STORAGE_KEY = '2money:currencyDisplay'
+const CURRENCY_DISPLAY_STORAGE_KEY = 'stork:currencyDisplay'
 
 export function getCurrencyDisplaySetting(): CurrencyDisplayStyle {
   try {
@@ -166,7 +166,7 @@ export function currencyDisplayText(currency: string, opts: { currencyDisplay?: 
 
 export type DateFormatStyle = 'iso' | 'dmy' | 'mdy'
 
-const DATE_FORMAT_STORAGE_KEY = '2money:dateFormat'
+const DATE_FORMAT_STORAGE_KEY = 'stork:dateFormat'
 
 export function getDateFormatSetting(): DateFormatStyle {
   try {

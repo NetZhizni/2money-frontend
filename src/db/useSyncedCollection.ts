@@ -2,7 +2,7 @@ import { liveQuery } from 'dexie'
 import { ref, type Ref } from 'vue'
 import type { SyncableEntity } from './schema'
 import { db } from './schema'
-import { enqueueDelete, enqueueUpsert } from './sync'
+import { enqueueDelete, enqueueDeleteMany, enqueueUpsert } from './sync'
 import { useAuthStore } from '../stores/auth'
 
 /**
@@ -84,5 +84,21 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
     if (authStore.uid) await enqueueDelete(entity, authStore.uid, id)
   }
 
-  return { all, loaded, load, stop, reset, put, removeLocal, pendingIds, isPending }
+  /**
+   * Bulk variant of removeLocal — one Dexie `bulkDelete` + one batched outbox
+   * write instead of N single-row deletes. Each single-row `delete()` re-runs
+   * this collection's `liveQuery` (a full re-query + re-sort of the whole
+   * table) and the Vue reactivity it drives, so deleting many records one at
+   * a time turns an O(n) cascade (e.g. "clear all categories", which also
+   * cascades into every transaction under them) into an O(n²) one. Use this
+   * whenever more than a single record is being removed together.
+   */
+  async function removeManyLocal(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    const authStore = useAuthStore()
+    await (db[entity] as unknown as { bulkDelete: (ids: string[]) => Promise<void> }).bulkDelete(ids)
+    if (authStore.uid) await enqueueDeleteMany(entity, authStore.uid, ids)
+  }
+
+  return { all, loaded, load, stop, reset, put, removeLocal, removeManyLocal, pendingIds, isPending }
 }

@@ -22,7 +22,7 @@
     TRANSFER_CATEGORY_ICON,
     TRANSFER_CATEGORY_COLOR,
   } from '../utils/transferAnalytics'
-  import { budgetProgress, type BudgetProgress } from '../utils/budget'
+  import { budgetProgress, proratedBudgetAmount, type BudgetProgress } from '../utils/budget'
   import { formatMoney } from '../utils/format'
   import { resolveCategoryCurrency } from '../utils/currencies'
   import { categoryCurrencyAmount } from '../utils/transactionAmounts'
@@ -155,16 +155,30 @@
       crossProfileTransferIncome.value,
   )
 
-  // Budgets are always monthly, so a category's spend-vs-budget % only makes
-  // sense against a single month's total — comparing a year/all-time total to
-  // a one-month limit would read as permanently "over budget". Empty outside
-  // the month granularity rather than showing a misleading number.
+  // Budgets are always monthly (see utils/budget.ts's month-key section), but
+  // recalculated for whatever period granularity this page is showing (see
+  // proratedBudgetAmount) rather than only ever comparing spend to a flat
+  // monthly limit — a week or day view compares against that week/day's own
+  // slice of the month's budget, a year/all-time view against the sum of
+  // whatever was actually set.
+  //
+  // In "Всі" mode `budgets.all` already holds every family member's rows for
+  // any given month (see stores/budgets.ts's collection query) — summed per
+  // category here, so the ring/remaining-label reflect the whole family's
+  // combined budget rather than whichever member's row happened to be seen
+  // last (self/other-member modes only ever have one row per category, so
+  // the sum is a no-op there).
   const budgetProgressByCategory = computed<Record<string, BudgetProgress>>(() => {
     const map: Record<string, BudgetProgress> = {}
-    if (period.granularity !== 'month') return map
-    for (const b of budgets.all) {
-      const p = budgetProgress(rolledTotals.value[b.categoryId] ?? 0, b.amount)
-      if (p) map[b.categoryId] = p
+    const categoryIds = new Set(budgets.all.map((b) => b.categoryId))
+    for (const categoryId of categoryIds) {
+      const amount = proratedBudgetAmount(
+        period,
+        (month) => budgets.forMonth(month).filter((b) => b.categoryId === categoryId).reduce((s, b) => s + b.amount, 0),
+        () => budgets.all.filter((b) => b.categoryId === categoryId).reduce((s, b) => s + b.amount, 0),
+      )
+      const p = budgetProgress(rolledTotals.value[categoryId] ?? 0, amount)
+      if (p) map[categoryId] = p
     }
     return map
   })
@@ -367,6 +381,7 @@
         :currency-display="c.currencyDisplay"
         :budget="budgetProgressByCategory[c.id] ?? null"
         :budget-label="budgetLabel(c.id)"
+        :kind="kind"
         @click="openDetail(c)"
       />
       <CategoryTile
@@ -420,6 +435,7 @@
           :currency-display="c.currencyDisplay"
           :budget="budgetProgressByCategory[c.id] ?? null"
           :budget-label="budgetLabel(c.id)"
+          :kind="kind"
           @click="openDetail(c)"
         />
       </div>

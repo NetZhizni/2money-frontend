@@ -6,12 +6,13 @@ import { getFirebaseAuth, googleProvider } from '../firebase'
 import http from '../api/http'
 import { db } from '../db/schema'
 import { startAutoSync } from '../db/sync'
+import { connectSocket, disconnectSocket } from '../api/socket'
 import { t } from '../i18n'
 import { seedFormatSettingsFromBackend } from '../utils/format'
 import { seedLocaleSettingFromBackend } from '../i18n/locale'
 import type { AppSettings, Profile } from '../types/models'
 
-const CACHE_KEY = '2money:profile'
+const CACHE_KEY = 'stork:profile'
 
 /**
  * The synthetic profile local mode (see stores/server.ts's goLocalFirstTime)
@@ -152,11 +153,15 @@ export const useAuthStore = defineStore('auth', () => {
       if (!firebaseUser) {
         profile.value = null
         ready.value = true
+        disconnectSocket()
         return
       }
 
       await loadProfile(firebaseUser, auth)
-      if (profile.value) stopSync = startAutoSync(() => profile.value?.uid ?? null)
+      if (profile.value) {
+        stopSync = startAutoSync(() => profile.value?.uid ?? null)
+        connectSocket()
+      }
       ready.value = true
     })
   }
@@ -181,6 +186,7 @@ export const useAuthStore = defineStore('auth', () => {
     stopAuthListener = null
     stopSync?.()
     stopSync = null
+    disconnectSocket()
     user.value = null
     profile.value = null
     ready.value = false

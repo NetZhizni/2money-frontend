@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import IconCircle from '../common/IconCircle.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import OwnerAvatar from '../common/OwnerAvatar.vue'
+import { useTagsStore } from '../../stores/tags'
 import { pluralize } from '../../utils/format'
 import { t } from '../../i18n'
 import type { Transaction, Profile } from '../../types/models'
@@ -38,6 +39,13 @@ const props = defineProps<{
   netOf: (t: Transaction) => number
 }>()
 const emit = defineEmits<{ editItem: [Transaction]; editReceipt: [] }>()
+
+const tagsStore = useTagsStore()
+
+/** Same as OperationsDataView.vue's own visibleTags — silently drops a dangling id (a tag deleted since). */
+function visibleTags(tx: Transaction) {
+  return (tx.tagIds ?? []).map((id) => tagsStore.byId(id)).filter((tg): tg is NonNullable<typeof tg> => !!tg)
+}
 
 const total = computed(() => props.items.reduce((sum, t) => sum + props.netOf(t), 0))
 
@@ -86,6 +94,16 @@ const itemCountLabel = computed(() =>
         <div class="row-text">
           <span class="row-title">{{ rowMeta(tx).title }}</span>
           <span v-if="tx.note" class="row-note">{{ tx.note }}</span>
+          <span v-if="visibleTags(tx).length" class="row-tags">
+            <span
+              v-for="tg in visibleTags(tx)"
+              :key="tg.id"
+              class="row-tag-chip"
+              :style="{ background: tg.color }"
+            >
+              {{ tg.name }}
+            </span>
+          </span>
         </div>
         <span class="row-amount-col">
           <span class="row-amount" :class="rowMeta(tx).amountClass">
@@ -216,6 +234,23 @@ const itemCountLabel = computed(() =>
   font-size: 11.5px;
   color: var(--text-muted);
   font-style: italic;
+}
+
+.row-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.row-tag-chip {
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  border-radius: var(--radius-pill);
+  padding: 2px 7px;
+  @include lineClamp(1);
 }
 
 .row-amount-col {

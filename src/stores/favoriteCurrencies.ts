@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-const STORAGE_KEY = '2money:favoriteCurrencies'
+const STORAGE_KEY = 'stork:favoriteCurrencies'
 const DEFAULT_FAVORITES = ['UAH', 'USD', 'EUR']
 
 function readStored(): string[] {

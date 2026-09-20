@@ -1,6 +1,6 @@
-# 2Money — frontend
+# Stork — frontend
 
-Family finance tracker (Vue 3 + TypeScript + Vite). Ported from the FinTrack
+Family finance tracker (Vue 3 + TypeScript + Vite). Ported from an earlier
 prototype, with Firestore replaced end-to-end by the `backend/` Express/
 PostgreSQL API — Firebase is used **only** for Google sign-in now.
 
@@ -70,7 +70,47 @@ backup first — Settings → Data → Export JSON).
 - `stores/allAccounts.ts` / `views/TotalBalanceView.vue` read the *whole* `accounts`/`transactions` Dexie tables (own + every other family member's, see `pullAllAccounts`/`pullAllTransactions` in `src/db/sync.ts`) — this app's trust model is full financial transparency within the family.
 - `stores/admin.ts` (owner-only, `/admin` route) is the one exception that talks to the API directly with no offline story — user management needs the server's immediate validation and isn't meaningful to queue offline. Unreachable in local mode (see `router/index.ts`'s guard).
 
-## What's gone from the FinTrack prototype
+## Android (Google Play) via TWA
+
+The app is already a fully installable PWA (manifest + service worker +
+maskable icons), so the path to Google Play is to wrap it in a **Trusted Web
+Activity** rather than rewrite anything — a TWA renders the site in real
+Chrome, so IndexedDB/Dexie sync, `getUserMedia` receipt capture, and
+clipboard paste all keep working unchanged. No Capacitor/Cordova needed
+unless native-only features (biometric app-lock, OS push notifications,
+home-screen widgets) get planned later — those layer on top of the same Vue
+code without a rewrite either.
+
+**Prerequisite: pick one canonical HTTPS domain first.** The repo currently
+has two live deploy targets — Firebase Hosting (`storknest.web.app`,
+auto-deployed by `.github/workflows/firebase-hosting-merge.yml`) and the
+self-hosted Docker/nginx image (`fin2.leleka.pp.ua`, see `allowedHosts` in
+`vite.config.ts`). Whichever one is chosen becomes the app's permanent
+identity in Play Console (Digital Asset Links + package name), so it isn't
+meant to change post-launch.
+
+Once a domain is picked:
+
+1. **Generate the Android package** — easiest via [PWABuilder](https://www.pwabuilder.com)
+   (paste the site URL, no local Android SDK/JDK needed; it can generate a
+   signing key for you) or, if a local Android toolchain is available,
+   `npx @bubblewrap/cli init --manifest=https://<domain>/manifest.webmanifest`.
+2. **Host Digital Asset Links** at `https://<domain>/.well-known/assetlinks.json`
+   with the SHA-256 fingerprint PWABuilder/Bubblewrap prints for the signing
+   key — see `public/.well-known/assetlinks.json` in this repo, which both
+   deploy targets already serve correctly as a static file (nginx's
+   `try_files` and Firebase Hosting's exact-file match both take priority
+   over the SPA catch-all rewrite, so no server config changes are needed).
+   Without this file matching, the TWA falls back to showing a browser
+   address bar instead of a full-screen app.
+3. **Play Console setup**: privacy policy URL, the Data Safety form (this app
+   collects financial data + Google account info, and shares data across
+   family members — answer accordingly), Play App Signing enrollment.
+4. **Content updates ship as normal web deploys** — no store review needed
+   unless the native shell itself (icons, manifest identity, asset links)
+   changes.
+
+## What's gone from the original prototype
 
 - `firebase/firestore`, `firestore.rules`, the Firestore `allowlist` doc — replaced by the backend's `users` table (see `../backend/README.md`'s "Authorization model").
-- Quasar (the previous, unrelated `frontend/` prototype used it) — this app uses FinTrack's own hand-built component set (`components/common/*`) instead.
+- Quasar (the previous, unrelated `frontend/` prototype used it) — this app uses its own hand-built component set (`components/common/*`) instead.

@@ -11,7 +11,7 @@
   },
   "author": "oleksyleleka@gmail.com",
   "license": "ISC",
-  "description": "2Money — застосунок для ведення сімейних фінансів",
+  "description": "Stork — застосунок для ведення сімейних фінансів",
   "dependencies": {
     "@mdi/js": "^7.4.47",
     "axios": "^1.20.0",
@@ -19,6 +19,7 @@
     "echarts": "^6.1.0",
     "firebase": "^12.19.0",
     "pinia": "^4.0.3",
+    "socket.io-client": "^4.8.3",
     "uuid": "^14.0.2",
     "vue": "^3.5.42",
     "vue-i18n": "^11.4.10",

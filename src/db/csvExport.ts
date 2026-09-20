@@ -1,6 +1,7 @@
 import { useAllAccountsStore } from '../stores/allAccounts'
 import { useProfilesStore } from '../stores/profiles'
 import { useCategoriesStore } from '../stores/categories'
+import { useTagsStore } from '../stores/tags'
 import { useTransactionsStore } from '../stores/transactions'
 import { useSettingsStore } from '../stores/settings'
 import { useViewAsStore } from '../stores/viewAs'
@@ -50,6 +51,7 @@ export async function buildTransactionsCsv(): Promise<string> {
   const allAccounts = useAllAccountsStore()
   const profiles = useProfilesStore()
   const categories = useCategoriesStore()
+  const tags = useTagsStore()
   const transactions = useTransactionsStore()
   const settings = useSettingsStore()
   const viewAs = useViewAsStore()
@@ -61,6 +63,7 @@ export async function buildTransactionsCsv(): Promise<string> {
     t('csv.header.destAccount'),
     t('csv.header.category'),
     t('csv.header.subcategory'),
+    t('csv.header.tags'),
     t('csv.header.amount'),
     t('csv.header.currency'),
     t('csv.header.baseAmount', { currency: settings.baseCurrency }),
@@ -86,6 +89,7 @@ export async function buildTransactionsCsv(): Promise<string> {
       t.type === 'transfer' ? resolveAccountLabel(t.toAccountId, viewAs.effectiveUid, allAccounts.all, profiles.all) : '',
       categories.byId(t.categoryId)?.name ?? '',
       categories.byId(t.subcategoryId)?.name ?? '',
+      (t.tagIds ?? []).map((id) => tags.byId(id)?.name).filter(Boolean).join(', '),
       formatAmount(signedAmount, decimalSeparator),
       t.currency,
       formatAmount(signedBaseAmount, decimalSeparator),
@@ -98,5 +102,5 @@ export async function buildTransactionsCsv(): Promise<string> {
 
 export async function downloadTransactionsCsv(): Promise<void> {
   const csv = await buildTransactionsCsv()
-  downloadFile(csv, `fintrack-transactions-${dateKey(Date.now())}.csv`, 'text/csv;charset=utf-8')
+  downloadFile(csv, `stork-transactions-${dateKey(Date.now())}.csv`, 'text/csv;charset=utf-8')
 }
