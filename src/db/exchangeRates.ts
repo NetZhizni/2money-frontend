@@ -73,7 +73,8 @@ export async function getRateForDate(currency: string, when: number | Date = Dat
   if (memCache.has(cacheKey)) return memCache.get(cacheKey)!
 
   const cached = await db.exchangeRates
-    .where({ dateKey: dk, currency })
+    .where('[dateKey+currency]')
+    .equals([dk, currency])
     .and((entry) => entry.base === base)
     .first()
   if (cached) {

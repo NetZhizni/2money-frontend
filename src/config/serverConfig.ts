@@ -152,7 +152,7 @@ export function persistCachedRemoteConfig(config: RemoteConfig | null): void {
 
 /**
  * Whether *any* network sync/scan call is meaningful right now — a server
- * URL is persisted, whether or not it's currently reachable. src/db/sync.ts
+ * URL is persisted, whether or not it's currently reachable. src/db/sync/
  * checks this before every push/pull so local-mode devices (see
  * getPersistedLocalMode) never fire a doomed request against a server that
  * was never configured in the first place.

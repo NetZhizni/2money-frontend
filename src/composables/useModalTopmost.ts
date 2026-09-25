@@ -1,10 +1,13 @@
-import { computed, onBeforeUnmount, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, onBeforeUnmount, shallowReactive, watch, type ComputedRef, type Ref } from 'vue'
 
 // Module-level (one shared stack for the whole app, not per-component): the
 // ids of every Modal currently open, in the order they were opened. Every
 // Modal is Teleported to <body>, so DOM order can't tell us which one was
-// opened last — this can.
-const openIds: symbol[] = []
+// opened last — this can. Reactive on purpose: as a plain array the
+// `computed` returned below tracked nothing, so it cached whatever it saw on
+// its first read and never changed — a Modal with another one opened over it
+// stayed non-inert (and kept its Tab trap listening) for good.
+const openIds = shallowReactive<symbol[]>([])
 
 function setAppInert(inert: boolean) {
   // The Vue app root — everything a Modal isn't. Marking it `inert` while

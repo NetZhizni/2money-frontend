@@ -12,6 +12,7 @@ const routes = [
   { path: '/', redirect: '/categories' },
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
   { path: '/tags', name: 'tags', component: () => import('../views/TagsView.vue') },
+  { path: '/data', name: 'data', component: () => import('../views/DataView.vue') },
   {
     path: '/categories',
     component: () => import('../views/PeriodPageView.vue'),

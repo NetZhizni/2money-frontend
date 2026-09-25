@@ -8,7 +8,7 @@ import { t } from '../../i18n'
 import type { Tag } from '../../types/models'
 
 const props = defineProps<{ open: boolean; tag?: Tag | null }>()
-const emit = defineEmits<{ close: []; saved: [Tag]; deleted: [] }>()
+const emit = defineEmits<{ close: []; saved: [Tag]; deleted: []; archived: [] }>()
 const tags = useTagsStore()
 
 const isEdit = computed(() => !!props.tag)
@@ -63,6 +63,10 @@ async function submit() {
     </button>
 
     <div v-if="isEdit" class="danger-zone">
+      <button class="btn btn-secondary" @click="emit('archived')">
+        {{ props.tag?.archived ? t('tags.form.unarchive') : t('tags.form.archive') }}
+      </button>
+      <p v-if="!props.tag?.archived" class="hint">{{ t('tags.form.archiveHint') }}</p>
       <button class="btn btn-danger" @click="emit('deleted')">{{ t('tags.form.deleteTag') }}</button>
     </div>
   </Modal>
@@ -90,8 +94,16 @@ async function submit() {
   margin-top: 12px;
   padding-top: 16px;
   border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .danger-zone .btn {
   width: 100%;
+}
+.hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0 2px 4px;
 }
 </style>

@@ -116,6 +116,7 @@ export interface Tag {
   ownerId: string
   name: string
   color: string
+  archived?: boolean // hidden from the tag picker for new operations, kept on existing ones — absent on records created before archiving existed, same as false
   createdAt: number
 }
 

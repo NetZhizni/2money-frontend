@@ -183,7 +183,7 @@ export const useServerStore = defineStore('server', () => {
    * doc comment), that must be wiped first rather than silently handed to
    * what the user believes is a brand-new local profile — categories
    * especially, since they're an unfiltered, family-wide table (see
-   * db/sync.ts) that would otherwise show up unchanged under the new "local"
+   * db/sync/) that would otherwise show up unchanged under the new "local"
    * identity. Only reloads in that (rare) branch, to fully re-derive every
    * singleton against the now-empty DB — the common, truly-fresh-device path
    * stays instant, no reload flash.

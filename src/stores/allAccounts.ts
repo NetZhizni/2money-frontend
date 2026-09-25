@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { liveQuery } from 'dexie'
 import { db } from '../db/schema'
-import { pullAllAccounts } from '../db/sync'
+import { pullEntity } from '../db/sync'
 import type { Account } from '../types/models'
 
 /**
@@ -10,7 +10,7 @@ import type { Account } from '../types/models'
  * COUNTERPARTY account needs to be displayed (operations list, search, edit
  * modal) looks it up here instead of the per-profile `accounts` store (own
  * accounts only). Own and foreign accounts live in the same Dexie table
- * (see src/db/sync.ts's pullAllAccounts) — this is just an unfiltered view of it.
+ * (see src/db/sync/pull.ts's pullEntity) — this is just an unfiltered view of it.
  */
 export const useAllAccountsStore = defineStore('allAccounts', () => {
   const all = ref<Account[]>([])
@@ -32,7 +32,7 @@ export const useAllAccountsStore = defineStore('allAccounts', () => {
         },
         error: (error) => console.error('[allAccounts] liveQuery failed', error),
       })
-      void pullAllAccounts()
+      void pullEntity('accounts', { scope: 'all' })
     })
   }
 

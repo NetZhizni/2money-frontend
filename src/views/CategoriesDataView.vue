@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed, nextTick, ref, watch } from 'vue'
   import type { ComponentPublicInstance } from 'vue'
   import { useRouter } from 'vue-router'
   import { useCategoriesStore } from '../stores/categories'
@@ -281,15 +281,21 @@
     detailCategory.value = c
   }
 
-  function openEditFromDetail(c: Category) {
+  // Closing the detail sheet and opening the next popup in the same tick
+  // coalesces both into one Vue flush — see App.vue's comment above
+  // handleTransactionDeleteRequest for why that can crash the patcher. Same
+  // for openAddOperation below.
+  async function openEditFromDetail(c: Category) {
     detailCategory.value = null
+    await nextTick()
     formCategory.value = c
     formDefaultParent.value = null
     showForm.value = true
   }
 
-  function openAddSubcategory(parent: Category) {
+  async function openAddSubcategory(parent: Category) {
     detailCategory.value = null
+    await nextTick()
     formCategory.value = null
     formDefaultParent.value = parent.id
     showForm.value = true
@@ -330,9 +336,13 @@
       confirmLabel: t('common.delete'),
       danger: true,
       onConfirm: async () => {
-        await categories.remove(category.id)
-        await transactions.load()
-        popups.closeConfirm()
+        // Throws if an operation under it arrived since the form checked (see
+        // CategoryFormModal.vue's requestDelete) — the category then just stays.
+        try {
+          await categories.remove(category.id)
+        } finally {
+          popups.closeConfirm()
+        }
       },
     })
   }
@@ -342,8 +352,9 @@
     router.push({ path: '/operations', query: { category: category.id } })
   }
 
-  function openAddOperation(category: Category) {
+  async function openAddOperation(category: Category) {
     detailCategory.value = null
+    await nextTick()
     popups.openTransactionForm({ presetCategoryId: category.id })
   }
 </script>

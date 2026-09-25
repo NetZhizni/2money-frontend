@@ -120,6 +120,29 @@ async function handleMergeSelect(targetId: string) {
   })
 }
 
+// Only an account with no operations at all can be deleted (see
+// stores/accounts.ts's remove()) — for one that has any, this offers what
+// can be done instead: archive it (unless it already is) or merge it into
+// another account (when there's one in the same currency). Checked again
+// here rather than trusting `currencyLocked`, which is only as fresh as
+// this form's opening.
+async function requestDelete() {
+  const account = props.account
+  if (!account) return
+  if (!(await accounts.hasTransactions(account.id))) {
+    emit('deleted')
+    return
+  }
+  const actions = []
+  if (!account.archived) actions.push({ label: t('accounts.form.archive'), run: () => emit('archived') })
+  if (mergeCandidates.value.length) actions.push({ label: t('accounts.form.mergePickerTitle'), run: () => (showMergePicker.value = true) })
+  popups.choiceDialog({
+    title: t('accounts.form.inUseTitle'),
+    message: t('accounts.form.inUseMessage', { name: account.name }),
+    actions,
+  })
+}
+
 // Previewed at the current amount-agnostic base setting (formatMoney's own
 // default) rather than a fixed style, so this option's sublabel always shows
 // exactly what "base" currently resolves to — same live-preview idea as
@@ -286,7 +309,7 @@ function submit() {
       <button class="btn btn-secondary" @click="emit('archived')">
         {{ props.account?.archived ? t('accounts.form.unarchive') : t('accounts.form.archive') }}
       </button>
-      <button class="btn btn-danger" @click="emit('deleted')">{{ t('accounts.form.deleteAccount') }}</button>
+      <button class="btn btn-danger" @click="requestDelete">{{ t('accounts.form.deleteAccount') }}</button>
     </div>
   </Modal>
 

@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
-import { generateDueRecurring } from '../db/recurring'
+import { runDueRecurring } from '../db/recurring'
 import { useAuthStore } from './auth'
 import type { RecurringTemplate } from '../types/models'
 
@@ -37,13 +37,14 @@ export const useTemplatesStore = defineStore('templates', () => {
   }
 
   /**
-   * Runs due-recurring generation. Call once on app start. Writes go through
-   * `transactions.add`/this store's own `update` (both Dexie + outbox), so
-   * the already-subscribed liveQuery views pick them up with no manual reload.
+   * Runs due-recurring generation. Call once on app start. Writes go to Dexie
+   * + the outbox (see db/recurring.ts's runDueRecurring, which also keeps two
+   * tabs from generating the same occurrences), so the already-subscribed
+   * liveQuery views pick them up with no manual reload.
    */
   async function runDueGeneration(): Promise<number> {
     if (!authStore.uid) return 0
-    return generateDueRecurring(collection.all.value, authStore.uid, Date.now())
+    return runDueRecurring(authStore.uid)
   }
 
   return {

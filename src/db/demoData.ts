@@ -4,8 +4,7 @@ import { useTagsStore } from '../stores/tags'
 import { useTransactionsStore } from '../stores/transactions'
 import { useAuthStore } from '../stores/auth'
 import { useSettingsStore } from '../stores/settings'
-import { db } from './schema'
-import { enqueueUpsertMany } from './sync'
+import { putAndQueue } from './sync'
 import { newId } from '../utils/id'
 import { convertAmount } from './exchangeRates'
 import { resolveCategoryCurrency } from '../utils/currencies'
@@ -331,6 +330,7 @@ export async function loadDemoData(): Promise<void> {
   const uahAccountIds = [created['Mono'].id, created['PrivatBank'].id]
   const usdAccountId = created[t('demo.account.usdCash')].id
   const savingsAccountId = created[t('demo.account.savings')].id
+  const loanAccountId = created[t('demo.account.loan')].id
 
   // Every demo account's own currency, by id — used below to fill `toAmount`
   // (see Transaction.toAmount) on EVERY transaction, not just the ones that
@@ -432,6 +432,54 @@ export async function loadDemoData(): Promise<void> {
         updatedAt: now,
       })
     }
+  }
+
+  // One lend-and-partial-repay pair, so the demo also exercises the `loan`
+  // account type (see Account.loanDirection): money out to the loan account,
+  // then part of it back later — the repayment is skipped entirely if its
+  // date would land in the future, so the demo never shows a transaction
+  // that hasn't "happened" yet.
+  const loanGivenAt = new Date(startDay)
+  loanGivenAt.setDate(loanGivenAt.getDate() + randInt(5, 20))
+  loanGivenAt.setHours(randInt(10, 19), randInt(0, 59), 0, 0)
+  const loanFromId = pick(uahAccountIds)
+  const loanAmount = randFloat(3000, 9000)
+  newTransactions.push({
+    id: newId(),
+    ownerId,
+    participantIds: [ownerId],
+    type: 'transfer',
+    date: loanGivenAt.getTime(),
+    accountId: loanFromId,
+    toAccountId: loanAccountId,
+    amount: loanAmount,
+    currency: accountCurrency[loanFromId],
+    toAmount: loanAmount,
+    note: t('demo.note.loan.lent'),
+    createdAt: now,
+    updatedAt: now,
+  })
+
+  const loanRepaidAt = new Date(loanGivenAt)
+  loanRepaidAt.setDate(loanRepaidAt.getDate() + randInt(30, 60))
+  if (loanRepaidAt <= today) {
+    const loanRepaidTo = pick(uahAccountIds)
+    const repaidAmount = roundToNiceAmount(loanAmount * randFloat(0.3, 0.6))
+    newTransactions.push({
+      id: newId(),
+      ownerId,
+      participantIds: [ownerId],
+      type: 'transfer',
+      date: loanRepaidAt.getTime(),
+      accountId: loanAccountId,
+      toAccountId: loanRepaidTo,
+      amount: repaidAmount,
+      currency: accountCurrency[loanAccountId],
+      toAmount: repaidAmount,
+      note: t('demo.note.loan.repaid'),
+      createdAt: now,
+      updatedAt: now,
+    })
   }
 
   // A handful of multi-item receipts spread across the same window, to show
@@ -550,14 +598,7 @@ export async function loadDemoData(): Promise<void> {
     }
   }
 
-  await db.transactions.bulkPut(newTransactions)
-  await enqueueUpsertMany('transactions', ownerId, newTransactions)
-  if (newReceipts.length) {
-    await db.receipts.bulkPut(newReceipts)
-    await enqueueUpsertMany('receipts', ownerId, newReceipts)
-  }
-  if (newBudgets.length) {
-    await db.budgets.bulkPut(newBudgets)
-    await enqueueUpsertMany('budgets', ownerId, newBudgets)
-  }
+  await putAndQueue('transactions', ownerId, newTransactions)
+  await putAndQueue('receipts', ownerId, newReceipts)
+  await putAndQueue('budgets', ownerId, newBudgets)
 }

@@ -22,7 +22,7 @@ function toProfile(entry: UserDirectoryEntry): Profile {
 /**
  * Every active family member (small, family-scale list) — used to label
  * cross-profile transfer counterparties and the combined-balance breakdown.
- * Backed by Dexie (`db.users`, kept fresh by src/db/sync.ts's
+ * Backed by Dexie (`db.users`, kept fresh by src/db/sync/pull.ts's
  * pullUserDirectory), so it's available offline from whatever was last synced.
  */
 export const useProfilesStore = defineStore('profiles', () => {

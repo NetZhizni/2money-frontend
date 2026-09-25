@@ -1,5 +1,4 @@
-import { db } from './schema'
-import { enqueueDeleteMany } from './sync'
+import { deleteAndQueue } from './sync'
 import { useAccountsStore } from '../stores/accounts'
 import { useTransactionsStore } from '../stores/transactions'
 import { useTemplatesStore } from '../stores/templates'
@@ -12,13 +11,19 @@ import { useAuthStore } from '../stores/auth'
  * budget owned by the current profile. Categories and settings (base
  * currency, theme) are left untouched — they're configuration, not financial
  * data, and demo data never needed them cleared either (see
- * stores/categories.ts's own `removeAll` for that, a separate opt-in
- * action). Only rows this profile actually owns are removed (not
- * cross-profile transfers someone else sent us) — this is a reset of *my*
- * data, not theirs. Also what makes loading demo data a second time (after a
- * reset) safe rather than piling up duplicate budget rows for the same
- * category+month — see demoData.ts's own guard, which relies on this having
- * already run.
+ * stores/categories.ts's own `removeUnused` for that, a separate opt-in
+ * action). Tags stay too, even the ones this profile created: like
+ * categories they're shared by the whole family, so deleting them would strip
+ * them from everyone else's operations as well. Only rows this profile
+ * actually owns are removed (not cross-profile transfers someone else sent
+ * us) — this is a reset of *my* data, not theirs. Transactions are queued
+ * before accounts, so an account's delete reaches the server once nothing of
+ * ours is left on it; one that such a transfer from someone else still
+ * points at is refused as in use and comes back (see the backend's
+ * sync/hooks/accounts.js beforeRemove). Also what makes loading
+ * demo data a second time (after a reset) safe rather than piling up
+ * duplicate budget rows for the same category+month — see demoData.ts's own
+ * guard, which relies on this having already run.
  */
 export async function resetAllData(): Promise<void> {
   const accounts = useAccountsStore()
@@ -35,15 +40,9 @@ export async function resetAllData(): Promise<void> {
   const receiptIds = receipts.all.filter((r) => r.ownerId === ownerId).map((r) => r.id)
   const budgetIds = budgets.all.filter((b) => b.ownerId === ownerId).map((b) => b.id)
 
-  await db.transactions.bulkDelete(ownTransactionIds)
-  await db.accounts.bulkDelete(accountIds)
-  await db.recurringTemplates.bulkDelete(templateIds)
-  await db.receipts.bulkDelete(receiptIds)
-  await db.budgets.bulkDelete(budgetIds)
-
-  await enqueueDeleteMany('transactions', ownerId, ownTransactionIds)
-  await enqueueDeleteMany('accounts', ownerId, accountIds)
-  await enqueueDeleteMany('recurringTemplates', ownerId, templateIds)
-  await enqueueDeleteMany('receipts', ownerId, receiptIds)
-  await enqueueDeleteMany('budgets', ownerId, budgetIds)
+  await deleteAndQueue('transactions', ownerId, ownTransactionIds)
+  await deleteAndQueue('accounts', ownerId, accountIds)
+  await deleteAndQueue('recurringTemplates', ownerId, templateIds)
+  await deleteAndQueue('receipts', ownerId, receiptIds)
+  await deleteAndQueue('budgets', ownerId, budgetIds)
 }

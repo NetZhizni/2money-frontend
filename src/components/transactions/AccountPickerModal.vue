@@ -31,7 +31,13 @@ const groups = computed(() => {
   return labels.map((label) => ({ label, items: byLabel.get(label)! }))
 })
 
+// A quick double tap lands its second tap on the same row while the sheet is
+// still playing its leave animation — ignore it. Otherwise the caller gets a
+// second `select` after it has already reset which slot the picker was for
+// (TransactionFormModal's showAccountPicker), and a transfer's destination
+// account ended up written into "З рахунку" as well.
 function choose(id: string) {
+  if (!props.open) return
   emit('select', id)
   emit('close')
 }

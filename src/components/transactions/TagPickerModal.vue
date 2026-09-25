@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import { useTagsStore } from '../../stores/tags'
@@ -13,6 +13,19 @@ const tags = useTagsStore()
 // color — the full ColorPicker (Settings → Tags → edit) is where someone
 // actually picks one on purpose.
 const QUICK_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#4a3aa7', '#00838f', '#c2185b']
+
+// Archived tags aren't offered for new use — except ones this operation
+// already carried when the picker opened, which stay listed (even once
+// unticked) so they can still be taken off, or put back before closing.
+const openedWithIds = ref<string[]>([])
+watch(
+  () => props.open,
+  (isOpen) => {
+    if (isOpen) openedWithIds.value = [...props.selectedIds]
+  },
+  { immediate: true },
+)
+const visibleTags = computed(() => tags.all.filter((tg) => !tg.archived || openedWithIds.value.includes(tg.id)))
 
 function isSelected(id: string): boolean {
   return props.selectedIds.includes(id)
@@ -42,10 +55,10 @@ async function createTag() {
 
 <template>
   <Modal :open="open" :title="t('tags.picker.title')" top @close="emit('close')">
-    <p v-if="!tags.all.length" class="empty">{{ t('tags.picker.empty') }}</p>
+    <p v-if="!visibleTags.length" class="empty">{{ t('tags.picker.empty') }}</p>
     <div v-else class="chip-grid">
       <button
-        v-for="tg in tags.all"
+        v-for="tg in visibleTags"
         :key="tg.id"
         type="button"
         class="chip"

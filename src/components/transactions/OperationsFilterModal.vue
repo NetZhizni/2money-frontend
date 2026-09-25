@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import Modal from '../common/Modal.vue'
 import IconCircle from '../common/IconCircle.vue'
 import AmountFieldButton from '../common/AmountFieldButton.vue'
@@ -48,6 +48,10 @@ const TYPE_OPTIONS: Array<{ value: TransactionType; labelKey: MessageKey }> = [
 
 // Both kinds (expense + income) — operations aren't scoped to one kind.
 const topCategories = categories.topLevel()
+
+// Archived tags stay filterable (finding a finished trip's operations is
+// exactly what one is still good for), just listed after the active ones.
+const filterTags = computed(() => [...tags.active, ...tags.archived])
 
 function toggleAccount(id: string) {
   const idx = form.accountIds.indexOf(id)
@@ -141,10 +145,10 @@ function resetAll() {
       <label>{{ t('transactions.filter.tags') }}</label>
       <div class="chip-grid">
         <button
-          v-for="tg in tags.all"
+          v-for="tg in filterTags"
           :key="tg.id"
           class="acc-chip"
-          :class="{ selected: form.tagIds.includes(tg.id) }"
+          :class="{ selected: form.tagIds.includes(tg.id), archived: tg.archived }"
           @click="toggleTag(tg.id)"
         >
           <IconCircle icon="mdiTagOutline" :color="tg.color" :size="28" />
@@ -229,6 +233,10 @@ function resetAll() {
   border-color: var(--accent);
   color: var(--text-primary);
   background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+
+.acc-chip.archived:not(.selected) {
+  opacity: 0.6;
 }
 
 .cat-filter-list {

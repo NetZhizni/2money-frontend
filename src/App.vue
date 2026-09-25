@@ -9,6 +9,7 @@
   import LanguageOnboardingView from './views/LanguageOnboardingView.vue'
   import BaseCurrencyOnboardingView from './views/BaseCurrencyOnboardingView.vue'
   import UpdateToast from './components/common/UpdateToast.vue'
+  import SyncIssuesToast from './components/layout/SyncIssuesToast.vue'
   import TransactionFormModal from './components/transactions/TransactionFormModal.vue'
   import ReceiptEditModal from './components/transactions/ReceiptEditModal.vue'
   import ConfirmDialog from './components/common/ConfirmDialog.vue'
@@ -294,6 +295,7 @@
     {{ t('common.loading') }}
   </div>
   <UpdateToast />
+  <SyncIssuesToast />
 
   <TransactionFormModal
     :open="popups.transactionForm.open"
@@ -327,8 +329,11 @@
     :message="popups.confirm.message"
     :confirm-label="popups.confirm.confirmLabel"
     :danger="popups.confirm.danger"
+    :secondary-label="popups.confirm.secondaryLabel"
+    :hide-confirm="!popups.confirm.onConfirm"
     @close="popups.closeConfirm()"
     @confirm="popups.confirm.onConfirm?.()"
+    @secondary="popups.confirm.onSecondary?.()"
   />
 </template>
 

@@ -16,6 +16,7 @@ const readOnly = computed(() => viewAs.isReadOnly)
 
 const showForm = ref(false)
 const editingTag = ref<Tag | null>(null)
+const showArchived = ref(false)
 
 function openNew() {
   editingTag.value = null
@@ -30,6 +31,12 @@ function closeForm() {
   showForm.value = false
 }
 function handleSaved() {
+  showForm.value = false
+}
+async function handleArchiveToggle() {
+  const tag = editingTag.value
+  if (!tag) return
+  await tags.setArchived(tag.id, !tag.archived)
   showForm.value = false
 }
 function handleDeleteRequest() {
@@ -63,19 +70,33 @@ function handleDeleteRequest() {
           {{ t('tags.addTag') }}
         </button>
 
-        <ul v-if="tags.all.length" class="tag-list">
-          <li v-for="tg in tags.all" :key="tg.id" class="tag-row" @click="openEdit(tg)">
+        <ul v-if="tags.active.length" class="tag-list">
+          <li v-for="tg in tags.active" :key="tg.id" class="tag-row" @click="openEdit(tg)">
             <span class="dot" :style="{ background: tg.color }" />
             <span class="tag-name">{{ tg.name }}</span>
             <MdiIcon v-if="!readOnly" name="mdiChevronRight" :size="18" color="var(--text-muted)" />
           </li>
         </ul>
-        <p v-else class="hint">{{ t('tags.empty') }}</p>
+        <p v-else-if="!tags.archived.length" class="hint">{{ t('tags.empty') }}</p>
+
+        <div v-if="tags.archived.length" class="archived-section">
+          <button class="archived-toggle" @click="showArchived = !showArchived">
+            <MdiIcon :name="showArchived ? 'mdiChevronUp' : 'mdiChevronDown'" :size="18" />
+            {{ t('tags.archivedToggle', { count: tags.archived.length }) }}
+          </button>
+          <ul v-if="showArchived" class="tag-list">
+            <li v-for="tg in tags.archived" :key="tg.id" class="tag-row archived" @click="openEdit(tg)">
+              <span class="dot" :style="{ background: tg.color }" />
+              <span class="tag-name">{{ tg.name }}</span>
+              <MdiIcon v-if="!readOnly" name="mdiChevronRight" :size="18" color="var(--text-muted)" />
+            </li>
+          </ul>
+        </div>
       </div>
     </div>
   </div>
 
-  <TagFormModal :open="showForm" :tag="editingTag" @close="closeForm" @saved="handleSaved" @deleted="handleDeleteRequest" />
+  <TagFormModal :open="showForm" :tag="editingTag" @close="closeForm" @saved="handleSaved" @deleted="handleDeleteRequest" @archived="handleArchiveToggle" />
 </template>
 
 <style lang="scss" scoped>
@@ -117,6 +138,24 @@ function handleDeleteRequest() {
 }
 .tag-row:active {
   transform: scale(0.98);
+}
+.tag-row.archived {
+  opacity: 0.6;
+}
+.archived-section {
+  margin-top: 16px;
+}
+.archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 4px;
 }
 .dot {
   width: 14px;

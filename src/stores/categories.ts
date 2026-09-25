@@ -68,11 +68,29 @@ export const useCategoriesStore = defineStore('categories', () => {
 
   /** Whether ANY family member has an operation against this category (or as its subcategory) — see AccountModel/CategoryModel's server-side twin, which enforces this for real. */
   async function hasTransactions(id: string): Promise<boolean> {
-    const count = await db.transactions
-      .toCollection()
-      .filter((t) => t.categoryId === id || t.subcategoryId === id)
-      .count()
-    return count > 0
+    return (await idsWithTransactions([id])).size > 0
+  }
+
+  /** The ids among `ids` that ANY family member has an operation filed under (as its category or subcategory) — one pass over the table, however many ids. */
+  async function idsWithTransactions(ids: string[]): Promise<Set<string>> {
+    const wanted = new Set(ids)
+    const used = new Set<string>()
+    await db.transactions.toCollection().each((t) => {
+      if (t.categoryId && wanted.has(t.categoryId)) used.add(t.categoryId)
+      if (t.subcategoryId && wanted.has(t.subcategoryId)) used.add(t.subcategoryId)
+    })
+    return used
+  }
+
+  /**
+   * Whether this category — or any of its subcategories, which a delete
+   * would take along — has operations. Checked on the subcategories
+   * themselves too rather than trusting every such operation to also carry
+   * the parent's id: merge() reparents subcategories without being able to
+   * rewrite another member's operations under them.
+   */
+  async function inUse(id: string): Promise<boolean> {
+    return (await idsWithTransactions(collectWithDescendants(id))).size > 0
   }
 
   /**
@@ -127,39 +145,39 @@ export const useCategoriesStore = defineStore('categories', () => {
   }
 
   /**
-   * Hard delete: removes the category, all its subcategories, and every
-   * transaction tied to any of them. Two bulk operations (all matching
-   * transactions, then all the categories themselves) rather than cascading
-   * one category at a time — see removeManyLocal's doc comment for why
-   * one-at-a-time was slow.
+   * Hard delete of the category and all its subcategories — only while
+   * nobody in the family has an operation under any of them (see inUse).
+   * Deleting one that has operations would either take them along (and
+   * silently change the balance of every account they were paid from) or
+   * leave them pointing at nothing; archive or merge() is the way out for
+   * that one instead (see CategoryFormModal.vue's requestDelete). The
+   * server refuses it the same way (the backend's sync/hooks/categories.js
+   * beforeRemove), for an operation this device hasn't pulled yet.
    */
   async function remove(id: string): Promise<void> {
     assertWritable()
-    const transactions = useTransactionsStore()
-    const ids = collectWithDescendants(id)
-    await transactions.removeByCategories(ids)
-    await collection.removeManyLocal(ids)
+    if (await inUse(id)) throw new Error(t('errors.categoryInUse'))
+    await collection.removeManyLocal(collectWithDescendants(id))
   }
 
   /**
-   * Hard delete EVERY category (both kinds) and every transaction tied to
-   * any of them — the "Очистити всі категорії" danger-zone action in
-   * Settings, for wiping a mismatched-language or otherwise-stale category
-   * set before reseeding it (see db/seed.ts's `seedDefaultCategoriesNow`).
-   * Every category id is collected up front and removed via the same two
-   * bulk operations `remove()` uses (all matching transactions, then all
-   * categories) instead of cascading through `remove()` one top-level
-   * category at a time — that looped single-row deletes, and each one
-   * re-triggers a full re-query/re-sort of the whole transactions table
-   * (see db/useSyncedCollection.ts's removeManyLocal), which made clearing a
-   * large category set visibly slow.
+   * Hard delete of every category (both kinds) nobody has an operation
+   * under — the "clear categories" action in Settings, for clearing out a
+   * mismatched-language or otherwise-stale category set before reseeding it
+   * (see db/seed.ts's `seedDefaultCategoriesNow`). One still in use stays
+   * (same rule as remove()), and so does the parent of one that stays, so no
+   * subcategory is left without its parent. One bulk delete rather than
+   * looping remove() — each single-row delete re-triggers a full
+   * re-query/re-sort of the table (see db/useSyncedCollection.ts's
+   * removeManyLocal), which made clearing a large set visibly slow.
    */
-  async function removeAll(): Promise<void> {
+  async function removeUnused(): Promise<{ removed: number; kept: number }> {
     assertWritable()
-    const transactions = useTransactionsStore()
-    const ids = collection.all.value.map((c) => c.id)
-    await transactions.removeByCategories(ids)
+    const all = collection.all.value
+    const used = await idsWithTransactions(all.map((c) => c.id))
+    const ids = all.filter((c) => !collectWithDescendants(c.id).some((id) => used.has(id))).map((c) => c.id)
     await collection.removeManyLocal(ids)
+    return { removed: ids.length, kept: all.length - ids.length }
   }
 
   /**
@@ -234,10 +252,13 @@ export const useCategoriesStore = defineStore('categories', () => {
       await budgets.update(b.id, { categoryId: targetId })
     }
 
+    // Only source itself: its subcategories now live under target, even
+    // though `collection.all` may not show that yet (its liveQuery catches
+    // up asynchronously), so remove()'s own walk over them can't be trusted here.
     if (await hasTransactions(sourceId)) {
       await setArchived(sourceId, true)
     } else {
-      await remove(sourceId)
+      await collection.removeLocal(sourceId)
     }
   }
 
@@ -257,10 +278,11 @@ export const useCategoriesStore = defineStore('categories', () => {
     update,
     setArchived,
     remove,
-    removeAll,
+    removeUnused,
     retranslateDefaults,
     merge,
     hasTransactions,
+    inUse,
     inferCurrency,
     expenseTree,
     incomeTree,

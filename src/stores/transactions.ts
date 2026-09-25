@@ -83,28 +83,6 @@ export const useTransactionsStore = defineStore('transactions', () => {
     await collection.removeLocal(id)
   }
 
-  /**
-   * Cascade delete used when one or more categories are removed entirely
-   * (see stores/categories.ts's remove/removeAll) — a single pass over the
-   * in-memory list plus one bulk delete, so wiping many categories at once
-   * doesn't re-scan and re-sort the whole transactions table per category.
-   */
-  async function removeByCategories(categoryIds: string[]): Promise<void> {
-    const idSet = new Set(categoryIds)
-    const ids = collection.all.value
-      .filter((t) => (t.categoryId && idSet.has(t.categoryId)) || (t.subcategoryId && idSet.has(t.subcategoryId)))
-      .map((t) => t.id)
-    await collection.removeManyLocal(ids)
-  }
-
-  /** Cascade delete used when an account is removed entirely. */
-  async function removeByAccount(accountId: string): Promise<void> {
-    const ids = collection.all.value
-      .filter((t) => t.accountId === accountId || t.toAccountId === accountId)
-      .map((t) => t.id)
-    for (const id of ids) await collection.removeLocal(id)
-  }
-
   function forAccount(accountId: string): Transaction[] {
     return collection.all.value.filter((t) => t.accountId === accountId || t.toAccountId === accountId)
   }
@@ -122,8 +100,6 @@ export const useTransactionsStore = defineStore('transactions', () => {
     add,
     update,
     remove,
-    removeByCategories,
-    removeByAccount,
     forAccount,
     forPeriod,
   }

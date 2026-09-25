@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import { computed, ref, watch } from 'vue'
+  import { computed, nextTick, ref, watch } from 'vue'
   import { useRouter } from 'vue-router'
   import { useAccountsStore, computeAccountBalance } from '../stores/accounts'
   import { useTransactionsStore } from '../stores/transactions'
@@ -50,13 +50,18 @@
     popups.openTransactionForm({ presetAccountId: account.id })
   }
 
-  function openAddOperationFromDetail(account: Account) {
+  // Closing the detail sheet and opening the next popup in the same tick
+  // coalesces both into one Vue flush — see App.vue's comment above
+  // handleTransactionDeleteRequest for why that can crash the patcher.
+  async function openAddOperationFromDetail(account: Account) {
     historyAccount.value = null
+    await nextTick()
     openAddOperation(account)
   }
 
-  function openEditFromDetail(account: Account) {
+  async function openEditFromDetail(account: Account) {
     historyAccount.value = null
+    await nextTick()
     openEdit(account)
   }
 
@@ -148,8 +153,13 @@
       confirmLabel: t('common.delete'),
       danger: true,
       onConfirm: async () => {
-        await accounts.remove(account.id)
-        popups.closeConfirm()
+        // Throws if an operation on it arrived since the form checked (see
+        // AccountFormModal.vue's requestDelete) — the account then just stays.
+        try {
+          await accounts.remove(account.id)
+        } finally {
+          popups.closeConfirm()
+        }
       },
     })
   }

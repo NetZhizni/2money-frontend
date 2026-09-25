@@ -1,14 +1,5 @@
 import { db, type UserDirectoryEntry } from './schema'
-import {
-  enqueueDeleteMany,
-  pullAllAccounts,
-  pullAllBudgets,
-  pullAllCategories,
-  pullAllReceipts,
-  pullAllTags,
-  pullAllTemplates,
-  pullAllTransactions,
-} from './sync'
+import { deleteAndQueue, pullEntity } from './sync'
 import { downloadFile } from '../utils/download'
 import { newId } from '../utils/id'
 import { isCrossProfileTransfer } from '../utils/transferAnalytics'
@@ -295,7 +286,7 @@ export function downloadFamilyBackup(payload: FamilyBackupPayload): void {
  * throwing, which would silently ship a backup with an empty `users` list
  * on a hiccup instead of failing loudly). Reading the rest straight from
  * Dexie's synced tables works because of this app's trust model (see
- * db/sync.ts's own doc comment): every "own" store's data is really just a
+ * db/sync/pull.ts's own doc comment): every "own" store's data is really just a
  * client-side filter over these same family-wide tables. A fresh
  * family-wide pull of each one runs first (best-effort — offline just means
  * "backup from whatever's cached", same as any other best-effort pull in
@@ -317,15 +308,11 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
   const authStore = useAuthStore()
   if (!authStore.isOwner) throw new Error(t('errors.ownerOnly'))
 
-  await Promise.allSettled([
-    pullAllAccounts(),
-    pullAllCategories(),
-    pullAllTransactions(),
-    pullAllTemplates(),
-    pullAllBudgets(),
-    pullAllReceipts(),
-    pullAllTags(),
-  ])
+  await Promise.allSettled(
+    (['accounts', 'categories', 'transactions', 'recurringTemplates', 'budgets', 'receipts', 'tags'] as const).map((entity) =>
+      pullEntity(entity, { scope: 'all' }),
+    ),
+  )
 
   const [usersResponse, accounts, categories, transactions, templates, budgets, receipts, tags, exchangeRates] = await Promise.all([
     http.get<FamilyBackupUser[]>('/admin/users'),
@@ -444,6 +431,7 @@ export interface FamilyRestoreSummary {
   transactions: number
   budgets: number
   receipts: number
+  tags: number
 }
 
 /**
@@ -459,7 +447,7 @@ export interface FamilyRestoreSummary {
  * option), not for topping up an already-active one, where mergeBackupFile()
  * (each member restoring their own slice) is the right tool instead. Ids
  * are preserved as-is server-side, so this device still needs a fresh pull
- * afterwards (see db/sync.ts's fullSync) to actually see any of it locally —
+ * afterwards (see db/sync/orchestrator.ts's fullSync) to actually see any of it locally —
  * every call site does that itself right after this resolves.
  */
 export async function restoreFamilyBackup(payload: FamilyBackupPayload): Promise<FamilyRestoreSummary> {
@@ -497,14 +485,18 @@ function assertImportable(payload: BackupPayload): string {
 
 /**
  * Raw Dexie deletes (mirroring db/reset.ts's resetAllData), not
- * accounts.remove()/transactions.remove(): those cascade (removing an
- * account also removes every transaction that touches it) using the live,
- * viewAs/participantIds-shaped `collection.all`, which could reach a
- * transaction this profile doesn't own — e.g. a cross-profile transfer a
- * family member sent you, whose `toAccountId` is one of your own accounts.
- * Reading straight from Dexie by `ownerId` instead guarantees only rows
- * this profile actually owns are ever touched. Categories are never wiped
- * here — see applyBackup()'s doc comment.
+ * accounts.remove()/transactions.remove(): accounts.remove() refuses an
+ * account that still has operations, and the stores' `collection.all` is
+ * viewAs/participantIds-shaped, so it could reach a transaction this
+ * profile doesn't own — e.g. a cross-profile transfer a family member sent
+ * you, whose `toAccountId` is one of your own accounts. Reading straight
+ * from Dexie by `ownerId` instead guarantees only rows this profile
+ * actually owns are ever touched. Transactions go first, and the outbox
+ * sends them in that order too, so by the time an account's delete reaches
+ * the server nothing of yours is left on it — only such a transfer from
+ * someone else still keeps it there (the server refuses deleting an
+ * account in use; it comes back, holding just that transfer). Categories
+ * and tags are never wiped here — see applyBackup()'s doc comment.
  */
 async function wipeOwnPersonalData(ownerId: string): Promise<void> {
   const [ownAccounts, ownTransactions, ownTemplates, ownBudgets, ownReceipts] = await Promise.all([
@@ -520,16 +512,11 @@ async function wipeOwnPersonalData(ownerId: string): Promise<void> {
   const ownBudgetIds = ownBudgets.map((b) => b.id)
   const ownReceiptIds = ownReceipts.map((r) => r.id)
 
-  await db.transactions.bulkDelete(ownTransactionIds)
-  await db.accounts.bulkDelete(ownAccountIds)
-  await db.recurringTemplates.bulkDelete(ownTemplateIds)
-  await db.budgets.bulkDelete(ownBudgetIds)
-  await db.receipts.bulkDelete(ownReceiptIds)
-  await enqueueDeleteMany('transactions', ownerId, ownTransactionIds)
-  await enqueueDeleteMany('accounts', ownerId, ownAccountIds)
-  await enqueueDeleteMany('recurringTemplates', ownerId, ownTemplateIds)
-  await enqueueDeleteMany('budgets', ownerId, ownBudgetIds)
-  await enqueueDeleteMany('receipts', ownerId, ownReceiptIds)
+  await deleteAndQueue('transactions', ownerId, ownTransactionIds)
+  await deleteAndQueue('accounts', ownerId, ownAccountIds)
+  await deleteAndQueue('recurringTemplates', ownerId, ownTemplateIds)
+  await deleteAndQueue('budgets', ownerId, ownBudgetIds)
+  await deleteAndQueue('receipts', ownerId, ownReceiptIds)
 }
 
 /**
@@ -639,7 +626,7 @@ async function applyBackup(payload: BackupPayload, ownerId: string): Promise<voi
     if (match) {
       resolvedId = match.id
     } else {
-      const created = await tags.add({ name: tg.name, color: tg.color })
+      const created = await tags.add({ name: tg.name, color: tg.color, archived: tg.archived ?? false })
       liveTags.push(created)
       resolvedId = created.id
     }

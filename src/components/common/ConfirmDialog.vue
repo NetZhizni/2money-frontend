@@ -2,6 +2,9 @@
 import Modal from './Modal.vue'
 import { t } from '../../i18n'
 
+// `secondaryLabel` adds a second action next to the confirm one (see
+// stores/popups.ts's choiceDialog); `hideConfirm` leaves only Cancel, for a
+// dialog that just explains why nothing can be done.
 const props = withDefaults(
   defineProps<{
     open: boolean
@@ -9,18 +12,21 @@ const props = withDefaults(
     message: string
     confirmLabel?: string
     danger?: boolean
+    secondaryLabel?: string
+    hideConfirm?: boolean
   }>(),
-  { danger: false },
+  { danger: false, hideConfirm: false },
 )
-const emit = defineEmits<{ confirm: []; close: [] }>()
+const emit = defineEmits<{ confirm: []; secondary: []; close: [] }>()
 </script>
 
 <template>
   <Modal :open="open" :title="title" top @close="emit('close')">
     <p class="message">{{ message }}</p>
-    <div class="actions">
+    <div :class="['actions', { stacked: secondaryLabel }]">
       <button class="btn btn-ghost" @click="emit('close')">{{ t('common.cancel') }}</button>
-      <button :class="['btn', danger ? 'btn-danger' : 'btn-primary']" @click="emit('confirm')">
+      <button v-if="secondaryLabel" class="btn btn-secondary" @click="emit('secondary')">{{ secondaryLabel }}</button>
+      <button v-if="!hideConfirm" :class="['btn', danger ? 'btn-danger' : 'btn-primary']" @click="emit('confirm')">
         {{ props.confirmLabel ?? t('common.confirm') }}
       </button>
     </div>
@@ -40,5 +46,10 @@ const emit = defineEmits<{ confirm: []; close: [] }>()
 }
 .actions .btn {
   flex: 1;
+}
+/* Three buttons don't fit side by side on a phone — stack them, the main
+   action on top and Cancel at the bottom (the reverse of the DOM order). */
+.actions.stacked {
+  flex-direction: column-reverse;
 }
 </style>

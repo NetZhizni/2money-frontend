@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { liveQuery } from 'dexie'
 import { db } from '../db/schema'
-import { pullAllReceipts } from '../db/sync'
+import { pullEntity } from '../db/sync'
 import type { Receipt } from '../types/models'
 
 /**
@@ -11,7 +11,7 @@ import type { Receipt } from '../types/models'
  * (see views/OperationsDataView.vue), so it needs to resolve a receipt's
  * merchant/date the same way it resolves a transfer's counterparty account
  * via stores/allAccounts.ts. Own and foreign receipts live in the same Dexie
- * table (see src/db/sync.ts's pullAllReceipts) — this is just an unfiltered
+ * table (see src/db/sync/pull.ts's pullEntity) — this is just an unfiltered
  * view of it.
  */
 export const useAllReceiptsStore = defineStore('allReceipts', () => {
@@ -34,7 +34,7 @@ export const useAllReceiptsStore = defineStore('allReceipts', () => {
         },
         error: (error) => console.error('[allReceipts] liveQuery failed', error),
       })
-      void pullAllReceipts()
+      void pullEntity('receipts', { scope: 'all' })
     })
   }
 

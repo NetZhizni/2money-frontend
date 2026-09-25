@@ -1,5 +1,5 @@
 import { db } from './schema'
-import { enqueueUpsertMany, pullAllCategories } from './sync'
+import { putAndQueue, pullEntity } from './sync'
 import { DEFAULT_EXPENSE_CATEGORY_DEFS, DEFAULT_INCOME_CATEGORY_DEFS } from './defaultCategories'
 import http from '../api/http'
 import { newId } from '../utils/id'
@@ -87,20 +87,18 @@ function onboardingJitterMs(): number {
  * default subcategories it actually needs lazily, on demand.
  */
 export async function seedDefaultsIfEmpty(ownerId: string): Promise<void> {
-  await pullAllCategories().catch((error) =>
-    console.warn('[seed] pullAllCategories failed, deciding from local cache only', error),
+  await pullEntity('categories', { scope: 'all' }).catch((error) =>
+    console.warn('[seed] pullEntity(categories) failed, deciding from local cache only', error),
   )
   if ((await db.categories.count()) > 0) return
 
   await new Promise((resolve) => setTimeout(resolve, onboardingJitterMs()))
-  await pullAllCategories().catch((error) =>
-    console.warn('[seed] pullAllCategories re-check failed, deciding from local cache only', error),
+  await pullEntity('categories', { scope: 'all' }).catch((error) =>
+    console.warn('[seed] pullEntity(categories) re-check failed, deciding from local cache only', error),
   )
   if ((await db.categories.count()) > 0) return
 
-  const categories = buildDefaultCategories(ownerId)
-  await db.categories.bulkPut(categories)
-  await enqueueUpsertMany('categories', ownerId, categories)
+  await putAndQueue('categories', ownerId, buildDefaultCategories(ownerId))
 
   const existing = await db.settings.get(ownerId)
   await db.settings.put({
@@ -130,8 +128,6 @@ export async function seedDefaultCategoriesNow(ownerId: string): Promise<void> {
   if ((await db.categories.count()) > 0) {
     throw new Error(t('errors.categoriesNotEmpty'))
   }
-  const categories = buildDefaultCategories(ownerId)
-  await db.categories.bulkPut(categories)
-  await enqueueUpsertMany('categories', ownerId, categories)
+  await putAndQueue('categories', ownerId, buildDefaultCategories(ownerId))
 }
 

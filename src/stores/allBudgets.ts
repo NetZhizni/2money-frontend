@@ -2,14 +2,14 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { liveQuery } from 'dexie'
 import { db } from '../db/schema'
-import { pullAllBudgets } from '../db/sync'
+import { pullEntity } from '../db/sync'
 import type { Budget } from '../types/models'
 
 /**
  * Cross-profile view of every family member's budgets — for a future
  * whole-family budget view (sum of every member's budget per category), not
  * just the signed-in user's own. Own and foreign budgets live in the same
- * Dexie table (see src/db/sync.ts's pullAllBudgets) — this is just an
+ * Dexie table (see src/db/sync/pull.ts's pullEntity) — this is just an
  * unfiltered view of it, same pattern as stores/allAccounts.ts.
  */
 export const useAllBudgetsStore = defineStore('allBudgets', () => {
@@ -32,7 +32,7 @@ export const useAllBudgetsStore = defineStore('allBudgets', () => {
         },
         error: (error) => console.error('[allBudgets] liveQuery failed', error),
       })
-      void pullAllBudgets()
+      void pullEntity('budgets', { scope: 'all' })
     })
   }
 

@@ -1,4 +1,5 @@
 import { defineStore } from 'pinia'
+import { computed } from 'vue'
 import { db } from '../db/schema'
 import { useSyncedCollection } from '../db/useSyncedCollection'
 import { newId } from '../utils/id'
@@ -26,6 +27,9 @@ export const useTagsStore = defineStore('tags', () => {
     return collection.load()
   }
 
+  const active = computed(() => collection.all.value.filter((tg) => !tg.archived))
+  const archived = computed(() => collection.all.value.filter((tg) => tg.archived))
+
   function byId(id: string | null | undefined): Tag | undefined {
     if (!id) return undefined
     return collection.all.value.find((tg) => tg.id === id)
@@ -33,7 +37,7 @@ export const useTagsStore = defineStore('tags', () => {
 
   async function add(input: NewTagInput): Promise<Tag> {
     assertWritable()
-    const tag: Tag = { ...input, id: newId(), ownerId: authStore.uid!, createdAt: Date.now() }
+    const tag: Tag = { archived: false, ...input, id: newId(), ownerId: authStore.uid!, createdAt: Date.now() }
     await collection.put(tag)
     return tag
   }
@@ -43,6 +47,15 @@ export const useTagsStore = defineStore('tags', () => {
     const current = collection.all.value.find((tg) => tg.id === id)
     if (!current) return
     await collection.put({ ...current, ...patch })
+  }
+
+  /**
+   * Soft alternative to remove(): the tag stays on every operation that
+   * already carries it (and in analytics/the operations filter), it just
+   * stops being offered in TagPickerModal for new ones.
+   */
+  async function setArchived(id: string, archivedValue: boolean): Promise<void> {
+    await update(id, { archived: archivedValue })
   }
 
   /**
@@ -70,6 +83,8 @@ export const useTagsStore = defineStore('tags', () => {
 
   return {
     all: collection.all,
+    active,
+    archived,
     loaded: collection.loaded,
     load,
     reset: collection.reset,
@@ -77,6 +92,7 @@ export const useTagsStore = defineStore('tags', () => {
     byId,
     add,
     update,
+    setArchived,
     remove,
   }
 })

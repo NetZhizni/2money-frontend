@@ -38,7 +38,7 @@ function readStoredLastSyncedAt(): number | null {
 /** Epoch ms of the last fully-successful fullSync() (push + pull of every entity). Persisted across reloads/devices-local. */
 export const lastSyncedAt = ref<number | null>(readStoredLastSyncedAt())
 
-/** Called by src/db/sync.ts's fullSync() once every entity has pulled cleanly. */
+/** Called by src/db/sync/orchestrator.ts's fullSync() once every entity has pulled cleanly. */
 export function markSynced() {
   const now = Date.now()
   lastSyncedAt.value = now
@@ -47,7 +47,7 @@ export function markSynced() {
 
 /**
  * Live count of every queued-but-not-yet-pushed local write across all
- * entities — the same `outbox` table src/db/sync.ts drains. Powers the
+ * entities — the same `outbox` table src/db/sync/outbox.ts drains. Powers the
  * global "N записів очікують синхронізації" indicator; per-record pending
  * state is exposed separately by src/db/useSyncedCollection.ts.
  */

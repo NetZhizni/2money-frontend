@@ -535,7 +535,21 @@ function requestDeleteItem(tx: Transaction) {
       <p v-if="!items.length" class="empty-items">{{ t('receipts.noOperations') }}</p>
 
       <div v-else class="items-list">
-        <button v-for="item in items" :key="itemKey(item)" type="button" class="item-row" @click="editItem(item)">
+        <!-- A div with role=button, not a <button>: the per-item remove control
+             below is itself a <button>, and nesting one inside another is invalid
+             HTML that browsers "fix" by hoisting it out of the row. The key
+             handlers are `.self` because keydown bubbles: without it, Enter on
+             that remove button would also open the item for editing. -->
+        <div
+          v-for="item in items"
+          :key="itemKey(item)"
+          class="item-row"
+          role="button"
+          tabindex="0"
+          @click="editItem(item)"
+          @keydown.enter.self="editItem(item)"
+          @keydown.space.self.prevent="editItem(item)"
+        >
           <IconCircle :icon="itemIcon(item)" :color="itemColor(item)" :size="36" />
           <span class="item-text">
             <span class="item-title">{{ itemTitle(item) }}</span>
@@ -556,7 +570,7 @@ function requestDeleteItem(tx: Transaction) {
           >
             <MdiIcon :name="item.kind === 'draft' ? 'mdiClose' : 'mdiLinkOff'" :size="15" color="var(--text-muted)" />
           </button>
-        </button>
+        </div>
       </div>
 
       <p v-if="hasUncategorizedDraft" class="hint uncategorized-hint">{{ t('receipts.uncategorizedHint') }}</p>

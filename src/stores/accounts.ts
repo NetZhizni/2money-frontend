@@ -77,11 +77,21 @@ export const useAccountsStore = defineStore('accounts', () => {
     await update(id, { archived: archivedValue })
   }
 
-  /** Hard delete: also cascades to every transaction that touches this account. */
+  /**
+   * Hard delete — only for an account nobody has ever booked anything
+   * against. Every operation on it counts toward some balance (a transfer
+   * toward the account on its other side too, possibly another member's), so
+   * deleting one that has any would either rewrite those balances or orphan
+   * the operations; archive() or merge() is the way out for that one instead
+   * (see AccountFormModal.vue's requestDelete). The server refuses it the
+   * same way (the backend's sync/hooks/accounts.js beforeRemove), for an
+   * operation this device hasn't pulled yet. Every recurring template on it
+   * still goes along — not from here, but in the same step as the delete
+   * itself (see db/sync/registry.ts's DELETE_CASCADES).
+   */
   async function remove(id: string): Promise<void> {
     assertWritable()
-    const transactions = useTransactionsStore()
-    await transactions.removeByAccount(id)
+    if (await hasTransactions(id)) throw new Error(t('errors.accountInUse'))
     await collection.removeLocal(id)
   }
 

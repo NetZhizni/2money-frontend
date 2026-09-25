@@ -4,7 +4,7 @@ import { liveQuery } from 'dexie'
 import Modal from '../common/Modal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import { db } from '../../db/schema'
-import { pullAllAccounts, pullAllTransactions } from '../../db/sync'
+import { pullEntity } from '../../db/sync'
 import { useAuthStore } from '../../stores/auth'
 import { useProfilesStore } from '../../stores/profiles'
 import { useViewAsStore } from '../../stores/viewAs'
@@ -48,8 +48,8 @@ function selectAll() {
 // Per-profile household totals — moved in from the former "Разом" tab so the
 // balance breakdown lives right where you pick who to view. Whole-table
 // Dexie liveQuery views (own + every other family member's
-// accounts/transactions live in the same tables — see src/db/sync.ts's
-// pullAllAccounts/pullAllTransactions), scoped to this modal's lifetime only.
+// accounts/transactions live in the same tables — see src/db/sync/pull.ts's
+// pullEntity for accounts/transactions), scoped to this modal's lifetime only.
 const allAccounts = ref<Account[]>([])
 const allTransactions = ref<Transaction[]>([])
 // Tracked separately (not a single `loaded` flag) so totals aren't computed
@@ -76,8 +76,8 @@ onMounted(() => {
     },
     error: (error) => console.error('[UserSwitcherModal] transactions liveQuery failed', error),
   })
-  void pullAllAccounts()
-  void pullAllTransactions()
+  void pullEntity('accounts', { scope: 'all' })
+  void pullEntity('transactions', { scope: 'all' })
 })
 
 onUnmounted(() => {
@@ -92,8 +92,8 @@ watch(
   () => props.open,
   (isOpen) => {
     if (!isOpen) return
-    void pullAllAccounts()
-    void pullAllTransactions()
+    void pullEntity('accounts', { scope: 'all' })
+    void pullEntity('transactions', { scope: 'all' })
   },
 )
 

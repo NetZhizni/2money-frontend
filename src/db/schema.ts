@@ -14,7 +14,7 @@ export type SyncableEntity = 'accounts' | 'categories' | 'tags' | 'transactions'
 
 /**
  * One queued local mutation, replayed against the API once online (see
- * src/db/sync.ts). Both create and update collapse into a single 'upsert' op
+ * src/db/sync/outbox.ts). Both create and update collapse into a single 'upsert' op
  * — every syncable entity's POST endpoint is an idempotent full-record
  * upsert keyed by the client-generated id (UUIDv7), so there's no need to
  * distinguish "this id is new" from "this id already synced once".
@@ -30,13 +30,50 @@ export interface OutboxEntry {
    * members can't accidentally attribute one person's offline edit to
    * whoever happens to be signed in when the queue next drains. */
   ownerId: string
+  /** When the change was made, on the server's clock (see db/sync/clock.ts) —
+   * sent as `editedAt`, which is what the server settles two devices'
+   * conflicting writes by (the later edit wins). */
   createdAt: number
+  /** How many pushes the server answered for this entry with a server-side
+   * error (5xx) — see outbox.ts's MAX_ATTEMPTS. */
+  attempts?: number
+  /** On a delete: the rows removed locally along with it (see
+   * sync/registry.ts's DELETE_CASCADES), by entity — re-read from the server
+   * if the delete itself is refused, so they come back with their parent. */
+  cascade?: Partial<Record<SyncableEntity, string[]>>
+}
+
+/**
+ * A local change the server never took, kept so the user can see what
+ * happened to it (see components/layout/SyncStatusBadge.vue) instead of it
+ * just vanishing:
+ *   - 'rejected' — the server refused it for good (someone changed or
+ *     deleted the record later, a rule like the currency lock, ...). The local
+ *     copy has already been put back to the server's version.
+ *   - 'failed'   — it kept failing on the server's side, or was still queued
+ *     when a resync wiped the outbox. `payload` is what can be retried.
+ */
+export interface SyncIssue {
+  id?: number
+  ownerId: string
+  kind: 'rejected' | 'failed'
+  entity: SyncableEntity
+  op: OutboxEntry['op']
+  recordId: string
+  payload?: Record<string, unknown>
+  /** The server's reason code (see the backend's util/httpStatus.js reasonFor), or a client-side one ('failed', 'discarded'). */
+  reason: string
+  message?: string
+  /** When the change itself was made — OutboxEntry.createdAt, so on the server's clock (see db/sync/clock.ts's toLocalTime). */
+  editedAt: number
+  /** When it was given up on. */
+  at: number
 }
 
 /**
  * Per-entity delta-sync cursor (epoch ms of the last successful pull). Key is
  * usually just the entity name (own records), but a family-wide `?scope=all`
- * pull (see src/db/sync.ts's pullEntity) tracks its own bookmark under
+ * pull (see src/db/sync/pull.ts's pullEntity) tracks its own bookmark under
  * `"<entity>:all"` so the two never clobber each other's cursor.
  */
 export interface SyncCursor {
@@ -47,7 +84,7 @@ export interface SyncCursor {
 /**
  * Full local mirror of every entity, offline-first: all reads/writes in the
  * Pinia stores go through Dexie (never directly to the API — see
- * src/db/sync.ts's createSyncedCollection), so the app works fully offline
+ * src/db/useSyncedCollection.ts), so the app works fully offline
  * on whatever was last synced, and every write queues into `outbox` for
  * replay. This replaces Firestore's persistentLocalCache + offline write
  * queue, which this app no longer has since Firestore is gone.
@@ -63,6 +100,7 @@ export class AppDB extends Dexie {
   settings!: EntityTable<AppSettings, 'id'>
   users!: EntityTable<UserDirectoryEntry, 'id'>
   outbox!: EntityTable<OutboxEntry, 'localId'>
+  syncIssues!: EntityTable<SyncIssue, 'id'>
   syncCursors!: EntityTable<SyncCursor, 'entity'>
   exchangeRates!: EntityTable<ExchangeRateEntry, 'id'>
 
@@ -118,6 +156,18 @@ export class AppDB extends Dexie {
             if (!b.month) b.month = monthKeyFromTimestamp(b.createdAt)
           }),
       )
+
+    // Compound (dateKey, currency) index so the per-day rate lookup
+    // (db/exchangeRates.ts) hits an index instead of scanning — that lookup
+    // runs once per currency for every amount converted on screen.
+    this.version(5).stores({
+      exchangeRates: 'id, dateKey, currency, [dateKey+currency]',
+    })
+
+    // Changes the server never took — see SyncIssue.
+    this.version(6).stores({
+      syncIssues: '++id, ownerId, at',
+    })
   }
 }
 

@@ -113,7 +113,9 @@ export const usePopupsStore = defineStore('popups', () => {
     confirmLabel?: string
     danger?: boolean
     onConfirm: (() => void | Promise<void>) | null
-  }>({ open: false, title: '', message: '', confirmLabel: undefined, danger: false, onConfirm: null })
+    secondaryLabel?: string
+    onSecondary: (() => void) | null
+  }>({ open: false, title: '', message: '', confirmLabel: undefined, danger: false, onConfirm: null, secondaryLabel: undefined, onSecondary: null })
 
   /** Opens the shared confirm dialog; `onConfirm` runs on accept and is responsible for closing it (via closeConfirm) once done. */
   function confirmDialog(opts: {
@@ -128,6 +130,32 @@ export const usePopupsStore = defineStore('popups', () => {
     confirm.confirmLabel = opts.confirmLabel
     confirm.danger = opts.danger ?? false
     confirm.onConfirm = opts.onConfirm
+    confirm.secondaryLabel = undefined
+    confirm.onSecondary = null
+    confirm.open = true
+  }
+
+  /**
+   * The same dialog offering up to two ways forward instead of one — the
+   * first action on the confirm button, the second next to it — or, with
+   * none that apply, just Cancel under the explanation. Each action closes
+   * the dialog before it runs. Used where the obvious action isn't allowed
+   * (deleting an account or category that has operations) to offer the ones
+   * that are instead.
+   */
+  function choiceDialog(opts: { title: string; message: string; actions: { label: string; run: () => void }[] }) {
+    const [primary, secondary] = opts.actions
+    const closeThen = (run: () => void) => () => {
+      closeConfirm()
+      run()
+    }
+    confirm.title = opts.title
+    confirm.message = opts.message
+    confirm.confirmLabel = primary?.label
+    confirm.danger = false
+    confirm.onConfirm = primary ? closeThen(primary.run) : null
+    confirm.secondaryLabel = secondary?.label
+    confirm.onSecondary = secondary ? closeThen(secondary.run) : null
     confirm.open = true
   }
   function closeConfirm() {
@@ -143,6 +171,7 @@ export const usePopupsStore = defineStore('popups', () => {
     closeReceiptEdit,
     confirm,
     confirmDialog,
+    choiceDialog,
     closeConfirm,
   }
 })

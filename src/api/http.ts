@@ -12,7 +12,7 @@ import { locale } from '../i18n/locale'
 
 /**
  * The one HTTP client talking to the Express/PostgreSQL backend. Every
- * synced entity's Dexie-backed store (src/db/sync.ts) goes through this —
+ * synced entity's Dexie-backed store (src/db/sync/) goes through this —
  * there is no more direct Firestore access anywhere in the app.
  *
  * `baseURL` is read once here, at module-eval time — that's safe because

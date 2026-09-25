@@ -1,5 +1,5 @@
 import { db } from './schema'
-import { pullAllAccounts, pullAllTransactions } from './sync'
+import { pullEntity } from './sync'
 import http from '../api/http'
 import { getChosenBaseCurrency } from '../utils/baseCurrencyChoice'
 
@@ -34,7 +34,7 @@ export async function hasNoOwnDataYet(uid: string): Promise<boolean> {
   const settings = await db.settings.get(uid)
   if (settings?.onboarded) return false
 
-  await Promise.allSettled([pullAllAccounts(), pullAllTransactions()])
+  await Promise.allSettled([pullEntity('accounts', { scope: 'all' }), pullEntity('transactions', { scope: 'all' })])
   const [accountCount, transactionCount] = await Promise.all([
     db.accounts.where('ownerId').equals(uid).count(),
     db.transactions.filter((tx) => tx.ownerId === uid).count(),

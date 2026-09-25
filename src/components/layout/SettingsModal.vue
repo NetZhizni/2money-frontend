@@ -7,33 +7,12 @@ import LanguagePickerModal from './LanguagePickerModal.vue'
 import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
 import Segmented from '../common/Segmented.vue'
 import { useSettingsStore } from '../../stores/settings'
-import { useTemplatesStore } from '../../stores/templates'
-import { useAccountsStore } from '../../stores/accounts'
 import { useCategoriesStore } from '../../stores/categories'
-import { useTransactionsStore } from '../../stores/transactions'
 import { useAuthStore } from '../../stores/auth'
 import { useTagsStore } from '../../stores/tags'
 import { useServerStore } from '../../stores/server'
 import { useChangeServer } from '../../composables/useChangeServer'
-import { useViewAsStore } from '../../stores/viewAs'
-import { usePopupsStore } from '../../stores/popups'
 import {
-  exportData,
-  downloadBackup,
-  importData,
-  mergeBackupFile,
-  exportFamilyBackup,
-  downloadFamilyBackup,
-  restoreFamilyBackup,
-  isFamilyBackup,
-} from '../../db/backup'
-import { fullSync } from '../../db/sync'
-import { downloadTransactionsCsv } from '../../db/csvExport'
-import { loadDemoData } from '../../db/demoData'
-import { seedDefaultCategoriesNow } from '../../db/seed'
-import { resetAllData } from '../../db/reset'
-import {
-  formatMoney,
   formatMoneyAs,
   formatDateAs,
   getNumberFormatSetting,
@@ -48,22 +27,17 @@ import {
 } from '../../utils/format'
 import { forceCheckForUpdate } from '../../pwa/updateService'
 import { t, getLocaleSetting, setLocaleSetting, detectLocale, LOCALE_NAMES, localeFlagUrl } from '../../i18n'
-import type { MessageKey, LocaleSetting, Locale } from '../../i18n'
+import type { LocaleSetting, Locale } from '../../i18n'
 import type { AppSettings } from '../../types/models'
 
 defineProps<{ open: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const settings = useSettingsStore()
-const templates = useTemplatesStore()
-const accounts = useAccountsStore()
 const categories = useCategoriesStore()
-const transactions = useTransactionsStore()
 const authStore = useAuthStore()
 const tags = useTagsStore()
 const server = useServerStore()
-const viewAs = useViewAsStore()
-const popups = usePopupsStore()
 
 // ---------- Сервер (див. stores/server.ts, composables/useChangeServer.ts) ----------
 
@@ -77,13 +51,6 @@ const {
   confirmChange: confirmChangeServer,
   confirmGoLocal,
 } = useChangeServer()
-
-// Демо-дані/резервна копія/скидання read straight off the shared
-// accounts/categories/transactions/budgets stores, which "Переглянути як"
-// (see UserSwitcherModal) repoints at whoever's being viewed — so while
-// that's active they'd act on the wrong person's data. Simplest safe fix:
-// these stay unavailable until back on "Ви".
-const viewingOther = computed(() => viewAs.isReadOnly)
 
 // Per-device, not part of `settings` (see i18n/locale.ts) — applies live
 // (setLocaleSetting no longer reloads the page), but this component sets
@@ -196,232 +163,7 @@ function chooseCurrencyDisplay(value: string) {
   setCurrencyDisplaySetting(value as CurrencyDisplayStyle)
 }
 
-const FREQ_LABEL_KEY: Record<string, MessageKey> = {
-  daily: 'layout.settings.freq.daily',
-  weekly: 'layout.settings.freq.weekly',
-  monthly: 'layout.settings.freq.monthly',
-  yearly: 'layout.settings.freq.yearly',
-}
-
-const activeTemplates = computed(() => templates.all.filter((tpl) => tpl.active))
-
-function describeTemplate(id: string) {
-  const tpl = templates.all.find((x) => x.id === id)
-  if (!tpl) return null
-  const account = accounts.all.find((a) => a.id === tpl.accountId)
-  const category = categories.byId(tpl.categoryId)
-  const every = tpl.interval > 1 ? ` ${t('layout.settings.freq.every', { n: tpl.interval })}` : ''
-  return {
-    title: category?.name ?? '—',
-    subtitle: `${account?.name ?? ''} · ${t(FREQ_LABEL_KEY[tpl.frequency])}${every}`,
-    amount: formatMoney(tpl.type === 'expense' ? -tpl.amount : tpl.amount, tpl.currency, { currencyDisplay: account?.currencyDisplay }),
-    color: category?.color ?? '#9a9a9e',
-  }
-}
-
-async function removeTemplate(id: string) {
-  if (confirm(t('layout.settings.removeTemplateConfirm'))) {
-    await templates.remove(id)
-  }
-}
-
 const showCurrencyPicker = ref(false)
-
-const fileInput = ref<HTMLInputElement | null>(null)
-const mergeFileInput = ref<HTMLInputElement | null>(null)
-const familyRestoreFileInput = ref<HTMLInputElement | null>(null)
-const status = ref('')
-const demoLoading = ref(false)
-
-// Demo data is only meaningful on an empty account — mixing it with real
-// accounts/transactions would pollute real analytics, and there's no marker
-// to undo it selectively afterwards. `loadDemoData` enforces this itself too;
-// this just keeps the button from even being clickable in that state.
-const hasAnyData = computed(() => accounts.all.length > 0 || transactions.all.length > 0)
-// Without any category, demo income/expense transactions have nowhere to
-// file under (see db/demoData.ts's own guard) — only transfers would show.
-const hasNoCategories = computed(() => categories.all.length === 0)
-
-async function handleLoadDemo() {
-  demoLoading.value = true
-  try {
-    await loadDemoData()
-    status.value = t('layout.settings.demoDataAdded')
-  } finally {
-    demoLoading.value = false
-  }
-}
-
-const seedingCategories = ref(false)
-
-async function handleSeedDefaultCategories() {
-  seedingCategories.value = true
-  try {
-    await seedDefaultCategoriesNow(authStore.uid!)
-    status.value = t('layout.settings.categoriesSeeded')
-  } finally {
-    seedingCategories.value = false
-  }
-}
-
-const clearingCategories = ref(false)
-
-function openClearCategoriesConfirm() {
-  popups.confirmDialog({
-    title: t('layout.settings.clearCategoriesConfirmTitle'),
-    message: t('layout.settings.clearCategoriesConfirmMessage'),
-    confirmLabel: t('layout.settings.clearCategoriesConfirmButton'),
-    danger: true,
-    onConfirm: async () => {
-      clearingCategories.value = true
-      try {
-        await categories.removeAll()
-        status.value = t('layout.settings.categoriesCleared')
-      } finally {
-        clearingCategories.value = false
-        popups.closeConfirm()
-      }
-    },
-  })
-}
-
-const resetLoading = ref(false)
-
-function openResetConfirm() {
-  popups.confirmDialog({
-    title: t('layout.settings.resetConfirmTitle'),
-    message: t('layout.settings.resetConfirmMessage'),
-    confirmLabel: t('layout.settings.resetConfirmButton'),
-    danger: true,
-    onConfirm: async () => {
-      resetLoading.value = true
-      try {
-        await resetAllData()
-        status.value = t('layout.settings.dataReset')
-      } finally {
-        resetLoading.value = false
-        popups.closeConfirm()
-      }
-    },
-  })
-}
-
-async function handleExport() {
-  const payload = await exportData()
-  downloadBackup(payload)
-  status.value = t('layout.settings.backupSaved')
-}
-
-async function handleExportCsv() {
-  await downloadTransactionsCsv()
-  status.value = t('layout.settings.csvSaved')
-}
-
-function triggerImport() {
-  fileInput.value?.click()
-}
-
-async function handleImportFile(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  try {
-    const text = await file.text()
-    const payload = JSON.parse(text)
-    if (!confirm(t('layout.settings.importConfirm'))) return
-    await importData(payload)
-    status.value = t('sync.restoreSuccess')
-  } catch (err) {
-    status.value = t('sync.importError', { message: (err as Error).message })
-  }
-}
-
-function triggerMerge() {
-  mergeFileInput.value?.click()
-}
-
-/**
- * Same file format as handleImportFile, but adds to what's already here
- * instead of replacing it — see db/backup.ts's mergeData() doc comment.
- * Goes through mergeBackupFile() rather than mergeData() directly so this
- * same button also accepts a full family backup (see
- * exportFamilyBackup()/handleFamilyBackup() below) — it just pulls out
- * whatever in it belonged to your own email in the old family.
- */
-async function handleMergeFile(e: Event) {
-  const file = (e.target as HTMLInputElement).files?.[0]
-  if (!file) return
-  try {
-    const text = await file.text()
-    const payload = JSON.parse(text)
-    if (!confirm(t('layout.settings.importMergeConfirm'))) return
-    await mergeBackupFile(payload)
-    status.value = t('sync.mergeSuccess')
-  } catch (err) {
-    status.value = t('sync.importError', { message: (err as Error).message })
-  }
-}
-
-const familyBackupLoading = ref(false)
-
-/** Owner-only "back up literally everyone" — see exportFamilyBackup()'s own doc comment for what's in the file and how it's meant to come back: either restored whole (handleFamilyRestoreFile below) or one member's own slice at a time (handleMergeFile above). */
-async function handleFamilyBackup() {
-  familyBackupLoading.value = true
-  try {
-    const payload = await exportFamilyBackup()
-    downloadFamilyBackup(payload)
-    status.value = t('layout.settings.familyBackupSaved')
-  } catch (err) {
-    status.value = t('sync.importError', { message: (err as Error).message })
-  } finally {
-    familyBackupLoading.value = false
-  }
-}
-
-const familyRestoreLoading = ref(false)
-
-function triggerFamilyRestore() {
-  familyRestoreFileInput.value?.click()
-}
-
-/**
- * Owner-only "restore literally everyone at once" — see
- * restoreFamilyBackup()'s own doc comment. Confirmed separately (danger
- * dialog) since, unlike every other action on this screen, it writes data
- * attributed to OTHER family members and can provision brand-new accounts
- * for people who've never signed in yet.
- */
-async function handleFamilyRestoreFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  try {
-    const text = await file.text()
-    const payload = JSON.parse(text)
-    if (!isFamilyBackup(payload)) throw new Error(t('sync.unsupportedBackupFormat'))
-    popups.confirmDialog({
-      title: t('layout.settings.familyRestoreConfirmTitle'),
-      message: t('layout.settings.familyRestoreConfirmMessage'),
-      confirmLabel: t('layout.settings.familyRestoreConfirmButton'),
-      danger: true,
-      onConfirm: async () => {
-        familyRestoreLoading.value = true
-        try {
-          const summary = await restoreFamilyBackup(payload)
-          await fullSync(authStore.uid)
-          status.value = t('layout.settings.familyRestoreSuccess', { count: summary.transactions })
-        } catch (err) {
-          status.value = t('sync.importError', { message: (err as Error).message })
-        } finally {
-          familyRestoreLoading.value = false
-          popups.closeConfirm()
-        }
-      },
-    })
-  } catch (err) {
-    status.value = t('sync.importError', { message: (err as Error).message })
-  }
-}
 
 const updateChecking = ref(false)
 const updateStatus = ref('')
@@ -449,6 +191,11 @@ function openAdmin() {
 function openTags() {
   emit('close')
   router.push('/tags')
+}
+
+function openData() {
+  emit('close')
+  router.push('/data')
 }
 
 async function handleSignOut() {
@@ -606,94 +353,8 @@ async function handleSignOut() {
       <h3 class="section-title">{{ t('layout.settings.section.data') }}</h3>
 
       <div class="field">
-        <label>{{ t('layout.settings.recurringLabel', { count: activeTemplates.length }) }}</label>
-        <p v-if="!activeTemplates.length" class="hint">{{ t('layout.settings.recurringEmpty') }}</p>
-        <ul v-else class="template-list">
-          <li v-for="tpl in activeTemplates" :key="tpl.id" class="template-row">
-            <span class="dot" :style="{ background: describeTemplate(tpl.id)?.color }" />
-            <div class="template-text">
-              <span class="template-title">{{ describeTemplate(tpl.id)?.title }}</span>
-              <span class="template-sub">{{ describeTemplate(tpl.id)?.subtitle }}</span>
-            </div>
-            <span class="template-amount">{{ describeTemplate(tpl.id)?.amount }}</span>
-            <button class="icon-btn" :aria-label="t('common.delete')" @click="removeTemplate(tpl.id)">✕</button>
-          </li>
-        </ul>
-      </div>
-
-      <div class="field">
-        <label>{{ t('layout.settings.categoriesLabel') }}</label>
-        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
-        <template v-else>
-          <p class="hint">{{ t('layout.settings.categoriesHint') }}</p>
-          <p v-if="hasNoCategories" class="hint">{{ t('layout.settings.categoriesEmptyHint') }}</p>
-          <p v-else class="hint">{{ t('layout.settings.categoriesExist') }}</p>
-          <div class="backup-actions">
-            <button
-              class="btn btn-secondary"
-              :disabled="seedingCategories || !hasNoCategories"
-              @click="handleSeedDefaultCategories"
-            >
-              {{ seedingCategories ? t('layout.settings.seedingCategories') : t('layout.settings.seedCategoriesButton') }}
-            </button>
-            <button
-              class="btn btn-danger"
-              :disabled="clearingCategories || hasNoCategories"
-              @click="openClearCategoriesConfirm"
-            >
-              {{ clearingCategories ? t('layout.settings.clearingCategories') : t('layout.settings.clearCategoriesButton') }}
-            </button>
-          </div>
-        </template>
-      </div>
-
-      <div class="field">
-        <label>{{ t('layout.settings.demoDataLabel') }}</label>
-        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
-        <template v-else>
-          <p class="hint">{{ t('layout.settings.demoDataHint') }}</p>
-          <p v-if="hasAnyData" class="hint">{{ t('layout.settings.demoDataBlocked') }}</p>
-          <p v-else-if="hasNoCategories" class="hint">{{ t('layout.settings.demoDataNoCategories') }}</p>
-          <button class="btn btn-secondary demo-btn" :disabled="demoLoading || hasAnyData || hasNoCategories" @click="handleLoadDemo">
-            {{ demoLoading ? t('layout.settings.addingDemo') : t('layout.settings.addDemoData') }}
-          </button>
-        </template>
-      </div>
-
-      <div class="field">
-        <label>{{ t('layout.settings.backupLabel') }}</label>
-        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
-        <template v-else>
-          <p class="hint">{{ t('layout.settings.backupHint') }}</p>
-          <div class="backup-actions">
-            <button class="btn btn-secondary" @click="handleExport">{{ t('layout.settings.exportJson') }}</button>
-            <button class="btn btn-secondary" @click="triggerImport">{{ t('layout.settings.importJson') }}</button>
-            <button class="btn btn-secondary" @click="handleExportCsv">{{ t('layout.settings.exportCsv') }}</button>
-          </div>
-          <input ref="fileInput" type="file" accept="application/json" hidden @change="handleImportFile" />
-          <p class="hint">{{ t('layout.settings.importMergeHint') }}</p>
-          <div class="backup-actions">
-            <button class="btn btn-secondary" @click="triggerMerge">{{ t('layout.settings.importJsonMerge') }}</button>
-          </div>
-          <input ref="mergeFileInput" type="file" accept="application/json" hidden @change="handleMergeFile" />
-          <p v-if="status" class="status">{{ status }}</p>
-        </template>
-      </div>
-
-      <div class="field" v-if="authStore.isOwner && !authStore.localMode">
-        <label>{{ t('layout.settings.familyBackupLabel') }}</label>
-        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
-        <template v-else>
-          <p class="hint">{{ t('layout.settings.familyBackupHint') }}</p>
-          <button class="btn btn-secondary family-backup-btn" :disabled="familyBackupLoading" @click="handleFamilyBackup">
-            {{ familyBackupLoading ? t('layout.settings.familyBackupLoading') : t('layout.settings.familyBackupButton') }}
-          </button>
-          <p class="hint">{{ t('layout.settings.familyRestoreHint') }}</p>
-          <button class="btn btn-secondary family-backup-btn" :disabled="familyRestoreLoading" @click="triggerFamilyRestore">
-            {{ familyRestoreLoading ? t('layout.settings.familyRestoreLoading') : t('layout.settings.familyRestoreButton') }}
-          </button>
-          <input ref="familyRestoreFileInput" type="file" accept="application/json" hidden @change="handleFamilyRestoreFile" />
-        </template>
+        <p class="hint">{{ t('layout.settings.dataHint') }}</p>
+        <button class="btn btn-secondary" @click="openData">{{ t('layout.settings.manageData') }}</button>
       </div>
     </div>
 
@@ -707,21 +368,6 @@ async function handleSignOut() {
           {{ updateChecking ? t('layout.settings.checking') : t('layout.settings.checkUpdate') }}
         </button>
         <p v-if="updateStatus" class="status">{{ updateStatus }}</p>
-      </div>
-    </div>
-
-    <div class="section">
-      <h3 class="section-title">{{ t('layout.settings.section.danger') }}</h3>
-
-      <div class="field">
-        <label>{{ t('layout.settings.resetLabel') }}</label>
-        <p v-if="viewingOther" class="hint">{{ t('layout.settings.viewingOtherHint') }}</p>
-        <template v-else>
-          <p class="hint">{{ t('layout.settings.resetHint') }}</p>
-          <button class="btn btn-danger reset-btn" :disabled="resetLoading" @click="openResetConfirm">
-            {{ resetLoading ? t('layout.settings.resetting') : t('layout.settings.resetButton') }}
-          </button>
-        </template>
       </div>
     </div>
   </Modal>
@@ -902,28 +548,6 @@ async function handleSignOut() {
   opacity: 0.6;
 }
 
-.backup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
-}
-.backup-actions .btn {
-  flex: 1;
-  min-width: 140px;
-}
-.demo-btn {
-  width: 100%;
-  margin-top: 8px;
-}
-.family-backup-btn {
-  width: 100%;
-  margin-top: 8px;
-}
-.reset-btn {
-  width: 100%;
-  margin-top: 8px;
-}
 .status {
   font-size: 13px;
   color: var(--income);
@@ -932,74 +556,6 @@ async function handleSignOut() {
 
 .status.error {
   color: var(--expense);
-}
-
-.template-list {
-  list-style: none;
-  margin: 4px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.template-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
-  background: var(--surface-2);
-  border-radius: var(--radius-sm);
-}
-
-.dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.template-text {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.template-title {
-  font-size: 13px;
-  font-weight: 600;
-  @include lineClamp(1);
-}
-
-.template-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.template-amount {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-secondary);
-}
-
-.template-row .icon-btn {
-  width: 24px;
-  height: 24px;
-  font-size: 11px;
-}
-
-.icon-btn {
-  border: none;
-  background: var(--surface-2);
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 50%;
-}
-
-.icon-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
 }
 
 </style>

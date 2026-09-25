@@ -6,7 +6,6 @@ import { getFirebaseAuth, googleProvider } from '../firebase'
 import http from '../api/http'
 import { db } from '../db/schema'
 import { startAutoSync } from '../db/sync'
-import { connectSocket, disconnectSocket } from '../api/socket'
 import { t } from '../i18n'
 import { seedFormatSettingsFromBackend } from '../utils/format'
 import { seedLocaleSettingFromBackend } from '../i18n/locale'
@@ -153,15 +152,15 @@ export const useAuthStore = defineStore('auth', () => {
       if (!firebaseUser) {
         profile.value = null
         ready.value = true
-        disconnectSocket()
         return
       }
 
       await loadProfile(firebaseUser, auth)
-      if (profile.value) {
-        stopSync = startAutoSync(() => profile.value?.uid ?? null)
-        connectSocket()
-      }
+      // Stopped again here, not only above: another auth change can arrive
+      // while loadProfile is awaited, and whichever callback finishes last
+      // must be the only one left with a sync running.
+      stopSync?.()
+      stopSync = profile.value ? startAutoSync(() => profile.value?.uid ?? null) : null
       ready.value = true
     })
   }
@@ -172,7 +171,7 @@ export const useAuthStore = defineStore('auth', () => {
     localMode.value = true
     profile.value = LOCAL_PROFILE
     ready.value = true
-    // db/sync.ts's enqueue* functions now skip the outbox entirely in local
+    // db/sync/outbox.ts's putAndQueue/deleteAndQueue skip the outbox entirely in local
     // mode (there's no server that will ever drain it), but a device that
     // used local mode before that fix can still be sitting on outbox rows
     // from back then — which would otherwise show every record as
@@ -186,7 +185,6 @@ export const useAuthStore = defineStore('auth', () => {
     stopAuthListener = null
     stopSync?.()
     stopSync = null
-    disconnectSocket()
     user.value = null
     profile.value = null
     ready.value = false

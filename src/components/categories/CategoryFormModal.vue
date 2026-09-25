@@ -129,6 +129,27 @@ async function handleMergeSelect(targetId: string) {
   })
 }
 
+// Same as AccountFormModal.vue's requestDelete: only a category nobody has
+// an operation under (its subcategories included) can be deleted — see
+// stores/categories.ts's remove() — so one that has any gets archive/merge
+// offered instead.
+async function requestDelete() {
+  const category = props.category
+  if (!category) return
+  if (!(await categories.inUse(category.id))) {
+    emit('deleted')
+    return
+  }
+  const actions = []
+  if (!category.archived) actions.push({ label: t('categories.form.archive'), run: () => emit('archived') })
+  if (mergeCandidates.value.length) actions.push({ label: t('categories.form.mergePickerTitle'), run: () => (showMergePicker.value = true) })
+  popups.choiceDialog({
+    title: t('categories.form.inUseTitle'),
+    message: t('categories.form.inUseMessage', { name: category.name }),
+    actions,
+  })
+}
+
 // Same live-preview idea as AccountFormModal.vue's own currency-display
 // picker — "base" shows what formatMoney's own default currently resolves to.
 const CURRENCY_DISPLAY_PREVIEW_AMOUNT = 1234.56
@@ -296,7 +317,7 @@ function toggleParent(id: string | null) {
       <button class="btn btn-secondary" @click="emit('archived')">
         {{ props.category?.archived ? t('categories.form.unarchive') : t('categories.form.archive') }}
       </button>
-      <button class="btn btn-danger" @click="emit('deleted')">{{ t('categories.form.deleteCategory') }}</button>
+      <button class="btn btn-danger" @click="requestDelete">{{ t('categories.form.deleteCategory') }}</button>
     </div>
   </Modal>
 

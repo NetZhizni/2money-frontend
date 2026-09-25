@@ -2,7 +2,7 @@ import { liveQuery } from 'dexie'
 import { ref, type Ref } from 'vue'
 import type { SyncableEntity } from './schema'
 import { db } from './schema'
-import { enqueueDelete, enqueueDeleteMany, enqueueUpsert } from './sync'
+import { deleteAndQueue, putAndQueue } from './sync'
 import { useAuthStore } from '../stores/auth'
 
 /**
@@ -11,7 +11,7 @@ import { useAuthStore } from '../stores/auth'
  * `liveQuery` view (the closest analog to Firestore's `onSnapshot`,
  * including reacting to writes from other tabs) plus `put`/`removeLocal`,
  * which write straight to Dexie and queue the same change into the outbox
- * for the API (see src/db/sync.ts). Each store wraps this with its own
+ * for the API (see src/db/sync/). Each store wraps this with its own
  * `add`/`update`/domain-specific helpers — this only owns the mechanical part.
  */
 export function useSyncedCollection<T extends { id: string }>(entity: SyncableEntity, queryFn: () => Promise<T[]> | T[]) {
@@ -23,7 +23,7 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
   // backend) exactly when it still has an entry in the outbox — there's no
   // separate synced/pending field on the record itself (see OutboxEntry's
   // doc comment: create and update both collapse into one idempotent
-  // upsert), so this is derived live from the same queue src/db/sync.ts
+  // upsert), so this is derived live from the same queue src/db/sync/outbox.ts
   // drains, scoped to this entity.
   const pendingIds = ref<Set<string>>(new Set())
   let pendingSubscription: { unsubscribe: () => void } | null = null
@@ -70,18 +70,14 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
     pendingIds.value = new Set()
   }
 
-  /** Optimistic local write (create or update — Dexie `put` is an upsert) + queue for the API. */
+  /** Optimistic local write (create or update — Dexie `put` is an upsert) + queue for the API, atomically (see putAndQueue). */
   async function put(record: T): Promise<void> {
-    const authStore = useAuthStore()
-    await (db[entity] as unknown as { put: (r: T) => Promise<unknown> }).put(record)
-    if (authStore.uid) await enqueueUpsert(entity, authStore.uid, record as unknown as { id: string })
+    await putAndQueue(entity, useAuthStore().uid, [record])
   }
 
-  /** Optimistic local delete + queue for the API. */
+  /** Optimistic local delete + queue for the API, atomically (see deleteAndQueue). */
   async function removeLocal(id: string): Promise<void> {
-    const authStore = useAuthStore()
-    await (db[entity] as unknown as { delete: (id: string) => Promise<void> }).delete(id)
-    if (authStore.uid) await enqueueDelete(entity, authStore.uid, id)
+    await deleteAndQueue(entity, useAuthStore().uid, [id])
   }
 
   /**
@@ -94,10 +90,7 @@ export function useSyncedCollection<T extends { id: string }>(entity: SyncableEn
    * whenever more than a single record is being removed together.
    */
   async function removeManyLocal(ids: string[]): Promise<void> {
-    if (ids.length === 0) return
-    const authStore = useAuthStore()
-    await (db[entity] as unknown as { bulkDelete: (ids: string[]) => Promise<void> }).bulkDelete(ids)
-    if (authStore.uid) await enqueueDeleteMany(entity, authStore.uid, ids)
+    await deleteAndQueue(entity, useAuthStore().uid, ids)
   }
 
   return { all, loaded, load, stop, reset, put, removeLocal, removeManyLocal, pendingIds, isPending }

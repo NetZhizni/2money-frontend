@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { liveQuery } from 'dexie'
 import { db } from '../db/schema'
-import { pullAllTemplates } from '../db/sync'
+import { pullEntity } from '../db/sync'
 import type { RecurringTemplate } from '../types/models'
 
 /**
@@ -10,7 +10,7 @@ import type { RecurringTemplate } from '../types/models'
  * future "view another family member's finances" screen, which should show
  * their upcoming recurring payments too, not just their already-generated
  * transactions. Own and foreign templates live in the same Dexie table (see
- * src/db/sync.ts's pullAllTemplates) — this is just an unfiltered view of
+ * src/db/sync/pull.ts's pullEntity) — this is just an unfiltered view of
  * it, same pattern as stores/allAccounts.ts.
  */
 export const useAllTemplatesStore = defineStore('allTemplates', () => {
@@ -33,7 +33,7 @@ export const useAllTemplatesStore = defineStore('allTemplates', () => {
         },
         error: (error) => console.error('[allTemplates] liveQuery failed', error),
       })
-      void pullAllTemplates()
+      void pullEntity('recurringTemplates', { scope: 'all' })
     })
   }
 
