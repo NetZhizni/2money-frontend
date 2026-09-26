@@ -37,7 +37,10 @@ export interface BackupPayload {
   // deletes them, only reconciles by name against what the family already
   // has, same as categories.
   tags?: Tag[]
-  exchangeRates: unknown[]
+  // Cached exchange rates — only in files exported before rates moved to
+  // their own per-day snapshot cache (see db/exchangeRates.ts); never read
+  // back on import, since any device can re-download them.
+  exchangeRates?: unknown[]
   // Absent when this payload was extracted from a FamilyBackupPayload (see
   // extractPersonalSlice) — a family export has no per-member settings to
   // carry (base currency/theme are per-device preferences, never synced
@@ -75,7 +78,7 @@ export interface FamilyBackupPayload {
   budgets: Budget[]
   receipts: Receipt[]
   tags: Tag[]
-  exchangeRates: unknown[]
+  exchangeRates?: unknown[] // older files only — see BackupPayload's own
 }
 
 /**
@@ -262,7 +265,6 @@ export async function exportData(): Promise<BackupPayload> {
     budgets: budgetRows,
     receipts: receiptRows,
     tags: tags.all,
-    exchangeRates: await db.exchangeRates.toArray(),
     settings: { baseCurrency: settings.baseCurrency, theme: settings.theme },
   }
 }
@@ -314,7 +316,7 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
     ),
   )
 
-  const [usersResponse, accounts, categories, transactions, templates, budgets, receipts, tags, exchangeRates] = await Promise.all([
+  const [usersResponse, accounts, categories, transactions, templates, budgets, receipts, tags] = await Promise.all([
     http.get<FamilyBackupUser[]>('/admin/users'),
     db.accounts.toArray(),
     db.categories.toArray(),
@@ -323,7 +325,6 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
     db.budgets.toArray(),
     db.receipts.toArray(),
     db.tags.toArray(),
-    db.exchangeRates.toArray(),
   ])
 
   return {
@@ -337,7 +338,6 @@ export async function exportFamilyBackup(): Promise<FamilyBackupPayload> {
     budgets,
     receipts,
     tags,
-    exchangeRates,
   }
 }
 
@@ -393,7 +393,6 @@ function extractPersonalSlice(family: FamilyBackupPayload, oldOwnerId: string): 
     budgets: family.budgets.filter((b) => b.ownerId === oldOwnerId),
     receipts: family.receipts.filter((r) => r.ownerId === oldOwnerId),
     tags: family.tags,
-    exchangeRates: family.exchangeRates,
   }
 }
 
@@ -638,13 +637,15 @@ async function applyBackup(payload: BackupPayload, ownerId: string): Promise<voi
   // generated from a template points back at it via templateId.
   const templateIdMap = new Map<string, string>()
   for (const rec of templatesToImport) {
-    const { id: oldId, ownerId: _o, createdAt: _c, accountId, toAccountId, categoryId, subcategoryId, ...rest } = rec
+    const { id: oldId, ownerId: _o, createdAt: _c, accountId, toAccountId, categoryId, subcategoryId, tagIds, ...rest } = rec
     const created = await templates.add({
       ...rest,
       accountId: accountIdMap.get(accountId) ?? accountId,
       toAccountId: toAccountId ? (accountIdMap.get(toAccountId) ?? toAccountId) : toAccountId,
       categoryId: categoryId ? (categoryIdMap.get(categoryId) ?? categoryId) : categoryId,
       subcategoryId: subcategoryId ? (categoryIdMap.get(subcategoryId) ?? subcategoryId) : subcategoryId,
+      // Same remap (and same dropping of an unknown id) as a transaction's tagIds below.
+      tagIds: tagIds?.map((id) => tagIdMap.get(id)).filter((id): id is string => !!id),
     })
     templateIdMap.set(oldId, created.id)
   }

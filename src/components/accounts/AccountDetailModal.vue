@@ -7,7 +7,9 @@ import { useTransactionsStore } from '../../stores/transactions'
 import { usePeriodStore } from '../../stores/period'
 import { computeAccountBalance } from '../../stores/accounts'
 import { buildBalanceHistory } from '../../utils/balanceHistory'
-import { formatMoney, startOfDay, endOfDay } from '../../utils/format'
+import { formatDate, formatMoney, startOfDay, endOfDay, MONTHS } from '../../utils/format'
+import { goalProgress } from '../../utils/savingsGoal'
+import { creditStatus } from '../../utils/creditLimit'
 import { accountTypeLabel } from '../../utils/accountTypes'
 import { t } from '../../i18n'
 import type { PeriodGranularity } from '../../stores/period'
@@ -28,14 +30,25 @@ const emit = defineEmits<{
 const transactions = useTransactionsStore()
 const period = usePeriodStore()
 
-const typeLabel = computed(() =>
-  props.account ? accountTypeLabel(props.account.type, props.account.loanDirection) : '',
-)
-
 const accountTransactions = computed(() => (props.account ? transactions.forAccount(props.account.id) : []))
 const currentBalance = computed(() =>
   props.account ? computeAccountBalance(props.account, accountTransactions.value) : 0,
 )
+
+const typeLabel = computed(() => (props.account ? accountTypeLabel(props.account.type, currentBalance.value) : ''))
+
+const goal = computed(() => (props.account ? goalProgress(props.account, currentBalance.value, accountTransactions.value) : null))
+const credit = computed(() => (props.account ? creditStatus(props.account, currentBalance.value) : null))
+
+function money(amount: number): string {
+  return props.account ? formatMoney(amount, props.account.currency, { currencyDisplay: props.account.currencyDisplay }) : ''
+}
+
+/** "березень 2027" — a projection this rough doesn't deserve a day. */
+function monthYear(ts: number): string {
+  const d = new Date(ts)
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+}
 
 type RangeKey = '1m' | '3m' | '1y' | 'all'
 
@@ -109,6 +122,43 @@ const periodDelta = computed(() => {
       </div>
       <button v-if="!readonly" class="btn btn-secondary edit-btn" @click="emit('edit', account)">{{ t('accounts.detail.editAccount') }}</button>
 
+      <div v-if="goal" class="goal-section">
+        <h3 class="section-title">{{ t('accounts.detail.goalTitle') }}</h3>
+        <div class="goal-head">
+          <span class="goal-amounts">{{ t('accounts.goal.progress', { saved: money(Math.max(0, currentBalance)), target: money(goal.target) }) }}</span>
+          <span class="goal-pct">{{ t('accounts.goal.percent', { pct: Math.round(goal.ratio * 100) }) }}</span>
+        </div>
+        <div class="goal-track">
+          <div class="goal-fill" :style="{ width: `${goal.ratio * 100}%`, background: account.color }" />
+        </div>
+        <p v-if="goal.reached" class="goal-line reached">{{ t('accounts.goal.reached') }}</p>
+        <template v-else>
+          <p class="goal-line">{{ t('accounts.goal.remaining', { amount: money(goal.remaining) }) }}</p>
+          <p v-if="goal.overdue" class="goal-line overdue">{{ t('accounts.goal.overdue', { date: formatDate(account.goalDate!) }) }}</p>
+          <p v-else-if="goal.perMonth !== null" class="goal-line">
+            {{ t('accounts.goal.perMonth', { amount: money(goal.perMonth), date: formatDate(account.goalDate!) }) }}
+          </p>
+          <p v-if="goal.pacePerMonth !== null && goal.pacePerMonth > 0" class="goal-line muted">
+            {{ t('accounts.goal.pace', { amount: money(goal.pacePerMonth) }) }}
+            <template v-if="goal.eta !== null"> · {{ t('accounts.goal.eta', { date: monthYear(goal.eta) }) }}</template>
+          </p>
+          <p v-else-if="goal.pacePerMonth !== null" class="goal-line muted">{{ t('accounts.goal.noPace') }}</p>
+        </template>
+      </div>
+
+      <div v-if="credit" class="goal-section">
+        <h3 class="section-title">{{ t('accounts.credit.title') }}</h3>
+        <div class="goal-head">
+          <span class="goal-amounts">{{ t('accounts.credit.used', { used: money(credit.used), limit: money(credit.limit) }) }}</span>
+          <span class="goal-pct">{{ t('accounts.goal.percent', { pct: Math.round(credit.ratio * 100) }) }}</span>
+        </div>
+        <div class="goal-track">
+          <div class="goal-fill" :style="{ width: `${credit.ratio * 100}%`, background: credit.overLimit > 0 ? 'var(--expense)' : account.color }" />
+        </div>
+        <p v-if="credit.overLimit > 0" class="goal-line overdue">{{ t('accounts.credit.overLimit', { amount: money(credit.overLimit) }) }}</p>
+        <p v-else class="goal-line">{{ t('accounts.credit.available', { amount: money(credit.available) }) }}</p>
+      </div>
+
       <div class="history-section">
         <h3 class="section-title">{{ t('accounts.detail.historyTitle') }}</h3>
 
@@ -168,6 +218,53 @@ const periodDelta = computed(() => {
 }
 .quick-actions .btn {
   flex: 1;
+}
+
+.goal-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.goal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+.goal-amounts {
+  font-size: 13px;
+  font-weight: 600;
+}
+.goal-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+.goal-track {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.goal-fill {
+  height: 100%;
+  border-radius: 4px;
+}
+.goal-line {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin: 8px 0 0;
+}
+.goal-line.reached {
+  color: var(--income);
+  font-weight: 600;
+}
+.goal-line.overdue {
+  color: var(--expense);
+}
+.goal-line.muted {
+  color: var(--text-muted);
 }
 
 .history-section {

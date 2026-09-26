@@ -11,6 +11,7 @@ import AccountPickerModal from './AccountPickerModal.vue'
 import CategoryPickerModal from './CategoryPickerModal.vue'
 import TagPickerModal from './TagPickerModal.vue'
 import OperationDateModal from './OperationDateModal.vue'
+import RecurrencePicker from '../recurring/RecurrencePicker.vue'
 import { useAccountsStore } from '../../stores/accounts'
 import { useAllAccountsStore } from '../../stores/allAccounts'
 import { useCategoriesStore } from '../../stores/categories'
@@ -21,15 +22,15 @@ import { useTemplatesStore } from '../../stores/templates'
 import { useAuthStore } from '../../stores/auth'
 import { useProfilesStore } from '../../stores/profiles'
 import { useAllReceiptsStore } from '../../stores/allReceipts'
-import { getRateForDate } from '../../db/exchangeRates'
+import { convertAmount } from '../../db/exchangeRates'
 import { advance } from '../../db/recurring'
-import { dateKey, formatMoney, fullDateLabel } from '../../utils/format'
+import { dateFromKey, dateKey, endOfDay, formatMoney, fullDateLabel } from '../../utils/format'
 import { resolveAccountLabel, accountGroupLabel } from '../../utils/accountLabel'
 import { resolveCategoryCurrency } from '../../utils/currencies'
 import { TRANSFER_CATEGORY_COLOR } from '../../utils/transferAnalytics'
 import { duplicatePresetFrom, type TransactionDuplicatePreset } from '../../utils/transactionDuplicate'
+import { recurrenceLabel } from '../../utils/recurrence'
 import { t } from '../../i18n'
-import type { MessageKey } from '../../i18n'
 import type { Transaction, TransactionType, RecurringFrequency } from '../../types/models'
 import type { AccountPickerItem } from '../../types/pickerItems'
 
@@ -73,6 +74,13 @@ const props = defineProps<{
   // справжньою операцією. Так розпізнаний, але ще не підтверджений пункт чека
   // не з'являється в БД просто від того, що йому підібрали категорію.
   deferSave?: boolean
+  // Booking one due occurrence of a requireConfirm recurring template (see
+  // views/RecurringView.vue): the form opens prefilled from the template
+  // (presets above, plus presetTagIds), the saved operation is linked back
+  // to it via templateId, and the template then moves on past `date` — the
+  // occurrence's own date, which the user may well book under another one.
+  occurrence?: { templateId: string; date: number } | null
+  presetTagIds?: string[]
 }>()
 const emit = defineEmits<{
   close: []
@@ -243,7 +251,7 @@ function buildForm() {
     toAmount: props.transaction?.toAmount ?? props.presetToAmount ?? (undefined as number | undefined),
     date: todayDateInputValue(props.transaction?.date ?? props.presetDate),
     note: props.transaction?.note ?? props.presetNote ?? '',
-    tagIds: props.transaction?.tagIds ?? ([] as string[]),
+    tagIds: props.transaction?.tagIds ?? (props.presetTagIds ? [...props.presetTagIds] : ([] as string[])),
     makeRecurring: false,
     frequency: 'monthly' as RecurringFrequency,
     interval: 1,
@@ -263,6 +271,7 @@ const showAccountPicker = ref<'from' | 'to' | null>(null)
 const showCategoryPicker = ref(false)
 const showTagPicker = ref(false)
 const showDatePicker = ref(false)
+const showEndDatePicker = ref(false)
 
 // Bumped on every (re)open and used as AmountKeypad's `:key` — the keypad
 // keeps its typed expression as purely-internal state (see AmountKeypad.vue),
@@ -285,6 +294,7 @@ watch(
     showCategoryPicker.value = false
     showTagPicker.value = false
     showDatePicker.value = false
+    showEndDatePicker.value = false
     formResetKey.value++
   },
 )
@@ -360,11 +370,7 @@ watch(
   async () => {
     if (!isDualCurrency.value || !dualPrimaryCurrency.value || !dualSecondaryCurrency.value) return
     const when = new Date(form.date).getTime()
-    const [primaryRate, secondaryRate] = await Promise.all([
-      getRateForDate(dualPrimaryCurrency.value, when),
-      getRateForDate(dualSecondaryCurrency.value, when),
-    ])
-    dualRate.value = secondaryRate > 0 ? primaryRate / secondaryRate : 1
+    dualRate.value = await convertAmount(1, dualPrimaryCurrency.value, dualSecondaryCurrency.value, when)
   },
   { immediate: true },
 )
@@ -542,14 +548,10 @@ const tagsSummary = computed(() => {
 
 // ---------- Date popup ----------
 
-const FREQUENCY_LABEL_KEYS: Record<RecurringFrequency, MessageKey> = {
-  daily: 'transactions.form.freqDaily',
-  weekly: 'transactions.form.freqWeekly',
-  monthly: 'transactions.form.freqMonthly',
-  yearly: 'transactions.form.freqYearly',
-}
-const recurringSummary = computed(() => t(FREQUENCY_LABEL_KEYS[form.frequency]))
-const showRecurringInDatePopup = computed(() => !isEdit.value && form.type !== 'transfer')
+const recurringSummary = computed(() => recurrenceLabel(form.frequency, form.interval))
+// Not while booking an occurrence of an existing template — that operation
+// already belongs to a schedule.
+const showRecurringInDatePopup = computed(() => !isEdit.value && !props.deferSave && !props.occurrence)
 
 function openDatePicker() {
   if (lockedByReceipt.value) return
@@ -615,23 +617,29 @@ async function submit() {
     // receiptId only ever comes from a preset (new operation created from a
     // receipt-scan draft) — never spread into the shared `payload` above, so
     // editing an already-grouped transaction can't have it silently cleared.
-    await transactions.add({ ...payload, receiptId: props.presetReceiptId ?? null })
-    if (form.makeRecurring && form.type !== 'transfer') {
-      const endDate = form.endDate ? new Date(form.endDate).getTime() : null
+    await transactions.add({ ...payload, receiptId: props.presetReceiptId ?? null, templateId: props.occurrence?.templateId })
+    if (props.occurrence) {
+      await templates.passOccurrence(props.occurrence.templateId, props.occurrence.date)
+    } else if (form.makeRecurring) {
+      // The whole of the end day counts, whatever time of day the occurrences carry.
+      const endDate = form.endDate ? endOfDay(dateFromKey(form.endDate).getTime()) : null
+      const interval = Math.max(1, Math.round(form.interval) || 1)
       await templates.add({
         type: form.type,
         accountId: form.accountId,
-        toAccountId: undefined,
-        categoryId: form.categoryId,
-        subcategoryId: form.subcategoryId || null,
+        toAccountId: payload.toAccountId,
+        categoryId: payload.categoryId,
+        subcategoryId: payload.subcategoryId,
         amount: form.amount,
+        toAmount: payload.toAmount ?? null,
         currency: currency.value,
-        note: form.note.trim() || undefined,
+        note: payload.note,
+        tagIds: [...form.tagIds],
         frequency: form.frequency,
-        interval: form.interval,
+        interval,
         startDate: when,
         endDate,
-        nextDate: advance(when, form.frequency, form.interval),
+        nextDate: advance(when, form.frequency, interval),
         active: true,
       })
     }
@@ -760,7 +768,7 @@ function handleDuplicate() {
       </template>
     </FieldRow>
 
-    <div v-if="!isEdit && form.type !== 'transfer' && !deferSave" class="recurring-field">
+    <div v-if="showRecurringInDatePopup" class="recurring-field">
       <FieldRow tag="label" icon="mdiRepeat">
         <span class="field-row-value">{{ t('transactions.form.makeRecurring') }}</span>
         <template #trailing>
@@ -768,24 +776,14 @@ function handleDuplicate() {
         </template>
       </FieldRow>
       <div v-if="form.makeRecurring" class="recurring-options">
-        <div class="row-2">
-          <FieldRow icon="mdiCalendarSyncOutline" :label="t('transactions.form.frequencyLabel')">
-            <select v-model="form.frequency" class="field-row-value">
-              <option value="daily">{{ t('transactions.form.freqDaily') }}</option>
-              <option value="weekly">{{ t('transactions.form.freqWeekly') }}</option>
-              <option value="monthly">{{ t('transactions.form.freqMonthly') }}</option>
-              <option value="yearly">{{ t('transactions.form.freqYearly') }}</option>
-            </select>
-            <template #trailing>
-              <MdiIcon name="mdiChevronDown" :size="18" color="var(--text-muted)" />
-            </template>
-          </FieldRow>
-          <FieldRow icon="mdiCounter" :label="t('transactions.form.everyN')">
-            <input v-model.number="form.interval" type="number" min="1" class="field-row-value" />
-          </FieldRow>
-        </div>
-        <FieldRow icon="mdiCalendarBlankOutline" :label="t('transactions.form.endDateLabel')">
-          <input v-model="form.endDate" type="date" class="field-row-value" />
+        <RecurrencePicker v-model:frequency="form.frequency" v-model:interval="form.interval" :start="dateFromKey(form.date).getTime()" />
+        <FieldRow tag="button" icon="mdiCalendarBlankOutline" :label="t('transactions.form.endDateLabel')" @click="showEndDatePicker = true">
+          <span class="field-row-value" :class="{ muted: !form.endDate }">
+            {{ form.endDate ? fullDateLabel(dateFromKey(form.endDate)) : t('recurring.form.noEndDate') }}
+          </span>
+          <template #trailing>
+            <MdiIcon name="mdiChevronDown" :size="18" color="var(--text-muted)" />
+          </template>
         </FieldRow>
         <span class="hint">{{ t('transactions.form.recurringHint') }}</span>
       </div>
@@ -853,6 +851,15 @@ function handleDuplicate() {
     @close="showDatePicker = false"
     @update:date="(v) => (form.date = v)"
     @update:recurring="(v) => (form.makeRecurring = v)"
+  />
+
+  <OperationDateModal
+    :open="showEndDatePicker"
+    :date="form.endDate"
+    :title="t('transactions.form.endDateLabel')"
+    :clear-label="t('recurring.form.noEndDate')"
+    @close="showEndDatePicker = false"
+    @update:date="(v) => (form.endDate = v)"
   />
 </template>
 
@@ -1066,12 +1073,6 @@ function handleDuplicate() {
   min-width: 0;
 }
 
-.row-2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-
 .recurring-field {
   margin-bottom: 16px;
 }
@@ -1081,6 +1082,10 @@ function handleDuplicate() {
   padding: 12px;
   background: var(--surface-2);
   border-radius: var(--radius-sm);
+}
+
+.muted {
+  color: var(--text-muted);
 }
 
 .hint {

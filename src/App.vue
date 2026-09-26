@@ -308,6 +308,8 @@
     :preset-note="popups.transactionForm.presetNote"
     :preset-type="popups.transactionForm.presetType"
     :preset-date="popups.transactionForm.presetDate"
+    :preset-tag-ids="popups.transactionForm.presetTagIds"
+    :occurrence="popups.transactionForm.occurrence"
     @close="popups.closeTransactionForm()"
     @saved="popups.closeTransactionForm()"
     @duplicate-requested="handleDuplicateRequest"

@@ -312,7 +312,6 @@ export async function loadDemoData(): Promise<void> {
     {
       name: t('demo.account.loan'),
       type: 'loan',
-      loanDirection: 'lent',
       currency: 'UAH',
       icon: 'mdiHandshakeOutline',
       color: '#e34948',
@@ -351,6 +350,11 @@ export async function loadDemoData(): Promise<void> {
   // amount range down to a realistic USD figure — independent of base currency.
   const uahPerUsd = await convertAmount(1, 'USD', 'UAH')
 
+  // Every toAmount below is converted at today's rate too, not at its
+  // operation's own date: db/exchangeRates.ts has real per-day history, so
+  // dating them would cost one sequential rate fetch per distinct day across
+  // DEMO_MONTHS — seconds of waiting, just for made-up numbers.
+
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const startDay = new Date(today)
@@ -386,7 +390,7 @@ export async function loadDemoData(): Promise<void> {
           toAccountId: toId,
           amount,
           currency: fromCurrency,
-          toAmount: await convertAmount(amount, fromCurrency, toCurrency, ts),
+          toAmount: await convertAmount(amount, fromCurrency, toCurrency),
           createdAt: now,
           updatedAt: now,
         })
@@ -412,7 +416,7 @@ export async function loadDemoData(): Promise<void> {
       // own doc comment above for why this is filled even when it equals
       // `amount` one-for-one).
       const categoryCurrency = resolveCategoryCurrency(category, settings.baseCurrency)
-      const toAmount = await convertAmount(amount, currency, categoryCurrency, ts)
+      const toAmount = await convertAmount(amount, currency, categoryCurrency)
 
       newTransactions.push({
         id: newId(),
@@ -435,10 +439,11 @@ export async function loadDemoData(): Promise<void> {
   }
 
   // One lend-and-partial-repay pair, so the demo also exercises the `loan`
-  // account type (see Account.loanDirection): money out to the loan account,
-  // then part of it back later — the repayment is skipped entirely if its
-  // date would land in the future, so the demo never shows a transaction
-  // that hasn't "happened" yet.
+  // account type (a positive balance there reads as "owed to me", see
+  // utils/accountTypes.ts's accountTypeLabel): money out to the loan
+  // account, then part of it back later — the repayment is skipped entirely
+  // if its date would land in the future, so the demo never shows a
+  // transaction that hasn't "happened" yet.
   const loanGivenAt = new Date(startDay)
   loanGivenAt.setDate(loanGivenAt.getDate() + randInt(5, 20))
   loanGivenAt.setHours(randInt(10, 19), randInt(0, 59), 0, 0)
@@ -518,7 +523,7 @@ export async function loadDemoData(): Promise<void> {
         subcategoryId: null,
         amount: itemAmount,
         currency: receiptCurrency,
-        toAmount: await convertAmount(itemAmount, receiptCurrency, categoryCurrency, when.getTime()),
+        toAmount: await convertAmount(itemAmount, receiptCurrency, categoryCurrency),
         receiptId,
         tagIds: tagIdsFor(item.defKey),
         createdAt: now,

@@ -406,6 +406,19 @@ export function dateKey(date: Date | number): string {
   return `${y}-${m}-${day}`
 }
 
+/** "31 жовт." — day and abbreviated month in the app's language, for compact date lists; the year only when it isn't the current one. */
+export function dayMonthShort(date: Date | number): string {
+  const d = typeof date === 'number' ? new Date(date) : date
+  const withYear = d.getFullYear() !== new Date().getFullYear()
+  return new Intl.DateTimeFormat(INTL_LOCALE, { day: 'numeric', month: 'short', ...(withYear ? { year: 'numeric' } : {}) }).format(d)
+}
+
+/** dateKey's inverse: 'YYYY-MM-DD' as local midnight of that day (unlike `new Date(key)`, which reads it as UTC). */
+export function dateFromKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+
 export function startOfMonth(year: number, month: number): number {
   return new Date(year, month, 1, 0, 0, 0, 0).getTime()
 }

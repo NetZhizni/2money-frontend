@@ -1,6 +1,9 @@
 import { isCrossProfileTransfer } from './transferAnalytics'
 import type { Transaction } from '../types/models'
 
+/** `amount` in `currency` → the base currency, at the rate of `when`'s day (today's if omitted) — composables/useBaseCurrency.ts's `toBase`. */
+export type ToBase = (amount: number, currency: string, when?: number) => number
+
 /**
  * A transaction's contribution expressed in its OWN category's currency —
  * used for Categories analytics (see CategoriesDataView.vue), which per-spec
@@ -14,15 +17,16 @@ import type { Transaction } from '../types/models'
  * a transaction saved before this category had this currency (or before
  * per-category currencies existed at all), which has no such figure
  * recorded. `toBase` is the fallback for exactly that gap: converting the
- * native amount live is exact whenever `categoryCurrency` is the base
- * currency (the common case for a category that was never given an explicit
- * one — see resolveCategoryCurrency), and only an approximation on the rarer
- * legacy row against a category with some OTHER explicit currency.
+ * native amount at the operation's own day rate is right whenever
+ * `categoryCurrency` is the base currency (the common case for a category
+ * that was never given an explicit one — see resolveCategoryCurrency), and
+ * only an approximation on the rarer legacy row against a category with
+ * some OTHER explicit currency.
  */
-export function categoryCurrencyAmount(t: Transaction, categoryCurrency: string, toBase: (amount: number, currency: string) => number): number {
+export function categoryCurrencyAmount(t: Transaction, categoryCurrency: string, toBase: ToBase): number {
   if (categoryCurrency === t.currency) return Math.abs(t.amount)
   if (t.toAmount != null) return Math.abs(t.toAmount)
-  return Math.abs(toBase(t.amount, t.currency))
+  return Math.abs(toBase(t.amount, t.currency, t.date))
 }
 
 /**
@@ -74,19 +78,20 @@ export function otherCurrencyAmount(
  * `targetCurrency` — EXACT when `targetCurrency` matches either the
  * transaction's own currency or its "other side" (see otherCurrencyAmount
  * above: a category's currency, or a transfer's destination), and only a
- * live-rate `toBase` conversion when it matches neither. This is what
- * switching "Показувати суми в…" should do: prefer a figure someone actually
- * entered/recorded over one re-derived from today's rate, whenever one
- * exists in the currency now being shown.
+ * `toBase` conversion at the rate of `when` (the operation's own date) when
+ * it matches neither. This is what switching "Показувати суми в…" should
+ * do: prefer a figure someone actually entered/recorded over one re-derived
+ * from a rate, whenever one exists in the currency now being shown.
  */
 export function signedAmountInCurrency(
   signedAmount: number,
   currency: string,
   targetCurrency: string,
   other: { amount: number; currency: string } | null,
-  toBase: (amount: number, currency: string) => number,
+  toBase: ToBase,
+  when: number,
 ): number {
   if (currency === targetCurrency) return signedAmount
   if (other && other.currency === targetCurrency) return Math.sign(signedAmount) * Math.abs(other.amount)
-  return toBase(signedAmount, currency)
+  return toBase(signedAmount, currency, when)
 }

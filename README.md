@@ -1,7 +1,7 @@
 # Stork — frontend
 
 Family finance tracker (Vue 3 + TypeScript + Vite). Ported from an earlier
-prototype, with Firestore replaced end-to-end by the `backend/` Express/
+prototype, with Firestore replaced end-to-end by the `2money-backend` Express/
 PostgreSQL API — Firebase is used **only** for Google sign-in now.
 
 The build itself carries no Firebase project, no backend URL, and no other
@@ -13,7 +13,7 @@ build/Docker image works for anyone self-hosting it.
 
 - **Vue 3** (`<script setup>`) + **Vue Router** + **Pinia** (setup stores, one per entity).
 - **Dexie (IndexedDB)** — the full local mirror of every entity (`src/db/schema.ts`), not just a cache: every read/write in the app goes through Dexie, never directly through the network. This is what makes the app offline-first.
-- **`src/db/sync.ts`** — the sync engine: pushes a Dexie-backed outbox of pending writes to the API, pulls deltas (`?since=`) back into Dexie, runs on login, on regaining connectivity, and every 1min while online. A no-op in local mode (see below) — every push/pull function bails out early via `hasConfiguredServer()` (`src/config/serverConfig.ts`).
+- **`src/db/sync/`** — the sync engine, imported as one module (`db/sync`, see its `index.ts`): `outbox.ts` pushes a Dexie-backed outbox of pending writes to the API, `pull.ts` pulls deltas (`?since=`) back into Dexie, `orchestrator.ts` decides when (on sign-in, on coming back to the app, on regaining connectivity, shortly after a local change, and on a timer that runs every 15s while there's activity and backs off to 1min — only while the app is visible), `issues.ts` keeps the changes the server refused, `clock.ts` stamps changes on the server's clock and `lock.ts` keeps two tabs from running the same job. A no-op in local mode (see below) — every push/pull bails out early via `hasConfiguredServer()` (`src/config/serverConfig.ts`).
 - **vite-plugin-pwa** — offline app-shell (service worker); the data layer's offline story is the sync engine above, not the SW.
 - **firebase/auth** only (no `firebase/firestore` anywhere) for Google sign-in — lazily initialized at runtime (`src/firebase.ts`) once a server's config is known, rather than from a build-time project.
 
@@ -24,7 +24,7 @@ npm install
 npm run dev   # http://localhost:8099, proxies /api -> http://localhost:3100 (see vite.config.ts)
 ```
 
-The backend must be running and migrated first (see `../backend/README.md`,
+The backend must be running and migrated first (see `../2money-backend/README.md`,
 including its `FIREBASE_WEB_*` config) — the very first Google sign-in
 against an empty `users` table becomes the family's owner. On first launch
 the app itself asks for the backend's URL (see below); in dev, connecting to
@@ -40,7 +40,7 @@ first launch `views/ServerSetupView.vue` asks for a server URL:
   origin itself in a bundled single-domain deployment) — the app fetches
   `GET {url}/api/config/public` (`src/config/serverConfig.ts`), which hands
   back that server's Firebase web config and whether it supports receipt
-  scanning (`GEMINI_API_KEY` configured — see `../backend/README.md`), then
+  scanning (`GEMINI_API_KEY` configured — see `../2money-backend/README.md`), then
   signs in with Google against that project.
 - Or pick **"work offline, without a server"** — see below.
 
@@ -65,9 +65,10 @@ backup first — Settings → Data → Export JSON).
 
 ## Offline-first, in short
 
-- Every entity store (`stores/accounts.ts`, `categories.ts`, `transactions.ts`, `budgets.ts`, `templates.ts`) is a thin wrapper around `src/db/useSyncedCollection.ts`: a Dexie `liveQuery` view (reactive, works across tabs) plus `put`/`removeLocal`, which write to Dexie immediately and queue the same change into `db.outbox` for the API.
+- Every entity store (`stores/accounts.ts`, `categories.ts`, `tags.ts`, `transactions.ts`, `budgets.ts`, `templates.ts`, `receipts.ts`) is a thin wrapper around `src/db/useSyncedCollection.ts`: a Dexie `liveQuery` view (reactive, works across tabs) plus `put`/`removeLocal`, which write to Dexie immediately and queue the same change into `db.outbox` for the API.
 - A write never waits on the network — it's visible in the UI (Dexie) instantly, and syncs whenever the sync engine next gets a chance to push.
-- `stores/allAccounts.ts` / `views/TotalBalanceView.vue` read the *whole* `accounts`/`transactions` Dexie tables (own + every other family member's, see `pullAllAccounts`/`pullAllTransactions` in `src/db/sync.ts`) — this app's trust model is full financial transparency within the family.
+- Every pull asks for the family-wide view (`pullEntity(entity, { scope: 'all' })` in `src/db/sync/pull.ts`), so Dexie holds every family member's rows, not just your own. `stores/allAccounts.ts` (and `allTemplates.ts`, `allBudgets.ts`, `allReceipts.ts`) read those whole tables — for cross-profile transfers and account labels — while the profile-scoped stores (accounts, transactions, budgets, receipts) show whoever "View as" (`stores/viewAs.ts`) points at, including "everyone" for the combined family view. This app's trust model is full financial transparency within the family.
+- Recurring templates (`stores/templates.ts`, `src/db/recurring.ts`) are booked on-device: on app start every due occurrence becomes an operation, except for templates set to "confirm each payment", whose due occurrences wait on the Recurring page (`views/RecurringView.vue`, Settings → Recurring payments) to be booked or skipped.
 - `stores/admin.ts` (owner-only, `/admin` route) is the one exception that talks to the API directly with no offline story — user management needs the server's immediate validation and isn't meaningful to queue offline. Unreachable in local mode (see `router/index.ts`'s guard).
 
 ## Android (Google Play) via TWA
@@ -112,5 +113,5 @@ Once a domain is picked:
 
 ## What's gone from the original prototype
 
-- `firebase/firestore`, `firestore.rules`, the Firestore `allowlist` doc — replaced by the backend's `users` table (see `../backend/README.md`'s "Authorization model").
+- `firebase/firestore`, `firestore.rules`, the Firestore `allowlist` doc — replaced by the backend's `users` table (see `../2money-backend/README.md`'s "Authorization model").
 - Quasar (the previous, unrelated `frontend/` prototype used it) — this app uses its own hand-built component set (`components/common/*`) instead.

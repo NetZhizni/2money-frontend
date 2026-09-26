@@ -7,10 +7,17 @@ import { t } from '../../i18n'
 
 const props = defineProps<{
   open: boolean
-  date: string // yyyy-mm-dd
-  showRecurring: boolean
-  recurring: boolean
+  date: string // yyyy-mm-dd, or '' for "no date" (see clearLabel)
+  showRecurring?: boolean
+  recurring?: boolean
   recurringSummary?: string
+  // Replaces the default "Дата" — for a picker that isn't the operation's own
+  // date (a recurring payment's next/end date, a savings goal's deadline).
+  title?: string
+  // Makes the date optional: the "Вчора" shortcut becomes this "no date" one,
+  // which emits '' — every optional date that uses it (an end date, a
+  // deadline) looks forward, where yesterday is no use anyway.
+  clearLabel?: string
 }>()
 const emit = defineEmits<{ close: []; 'update:date': [string]; 'update:recurring': [boolean] }>()
 
@@ -110,7 +117,7 @@ function pick(key: string) {
 </script>
 
 <template>
-  <Modal :open="open" :title="t('transactions.dateModal.title')" top @close="emit('close')">
+  <Modal :open="open" :title="title ?? t('transactions.dateModal.title')" top @close="emit('close')">
     <div class="calendar">
       <div v-if="pickerMode === 'days'" class="cal-header">
         <button type="button" class="cal-nav" :aria-label="t('transactions.dateModal.prevMonth')" @click="shiftMonth(-1)">
@@ -169,7 +176,11 @@ function pick(key: string) {
     </div>
 
     <div class="quick-row">
-      <button type="button" class="quick-btn" :class="{ active: props.date === yesterdayKey }" @click="pick(yesterdayKey)">
+      <button v-if="clearLabel" type="button" class="quick-btn" :class="{ active: !props.date }" @click="pick('')">
+        <MdiIcon name="mdiCalendarRemoveOutline" :size="18" />
+        <span class="quick-title">{{ clearLabel }}</span>
+      </button>
+      <button v-else type="button" class="quick-btn" :class="{ active: props.date === yesterdayKey }" @click="pick(yesterdayKey)">
         <MdiIcon name="mdiWeatherNight" :size="18" />
         <span class="quick-title">{{ t('common.yesterday') }}</span>
         <span class="quick-sub">{{ yesterdayLabel }}</span>
@@ -361,6 +372,7 @@ function pick(key: string) {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   border: none;
   background: var(--surface-2);

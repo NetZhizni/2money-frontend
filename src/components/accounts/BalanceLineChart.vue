@@ -5,6 +5,7 @@ import { useECharts } from '../../composables/useECharts'
 import { formatMoney, MONTHS_SHORT, type CurrencyDisplayStyle } from '../../utils/format'
 import { withAlpha } from '../../utils/color'
 import { t } from '../../i18n'
+import { dateAxisTicks } from '../../utils/dateAxisTicks'
 import type { BalancePoint } from '../../utils/balanceHistory'
 import type { EChartsOption } from 'echarts'
 
@@ -31,6 +32,33 @@ function shortDateLabel(ts: number): string {
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]}`
 }
 
+const axisTicks = computed(() => {
+  const first = props.points[0]?.date ?? 0
+  const last = props.points[props.points.length - 1]?.date ?? 0
+  return dateAxisTicks(first, last)
+})
+
+/**
+ * Compact on purpose: a phone-width plot only fits ~40px per label on the 3-month
+ * range's 1st/15th ticks, and "15 Серп" doesn't. So a day-unit axis names the
+ * month only where one starts ("Лип 15 Серп 15"), plus in full on its first
+ * label when that isn't a 1st ("20 Вер 21 22"), so the month is always known.
+ * A month-unit January shows its year instead, so a multi-year axis still
+ * says which year it's in.
+ */
+function axisDateLabel(ts: number, index: number): string {
+  const d = new Date(ts)
+  switch (axisTicks.value.unit) {
+    case 'day':
+      if (d.getDate() === 1) return MONTHS_SHORT[d.getMonth()]
+      return index === 0 ? shortDateLabel(ts) : String(d.getDate())
+    case 'month':
+      return d.getMonth() === 0 ? String(d.getFullYear()) : MONTHS_SHORT[d.getMonth()]
+    case 'year':
+      return String(d.getFullYear())
+  }
+}
+
 const lineColor = computed(() => props.color ?? colors.value.accent)
 
 interface AxisTooltipParam {
@@ -42,7 +70,18 @@ const option = computed<EChartsOption>(() => ({
   grid: { left: 8, right: 8, top: 12, bottom: 8, containLabel: true },
   xAxis: {
     type: 'time',
-    axisLabel: { color: colors.value.textMuted, formatter: (val: number) => shortDateLabel(val) },
+    // Pinned to the data so the extent (which filters `customValues`) is
+    // exactly the sampled days, not a range ECharts rounded outward.
+    min: props.points[0]?.date,
+    max: props.points[props.points.length - 1]?.date,
+    axisLabel: {
+      color: colors.value.textMuted,
+      customValues: axisTicks.value.values,
+      formatter: (val: number, index: number) => axisDateLabel(val, index),
+      // Safety net for a narrow screen; `dateAxisTicks`' cap keeps it from
+      // kicking in at phone width in practice.
+      hideOverlap: true,
+    },
     axisLine: { show: false },
     axisTick: { show: false },
     splitLine: { show: false },

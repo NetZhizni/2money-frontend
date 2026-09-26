@@ -8,16 +8,17 @@ import AmountEntryModal from '../common/AmountEntryModal.vue'
 import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
 import Segmented from '../common/Segmented.vue'
 import AccountPickerModal from '../transactions/AccountPickerModal.vue'
+import OperationDateModal from '../transactions/OperationDateModal.vue'
 import MdiIcon from '../common/MdiIcon.vue'
 import FieldRow from '../common/FieldRow.vue'
 import { useAccountsStore } from '../../stores/accounts'
 import { useSettingsStore } from '../../stores/settings'
 import { usePopupsStore } from '../../stores/popups'
-import { ACCOUNT_TYPE_OPTIONS, ACCOUNT_TYPE_DEFAULTS, LOAN_DIRECTION_OPTIONS } from '../../utils/accountTypes'
+import { ACCOUNT_TYPE_OPTIONS, ACCOUNT_TYPE_DEFAULTS } from '../../utils/accountTypes'
 import { accountGroupLabel } from '../../utils/accountLabel'
-import { formatMoney, formatMoneyAs, getNumberFormatSetting, type CurrencyDisplayStyle } from '../../utils/format'
+import { dateFromKey, dateKey, endOfDay, formatMoney, formatMoneyAs, fullDateLabel, getNumberFormatSetting, type CurrencyDisplayStyle } from '../../utils/format'
 import { t } from '../../i18n'
-import type { Account, AccountType, LoanDirection } from '../../types/models'
+import type { Account, AccountType } from '../../types/models'
 import type { AccountPickerItem } from '../../types/pickerItems'
 
 // The picker's own "use the base Settings choice" option — kept out of
@@ -42,7 +43,6 @@ function buildForm() {
   return {
     name: props.account?.name ?? '',
     type: initialType,
-    loanDirection: props.account?.loanDirection ?? ('lent' as LoanDirection),
     currency: props.account?.currency ?? settings.baseCurrency,
     currencyDisplay: (props.account?.currencyDisplay ?? 'base') as CurrencyDisplayFormValue,
     initialBalance: props.account?.initialBalance ?? 0,
@@ -50,6 +50,9 @@ function buildForm() {
     icon: props.account?.icon ?? ACCOUNT_TYPE_DEFAULTS[initialType].icon,
     color: props.account?.color ?? ACCOUNT_TYPE_DEFAULTS[initialType].color,
     note: props.account?.note ?? '',
+    goalAmount: props.account?.goalAmount ?? null,
+    goalDate: props.account?.goalDate != null ? dateKey(props.account.goalDate) : '',
+    creditLimit: props.account?.creditLimit ?? null,
   }
 }
 
@@ -58,6 +61,9 @@ const showIconColorPicker = ref(false)
 const showCurrencyPicker = ref(false)
 const showCurrencyDisplayPicker = ref(false)
 const showBalanceEntry = ref(false)
+const showCreditLimitEntry = ref(false)
+const showGoalEntry = ref(false)
+const showGoalDatePicker = ref(false)
 const showMergePicker = ref(false)
 // Once an account has operations against it, its currency can't change (see
 // stores/accounts.ts's hasTransactions and the server-side twin in
@@ -74,6 +80,9 @@ watch(
     showCurrencyPicker.value = false
     showCurrencyDisplayPicker.value = false
     showBalanceEntry.value = false
+    showCreditLimitEntry.value = false
+    showGoalEntry.value = false
+    showGoalDatePicker.value = false
     showMergePicker.value = false
     mergeError.value = ''
     currencyLocked.value = props.account ? await accounts.hasTransactions(props.account.id) : false
@@ -184,7 +193,6 @@ function chooseCurrencyDisplay(value: string) {
 const resolvedCurrencyDisplay = computed(() => (form.currencyDisplay === 'base' ? undefined : form.currencyDisplay))
 
 const accountTypeSegmentOptions = computed(() => ACCOUNT_TYPE_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })))
-const loanDirectionSegmentOptions = computed(() => LOAN_DIRECTION_OPTIONS.map((o) => ({ value: o.value, label: t(o.labelKey) })))
 
 function selectType(type: AccountType) {
   form.type = type
@@ -196,12 +204,26 @@ function selectType(type: AccountType) {
 
 const error = computed(() => (form.name.trim() ? '' : t('accounts.form.nameRequired')))
 
+function clearGoal() {
+  form.goalAmount = null
+  form.goalDate = ''
+}
+
+// The goal date is stored as the END of the picked local day, so the goal
+// only counts as overdue once that whole day is over (see utils/savingsGoal.ts).
+function goalDateValue(key: string): number | null {
+  return key ? endOfDay(dateFromKey(key).getTime()) : null
+}
+
 function submit() {
   if (error.value) return
+  // Only a savings account carries a goal — switching the type away drops it.
+  const hasGoal = form.type === 'savings' && !!form.goalAmount && form.goalAmount > 0
+  // Likewise only a regular account carries a credit limit.
+  const hasCreditLimit = form.type === 'regular' && !!form.creditLimit && form.creditLimit > 0
   emit('save', {
     name: form.name.trim(),
     type: form.type,
-    loanDirection: form.type === 'loan' ? form.loanDirection : undefined,
     currency: form.currency,
     currencyDisplay: form.currencyDisplay === 'base' ? null : form.currencyDisplay,
     initialBalance: Number(form.initialBalance) || 0,
@@ -209,6 +231,9 @@ function submit() {
     icon: form.icon,
     color: form.color,
     note: form.note.trim() || undefined,
+    goalAmount: hasGoal ? form.goalAmount : null,
+    goalDate: hasGoal ? goalDateValue(form.goalDate) : null,
+    creditLimit: hasCreditLimit ? form.creditLimit : null,
   })
 }
 </script>
@@ -230,16 +255,7 @@ function submit() {
         :model-value="form.type"
         :options="accountTypeSegmentOptions"
         @update:model-value="(v) => selectType(v as AccountType)"
-      >
-        <div v-if="form.type === 'loan'" class="field">
-          <label>{{ t('accounts.form.loanDirectionLabel') }}</label>
-          <Segmented
-            :model-value="form.loanDirection"
-            :options="loanDirectionSegmentOptions"
-            @update:model-value="(v) => (form.loanDirection = v as LoanDirection)"
-          />
-        </div>
-      </Segmented>
+      />
     </div>
 
     <FieldRow icon="mdiFormTextbox" :label="t('accounts.form.nameLabel')">
@@ -264,6 +280,16 @@ function submit() {
     <FieldRow tag="button" icon="mdiWalletOutline" :label="t('accounts.form.initialBalanceLabel')" @click="showBalanceEntry = true">
       <span class="field-row-value">{{ formatMoney(form.initialBalance, form.currency, { currencyDisplay: resolvedCurrencyDisplay }) }}</span>
     </FieldRow>
+    <span v-if="form.type === 'loan'" class="hint">{{ t('accounts.form.loanHint') }}</span>
+
+    <template v-if="form.type === 'regular'">
+      <FieldRow tag="button" icon="mdiCreditCardClockOutline" :label="t('accounts.form.creditLimit')" @click="showCreditLimitEntry = true">
+        <span class="field-row-value" :class="{ muted: !form.creditLimit }">
+          {{ form.creditLimit ? formatMoney(form.creditLimit, form.currency, { currencyDisplay: resolvedCurrencyDisplay }) : t('accounts.form.creditLimitNone') }}
+        </span>
+      </FieldRow>
+      <span class="hint">{{ t('accounts.form.creditLimitHint') }}</span>
+    </template>
 
     <FieldRow
       tag="button"
@@ -277,6 +303,25 @@ function submit() {
       </template>
     </FieldRow>
     <span class="hint">{{ t('accounts.form.currencyDisplayHint') }}</span>
+
+    <div v-if="form.type === 'savings'" class="goal-block">
+      <span class="goal-title">{{ t('accounts.form.goalLabel') }}</span>
+      <FieldRow tag="button" icon="mdiFlagCheckered" :label="t('accounts.form.goalAmount')" @click="showGoalEntry = true">
+        <span class="field-row-value" :class="{ muted: !form.goalAmount }">
+          {{ form.goalAmount ? formatMoney(form.goalAmount, form.currency, { currencyDisplay: resolvedCurrencyDisplay }) : t('accounts.form.goalNone') }}
+        </span>
+      </FieldRow>
+      <FieldRow v-if="form.goalAmount" tag="button" icon="mdiCalendarCheckOutline" :label="t('accounts.form.goalDate')" @click="showGoalDatePicker = true">
+        <span class="field-row-value" :class="{ muted: !form.goalDate }">
+          {{ form.goalDate ? fullDateLabel(dateFromKey(form.goalDate)) : t('accounts.form.noGoalDate') }}
+        </span>
+        <template #trailing>
+          <MdiIcon name="mdiChevronDown" :size="18" color="var(--text-muted)" />
+        </template>
+      </FieldRow>
+      <span class="hint">{{ t('accounts.form.goalHint') }}</span>
+      <button v-if="form.goalAmount" type="button" class="btn btn-ghost goal-clear" @click="clearGoal">{{ t('accounts.form.goalClear') }}</button>
+    </div>
 
     <FieldRow tag="label" icon="mdiScaleBalance" class="toggle-field">
       <span class="field-row-value">{{ t('accounts.form.includeInTotal') }}</span>
@@ -357,6 +402,37 @@ function submit() {
     @close="showBalanceEntry = false"
     @confirm="(v) => (form.initialBalance = v)"
   />
+
+  <AmountEntryModal
+    :open="showCreditLimitEntry"
+    :title="t('accounts.form.creditLimit')"
+    :initial-value="form.creditLimit"
+    :currency="form.currency"
+    :currency-display="resolvedCurrencyDisplay"
+    :label="t('accounts.form.creditLimit')"
+    @close="showCreditLimitEntry = false"
+    @confirm="(v) => (form.creditLimit = v > 0 ? v : null)"
+  />
+
+  <AmountEntryModal
+    :open="showGoalEntry"
+    :title="t('accounts.form.goalAmount')"
+    :initial-value="form.goalAmount"
+    :currency="form.currency"
+    :currency-display="resolvedCurrencyDisplay"
+    :label="t('accounts.form.goalAmount')"
+    @close="showGoalEntry = false"
+    @confirm="(v) => (form.goalAmount = v > 0 ? v : null)"
+  />
+
+  <OperationDateModal
+    :open="showGoalDatePicker"
+    :date="form.goalDate"
+    :title="t('accounts.form.goalDate')"
+    :clear-label="t('accounts.form.noGoalDate')"
+    @close="showGoalDatePicker = false"
+    @update:date="(v) => (form.goalDate = v)"
+  />
 </template>
 
 <style scoped>
@@ -400,6 +476,28 @@ function submit() {
 }
 .toggle-field {
   margin-bottom: 16px;
+}
+.goal-block {
+  margin: 4px 0 14px;
+  padding: 12px 12px 4px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+.goal-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 2px 8px;
+}
+.goal-block .hint {
+  margin-bottom: 8px;
+}
+.goal-clear {
+  width: 100%;
+  margin-bottom: 8px;
+}
+.muted {
+  color: var(--text-muted);
 }
 .submit {
   width: 100%;

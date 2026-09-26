@@ -246,6 +246,7 @@ interface KindSection {
 }
 
 // Totals here are normalized to the base currency (see baseCurrency.toBase)
+// at TODAY's rate, planned and actual alike, so the two stay comparable —
 // since a kind's categories can each be in their own currency — unlike
 // remainingOf() above, which stays in one category's own currency. Every
 // category of the kind gets a row — no more a separate compact grid for ones

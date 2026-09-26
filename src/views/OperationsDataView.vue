@@ -23,6 +23,7 @@
   } from '../components/transactions/OperationsFilterModal.vue'
   import ReceiptCaptureModal from '../components/transactions/ReceiptCaptureModal.vue'
   import ReceiptGroupCard from '../components/transactions/ReceiptGroupCard.vue'
+  import RecurringDueBanner from '../components/recurring/RecurringDueBanner.vue'
   import { useReceiptsStore } from '../stores/receipts'
   import { formatMoney, dayHeader, type CurrencyDisplayStyle } from '../utils/format'
   import { resolveAccountLabel } from '../utils/accountLabel'
@@ -183,12 +184,12 @@
     }
     if (filters.value.minAmount != null) {
       list = list.filter(
-        (t) => Math.abs(baseCurrency.toBase(t.amount, t.currency)) >= filters.value.minAmount!,
+        (t) => Math.abs(baseCurrency.toBase(t.amount, t.currency, t.date)) >= filters.value.minAmount!,
       )
     }
     if (filters.value.maxAmount != null) {
       list = list.filter(
-        (t) => Math.abs(baseCurrency.toBase(t.amount, t.currency)) <= filters.value.maxAmount!,
+        (t) => Math.abs(baseCurrency.toBase(t.amount, t.currency, t.date)) <= filters.value.maxAmount!,
       )
     }
     return list
@@ -206,12 +207,13 @@
   // members, so it nets to 0 there.
   //
   // The base-currency figure itself prefers an EXACT recorded amount over a
-  // live-rate conversion whenever the shown currency matches either side
+  // rate conversion whenever the shown currency matches either side
   // actually on the transaction (see signedAmountInCurrency/otherCurrencyAmount)
   // — e.g. groceries entered as exactly 300₴ off a USD card: switching
   // "Показувати суми в…" to ₴ shows exactly 300, not whatever $7.50 converts to
-  // at today's rate. Falls back to a live-rate conversion only when the shown
-  // currency matches neither the account's nor the category's/destination's.
+  // at some rate. Falls back to converting at the operation's own day rate
+  // only when the shown currency matches neither the account's nor the
+  // category's/destination's.
   function signedNet(t: Transaction): number {
     const signed = nativeSignedAmount(t, viewAs.effectiveUid)
     return signedAmountInCurrency(
@@ -220,6 +222,7 @@
       baseCurrency.code,
       otherCurrencyAmount(t),
       baseCurrency.toBase,
+      t.date,
     )
   }
 
@@ -553,6 +556,8 @@
 </script>
 
 <template>
+  <RecurringDueBanner />
+
   <div class="filter-row">
     <div
       v-if="filterCategory"

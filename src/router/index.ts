@@ -13,6 +13,8 @@ const routes = [
   { path: '/accounts', name: 'accounts', component: () => import('../views/AccountsView.vue') },
   { path: '/tags', name: 'tags', component: () => import('../views/TagsView.vue') },
   { path: '/data', name: 'data', component: () => import('../views/DataView.vue') },
+  { path: '/recurring', name: 'recurring', component: () => import('../views/RecurringView.vue') },
+  { path: '/formats', name: 'formats', component: () => import('../views/CurrencyFormatsView.vue') },
   {
     path: '/categories',
     component: () => import('../views/PeriodPageView.vue'),

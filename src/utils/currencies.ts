@@ -1,10 +1,12 @@
 /**
- * Rates for all of these come from open.er-api.com (see `db/exchangeRates.ts`)
- * — a free, no-key service queried against the signed-in profile's own base
- * currency, covering the ~160 currencies it quotes. Deliberately excludes:
- * RUB (not offered as a display/account currency in this app), a few
- * IMF/precious-metal accounting units that aren't real spendable currencies
- * (XDR, XAG, XAU, XPD, XPT, CLF), CNH (offshore-market duplicate of CNY), and
+ * Rates for all of these come from fawazahmed0/currency-api (see
+ * `db/exchangeRates.ts`) — a free, no-key service queried against the
+ * signed-in profile's own base currency; FOK and KID, which it doesn't quote,
+ * convert through the currencies they're pegged to. Deliberately excludes:
+ * crypto (the API quotes ~150 tokens too), RUB (not offered as a
+ * display/account currency in this app), a few IMF/precious-metal accounting
+ * units that aren't real spendable currencies (XDR, XAG, XAU, XPD, XPT, CLF),
+ * CNH (offshore-market duplicate of CNY), and
  * SLL/ZWL/HRK (currencies their own countries have already replaced — with
  * SLE, ZWG, and EUR respectively).
  */

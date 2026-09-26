@@ -85,7 +85,8 @@ async function sendChunk(entity: SyncableEntity, op: OutboxEntry['op'], chunk: O
       `/${path}/bulk`,
       // editedAt: when the change was made, which is what the server settles
       // two devices' conflicting writes by — not when it happens to arrive.
-      { items: chunk.map((e) => ({ ...e.payload, editedAt: e.createdAt })) },
+      // mustExist: an edit, not a creation — see OutboxEntry.created.
+      { items: chunk.map((e) => ({ ...e.payload, editedAt: e.createdAt, ...(e.created === false ? { mustExist: true } : {}) })) },
       { timeout: PUSH_TIMEOUT_MS },
     )
     return data.items
@@ -283,23 +284,26 @@ function afterQueued(ownerId: string): void {
  * signed in), or no server configured: the local write only.
  *
  * Stamped with the server's clock (see clock.ts), not this device's: the
- * stamp is what the server compares against other devices' edits.
+ * stamp is what the server compares against other devices' edits. Each
+ * entry also notes whether it created its record (see OutboxEntry.created).
  */
 export async function putAndQueue<T extends SyncRow>(entity: SyncableEntity, ownerId: string | null, records: T[]): Promise<void> {
   if (!records.length) return
   const queue = Boolean(ownerId) && hasConfiguredServer()
   const now = serverNow()
   await db.transaction('rw', db[entity], db.outbox, async () => {
+    const before = queue ? await tableOf(entity).bulkGet(records.map((record) => record.id)) : []
     await tableOf(entity).bulkPut(records)
     if (queue) {
       await db.outbox.bulkAdd(
-        records.map((record) => ({
+        records.map((record, index) => ({
           entity,
           op: 'upsert' as const,
           recordId: record.id,
           payload: record as unknown as Record<string, unknown>,
           ownerId: ownerId!,
           createdAt: now,
+          created: !before[index],
         })),
       )
     }

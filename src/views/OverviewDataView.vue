@@ -53,13 +53,16 @@ function otherCurrencyAmount(t: Transaction): { amount: number; currency: string
 /**
  * A transaction's magnitude in the currently shown currency ("Показувати
  * суми в…") — exact when it matches the transaction's own currency or (via
- * `toAmount`) its category's/destination's, a live-rate conversion only when
- * it matches neither (see signedAmountInCurrency). `t.amount` is always
- * non-negative, so feeding it in directly as "the signed amount" is safe —
- * there's no sign to preserve here, only the exact-vs-converted choice.
+ * `toAmount`) its category's/destination's, converted at the rate of the
+ * transaction's own day only when it matches neither (see
+ * signedAmountInCurrency). `t.amount` is always non-negative, so feeding it
+ * in directly as "the signed amount" is safe — there's no sign to preserve
+ * here, only the exact-vs-converted choice.
  */
 function amountInBase(t: Transaction): number {
-  return Math.abs(signedAmountInCurrency(t.amount, t.currency, displayCurrency.code, otherCurrencyAmount(t), displayCurrency.toBase))
+  return Math.abs(
+    signedAmountInCurrency(t.amount, t.currency, displayCurrency.code, otherCurrencyAmount(t), displayCurrency.toBase, t.date),
+  )
 }
 
 // The uid a cross-profile transfer is judged "sent" vs "received" from — the

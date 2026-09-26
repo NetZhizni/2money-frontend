@@ -1,4 +1,4 @@
-import type { AccountType, LoanDirection } from '../types/models'
+import type { AccountType } from '../types/models'
 import { t } from '../i18n'
 import type { MessageKey } from '../i18n'
 
@@ -20,23 +20,18 @@ export const ACCOUNT_TYPE_DEFAULTS: Record<AccountType, { icon: string; color: s
 ) as Record<AccountType, { icon: string; color: string }>
 
 /**
- * Loan direction toggle shown on the account form ("I lent it" / "I borrowed
- * it"), plus the short parenthetical form ("lent" / "borrowed") used wherever
- * a loan account's direction is shown alongside its type.
+ * Full display label for an account's type — used on the account card and
+ * the account detail modal. A loan account has no stored direction: its
+ * current balance's sign says who owes whom ("Loan (owed to me)" above zero,
+ * "Loan (I owe)" below it, plain "Loan" once settled). Rounded to cents
+ * first so float leftovers of a fully repaid loan still read as settled.
  */
-export const LOAN_DIRECTION_OPTIONS: Array<{ value: LoanDirection; labelKey: MessageKey; shortLabelKey: MessageKey }> = [
-  { value: 'lent', labelKey: 'accounts.loanDirection.lent', shortLabelKey: 'accounts.loanDirection.lentShort' },
-  { value: 'borrowed', labelKey: 'accounts.loanDirection.borrowed', shortLabelKey: 'accounts.loanDirection.borrowedShort' },
-]
-
-/**
- * Full display label for an account's type, e.g. "Loan (lent)" for a loan
- * account — used on the account card and the account detail modal.
- */
-export function accountTypeLabel(type: AccountType, loanDirection?: LoanDirection): string {
+export function accountTypeLabel(type: AccountType, balance = 0): string {
   if (type === 'loan') {
-    const direction = LOAN_DIRECTION_OPTIONS.find((o) => o.value === (loanDirection ?? 'lent'))!
-    return `${t('accounts.type.loan')} (${t(direction.shortLabelKey)})`
+    const cents = Math.round(balance * 100)
+    if (cents > 0) return `${t('accounts.type.loan')} (${t('accounts.loanBalance.owedToMe')})`
+    if (cents < 0) return `${t('accounts.type.loan')} (${t('accounts.loanBalance.iOwe')})`
+    return t('accounts.type.loan')
   }
   return t(ACCOUNT_TYPE_OPTIONS.find((o) => o.value === type)!.labelKey)
 }

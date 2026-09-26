@@ -33,6 +33,10 @@ export const usePopupsStore = defineStore('popups', () => {
     presetNote?: string
     presetType?: TransactionType
     presetDate?: number
+    // Booking a due occurrence of a recurring template — see
+    // TransactionFormModal.vue's `occurrence` prop.
+    presetTagIds?: string[]
+    occurrence?: { templateId: string; date: number } | null
   }>({
     open: false,
     transaction: null,
@@ -44,6 +48,8 @@ export const usePopupsStore = defineStore('popups', () => {
     presetNote: undefined,
     presetType: undefined,
     presetDate: undefined,
+    presetTagIds: undefined,
+    occurrence: null,
   })
 
   function openTransactionForm(
@@ -57,6 +63,8 @@ export const usePopupsStore = defineStore('popups', () => {
       presetNote?: string
       presetType?: TransactionType
       presetDate?: number
+      presetTagIds?: string[]
+      occurrence?: { templateId: string; date: number } | null
     } = {},
   ) {
     transactionForm.transaction = opts.transaction ?? null
@@ -68,6 +76,8 @@ export const usePopupsStore = defineStore('popups', () => {
     transactionForm.presetNote = opts.presetNote
     transactionForm.presetType = opts.presetType
     transactionForm.presetDate = opts.presetDate
+    transactionForm.presetTagIds = opts.presetTagIds
+    transactionForm.occurrence = opts.occurrence ?? null
     transactionForm.open = true
   }
   function closeTransactionForm() {

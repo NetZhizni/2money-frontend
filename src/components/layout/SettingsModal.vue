@@ -2,29 +2,15 @@
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import Modal from '../common/Modal.vue'
-import CurrencyPickerModal from './CurrencyPickerModal.vue'
 import LanguagePickerModal from './LanguagePickerModal.vue'
-import OptionListModal, { type ListOption } from '../common/OptionListModal.vue'
 import Segmented from '../common/Segmented.vue'
 import { useSettingsStore } from '../../stores/settings'
 import { useCategoriesStore } from '../../stores/categories'
 import { useAuthStore } from '../../stores/auth'
 import { useTagsStore } from '../../stores/tags'
+import { useTemplatesStore } from '../../stores/templates'
 import { useServerStore } from '../../stores/server'
 import { useChangeServer } from '../../composables/useChangeServer'
-import {
-  formatMoneyAs,
-  formatDateAs,
-  getNumberFormatSetting,
-  setNumberFormatSetting,
-  getDateFormatSetting,
-  setDateFormatSetting,
-  getCurrencyDisplaySetting,
-  setCurrencyDisplaySetting,
-  type NumberFormatStyle,
-  type DateFormatStyle,
-  type CurrencyDisplayStyle,
-} from '../../utils/format'
 import { forceCheckForUpdate } from '../../pwa/updateService'
 import { t, getLocaleSetting, setLocaleSetting, detectLocale, LOCALE_NAMES, localeFlagUrl } from '../../i18n'
 import type { LocaleSetting, Locale } from '../../i18n'
@@ -37,6 +23,7 @@ const settings = useSettingsStore()
 const categories = useCategoriesStore()
 const authStore = useAuthStore()
 const tags = useTagsStore()
+const templates = useTemplatesStore()
 const server = useServerStore()
 
 // ---------- Сервер (див. stores/server.ts, composables/useChangeServer.ts) ----------
@@ -92,79 +79,6 @@ const themeOptions = computed(() => [
   { value: 'dark', label: t('layout.settings.themeDark') },
 ])
 
-// Number/date/currency-display format pickers (see utils/format.ts) — same
-// per-device, reload-to-apply pattern as the language setting above.
-const showNumberFormatPicker = ref(false)
-const showDateFormatPicker = ref(false)
-const showCurrencyDisplayPicker = ref(false)
-const numberFormatSetting = ref<NumberFormatStyle>(getNumberFormatSetting())
-const dateFormatSetting = ref<DateFormatStyle>(getDateFormatSetting())
-const currencyDisplaySetting = ref<CurrencyDisplayStyle>(getCurrencyDisplaySetting())
-
-const PREVIEW_AMOUNT = 1234.56
-const numberFormatOptions = computed<ListOption[]>(() => [
-  { value: 'auto', label: t('layout.settings.numberFormatAuto'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'auto') },
-  { value: 'uk', label: t('layout.settings.numberFormatUk'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'uk') },
-  { value: 'us', label: t('layout.settings.numberFormatUs'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'us') },
-  { value: 'eu', label: t('layout.settings.numberFormatEu'), sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, 'eu') },
-])
-const numberFormatLabel = computed(
-  () => numberFormatOptions.value.find((o) => o.value === numberFormatSetting.value)?.sublabel ?? '',
-)
-
-const PREVIEW_DATE = new Date(2026, 3, 5) // 5 April — a day/month pair that reads unambiguously in every format below
-const dateFormatOptions = computed<ListOption[]>(() => [
-  { value: 'iso', label: t('layout.settings.dateFormatIso'), sublabel: formatDateAs(PREVIEW_DATE, 'iso') },
-  { value: 'dmy', label: t('layout.settings.dateFormatDmy'), sublabel: formatDateAs(PREVIEW_DATE, 'dmy') },
-  { value: 'mdy', label: t('layout.settings.dateFormatMdy'), sublabel: formatDateAs(PREVIEW_DATE, 'mdy') },
-])
-const dateFormatLabel = computed(
-  () => dateFormatOptions.value.find((o) => o.value === dateFormatSetting.value)?.sublabel ?? '',
-)
-
-// Each option previewed at the CURRENT number-format setting — only the
-// currencyDisplay axis varies here, matching what formatMoneyAs's `opts`
-// override actually does (see AccountFormModal.vue/CategoryFormModal.vue for
-// the identical per-entity picker, whose "базовий вигляд" option reads this
-// setting's own preview back via formatMoney's default).
-const currencyDisplayOptions = computed<ListOption[]>(() => [
-  {
-    value: 'narrowSymbol',
-    label: t('layout.settings.currencyDisplayNarrowSymbol'),
-    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'narrowSymbol' }),
-  },
-  {
-    value: 'symbol',
-    label: t('layout.settings.currencyDisplaySymbol'),
-    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'symbol' }),
-  },
-  {
-    value: 'code',
-    label: t('layout.settings.currencyDisplayCode'),
-    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'code' }),
-  },
-  {
-    value: 'name',
-    label: t('layout.settings.currencyDisplayName'),
-    sublabel: formatMoneyAs(PREVIEW_AMOUNT, settings.baseCurrency, numberFormatSetting.value, { currencyDisplay: 'name' }),
-  },
-])
-const currencyDisplayLabel = computed(
-  () => currencyDisplayOptions.value.find((o) => o.value === currencyDisplaySetting.value)?.sublabel ?? '',
-)
-
-function chooseNumberFormat(value: string) {
-  setNumberFormatSetting(value as NumberFormatStyle)
-}
-function chooseDateFormat(value: string) {
-  setDateFormatSetting(value as DateFormatStyle)
-}
-function chooseCurrencyDisplay(value: string) {
-  setCurrencyDisplaySetting(value as CurrencyDisplayStyle)
-}
-
-const showCurrencyPicker = ref(false)
-
 const updateChecking = ref(false)
 const updateStatus = ref('')
 
@@ -196,6 +110,16 @@ function openTags() {
 function openData() {
   emit('close')
   router.push('/data')
+}
+
+function openFormats() {
+  emit('close')
+  router.push('/formats')
+}
+
+function openRecurring() {
+  emit('close')
+  router.push('/recurring')
 }
 
 async function handleSignOut() {
@@ -308,34 +232,8 @@ async function handleSignOut() {
       <h3 class="section-title">{{ t('layout.settings.section.currencyFormats') }}</h3>
 
       <div class="field">
-        <label>{{ t('layout.settings.baseCurrency') }}</label>
-        <button class="btn btn-secondary currency-btn" @click="showCurrencyPicker = true">
-          {{ settings.baseCurrency }}
-        </button>
-        <p class="hint">{{ t('layout.settings.baseCurrencyHint') }}</p>
-      </div>
-
-      <div class="field">
-        <label>{{ t('layout.settings.currencyDisplay') }}</label>
-        <button class="btn btn-secondary currency-btn" @click="showCurrencyDisplayPicker = true">
-          {{ currencyDisplayLabel }}
-        </button>
-        <p class="hint">{{ t('layout.settings.currencyDisplayHint') }}</p>
-      </div>
-
-      <div class="field">
-        <label>{{ t('layout.settings.numberFormat') }}</label>
-        <button class="btn btn-secondary currency-btn" @click="showNumberFormatPicker = true">
-          {{ numberFormatLabel }}
-        </button>
-      </div>
-
-      <div class="field">
-        <label>{{ t('layout.settings.dateFormat') }}</label>
-        <button class="btn btn-secondary currency-btn" @click="showDateFormatPicker = true">
-          {{ dateFormatLabel }}
-        </button>
-        <p class="hint">{{ t('layout.settings.dateFormatHint') }}</p>
+        <p class="hint">{{ t('layout.settings.currencyFormatsHint') }}</p>
+        <button class="btn btn-secondary" @click="openFormats">{{ t('layout.settings.manageCurrencyFormats') }}</button>
       </div>
     </div>
 
@@ -346,6 +244,16 @@ async function handleSignOut() {
         <label>{{ t('layout.settings.tagsLabel', { count: tags.all.length }) }}</label>
         <p class="hint">{{ t('layout.settings.tagsHint') }}</p>
         <button class="btn btn-secondary" @click="openTags">{{ t('layout.settings.manageTags') }}</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3 class="section-title">{{ t('recurring.title') }}</h3>
+
+      <div class="field">
+        <label>{{ t('layout.settings.recurringLabel', { count: templates.all.length }) }}</label>
+        <p class="hint">{{ t('layout.settings.recurringHint') }}</p>
+        <button class="btn btn-secondary" @click="openRecurring">{{ t('layout.settings.manageRecurring') }}</button>
       </div>
     </div>
 
@@ -372,47 +280,11 @@ async function handleSignOut() {
     </div>
   </Modal>
 
-  <CurrencyPickerModal
-    :open="showCurrencyPicker"
-    :selected="settings.baseCurrency"
-    :title="t('layout.settings.currencyModalTitle')"
-    :hint="t('layout.settings.currencyModalHint')"
-    @close="showCurrencyPicker = false"
-    @select="settings.setBaseCurrency"
-  />
-
   <LanguagePickerModal
     :open="showLanguagePicker"
     :selected="localeSetting"
     @close="showLanguagePicker = false"
     @select="chooseLocale"
-  />
-
-  <OptionListModal
-    :open="showCurrencyDisplayPicker"
-    :title="t('layout.settings.currencyDisplay')"
-    :options="currencyDisplayOptions"
-    :selected="currencyDisplaySetting"
-    @close="showCurrencyDisplayPicker = false"
-    @select="chooseCurrencyDisplay"
-  />
-
-  <OptionListModal
-    :open="showNumberFormatPicker"
-    :title="t('layout.settings.numberFormat')"
-    :options="numberFormatOptions"
-    :selected="numberFormatSetting"
-    @close="showNumberFormatPicker = false"
-    @select="chooseNumberFormat"
-  />
-
-  <OptionListModal
-    :open="showDateFormatPicker"
-    :title="t('layout.settings.dateFormat')"
-    :options="dateFormatOptions"
-    :selected="dateFormatSetting"
-    @close="showDateFormatPicker = false"
-    @select="chooseDateFormat"
   />
 </template>
 

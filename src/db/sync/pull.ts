@@ -56,7 +56,11 @@ function cursorKeyFor(entity: SyncableEntity, opts: PullScope): SyncCursor['enti
 }
 
 export function tableOf(entity: SyncableEntity) {
-  return db[entity] as unknown as { bulkPut: (rows: SyncRow[]) => Promise<unknown>; bulkDelete: (ids: string[]) => Promise<void> }
+  return db[entity] as unknown as {
+    bulkGet: (ids: string[]) => Promise<(SyncRow | undefined)[]>
+    bulkPut: (rows: SyncRow[]) => Promise<unknown>
+    bulkDelete: (ids: string[]) => Promise<void>
+  }
 }
 
 /**
@@ -120,6 +124,13 @@ function ackedSince(entity: SyncableEntity, id: string, seq: number): boolean {
  * pull brings it back anyway; if the server refuses it instead, the outbox
  * re-reads it explicitly (see refetchRecords). The same goes for a record
  * whose write was confirmed after this pull set off (see noteAcked).
+ *
+ * `fullList`, on the last page of a pull the server answered with the full
+ * list rather than a delta (see pullShape): every id that list had. Whatever
+ * this device still holds beyond those was deleted while it was away for
+ * longer than the server keeps tombstones (see the backend's
+ * jobs/purgeDeleted.js) — no delta would ever mention it again — so it's
+ * dropped here, bar the same exceptions as above.
  */
 async function applyDelta(
   entity: SyncableEntity,
@@ -127,21 +138,62 @@ async function applyDelta(
   items: SyncRow[],
   cursor: number | null,
   ackSeqAtStart: number,
+  fullList: Set<string> | null = null,
 ): Promise<void> {
   const table = tableOf(entity)
   await db.transaction('rw', db[entity], db.outbox, db.syncCursors, async () => {
     const pendingIds = await pendingRecordIds(entity)
+    const skip = (id: string) => pendingIds.has(id) || ackedSince(entity, id, ackSeqAtStart)
     const puts: SyncRow[] = []
     const deletes: string[] = []
     for (const item of items) {
-      if (pendingIds.has(item.id) || ackedSince(entity, item.id, ackSeqAtStart)) continue
+      if (skip(item.id)) continue
       if (item.deletedAt) deletes.push(item.id)
       else puts.push(item)
+    }
+    if (fullList) {
+      const localIds = await db.table<SyncRow, string>(entity).toCollection().primaryKeys()
+      for (const id of localIds) if (!fullList.has(id) && !skip(id)) deletes.push(id)
     }
     if (deletes.length) await table.bulkDelete(deletes)
     if (puts.length) await table.bulkPut(puts)
     if (cursor !== null) await db.syncCursors.put({ entity: cursorKey, since: cursor })
   })
+}
+
+/**
+ * Follows one pull of one entity across its pages. The server answers a
+ * cursor older than its purged tombstones with the full list instead of a
+ * delta, flagging every page `full` (see the backend's sync/engine.js
+ * cursorExpired) — and a full list only says what's gone once every page of
+ * it is in, so its ids are collected here for the last page's applyDelta.
+ *
+ * A pull whose pages disagree (the server started purging between two of
+ * them) can't be trusted either way, so its cursor isn't stored: the next
+ * pull starts over from the old one, and gets the full list throughout.
+ * Only a family-wide (`scope: 'all'`) list can say what's gone — a
+ * profile's own slice can't vouch for the rest of a table that holds
+ * everyone's rows — so any other pull never prunes.
+ */
+function pullShape(opts: PullScope) {
+  let full: boolean | null = null
+  let mixed = false
+  const ids = new Set<string>()
+  return {
+    page(items: SyncRow[], isFull: boolean) {
+      if (full === null) full = isFull
+      else if (full !== isFull) mixed = true
+      if (isFull) for (const item of items) ids.add(item.id)
+    },
+    /** The cursor to store with the last page — none when the pages disagreed. */
+    cursor(syncedAt: number | null): number | null {
+      return mixed ? null : syncedAt
+    },
+    /** The full list's ids for the last page's applyDelta, when there was one to trust. */
+    get fullList(): Set<string> | null {
+      return full && !mixed && opts?.scope === 'all' ? ids : null
+    },
+  }
 }
 
 /** The family directory (see stores/profiles.ts). Not delta-synced — it's a handful of rows, so each pull replaces the set outright, which also prunes members who are no longer listed. */
@@ -164,6 +216,8 @@ interface ListPage extends ServerClock {
   items: SyncRow[]
   /** Where to continue from, or null on the last page. */
   next: string | null
+  /** The full list rather than a delta — see pullShape. */
+  full?: boolean
 }
 
 /** Sends one pull request, and takes the measurement of this device's clock its answer carries (see clock.ts). */
@@ -196,6 +250,7 @@ export async function pullEntity(entity: SyncableEntity, opts?: PullScope): Prom
       (async () => {
         const ackSeqAtStart = ackSeq
         const since = (await db.syncCursors.get(cursorKey))?.since
+        const shape = pullShape(opts)
         let syncedAt: number | null = null
         let after: string | null = null
         do {
@@ -208,7 +263,9 @@ export async function pullEntity(entity: SyncableEntity, opts?: PullScope): Prom
           const data = await timed(() => http.get<ListPage>(`/${RESOURCE_PATH[entity]}`, { params }))
           syncedAt ??= data.syncedAt
           after = data.next
-          await applyDelta(entity, cursorKey, data.items, after ? null : syncedAt, ackSeqAtStart)
+          shape.page(data.items, data.full === true)
+          if (after) await applyDelta(entity, cursorKey, data.items, null, ackSeqAtStart)
+          else await applyDelta(entity, cursorKey, data.items, shape.cursor(syncedAt), ackSeqAtStart, shape.fullList)
         } while (after)
       })(),
     )
@@ -219,6 +276,8 @@ interface SyncPullResponse extends ServerClock {
   entities: Partial<Record<SyncableEntity, SyncRow[]>>
   /** Entities with more pages to come, and where each continues from. */
   next: Partial<Record<SyncableEntity, string>>
+  /** Entities answered with their full list rather than a delta — see pullShape. */
+  full?: SyncableEntity[]
   users?: UserDirectoryEntry[]
 }
 
@@ -281,6 +340,7 @@ export async function pullMany(
           toFetch.map(async (entity) => [entity, (await db.syncCursors.get(cursorKeyFor(entity, opts)))?.since ?? null] as const),
         ),
       )
+      const shapes = new Map(toFetch.map((entity) => [entity, pullShape(opts)]))
       let syncedAt: number | null = null
       let remaining = toFetch
       let after: Partial<Record<SyncableEntity, string>> = {}
@@ -313,8 +373,11 @@ export async function pullMany(
           }
           if (items.length) changed = true
           const more = data.next[entity]
+          const shape = shapes.get(entity)!
+          shape.page(items, data.full?.includes(entity) ?? false)
           try {
-            await applyDelta(entity, cursorKeyFor(entity, opts), items, more ? null : syncedAt, ackSeqAtStart)
+            if (more) await applyDelta(entity, cursorKeyFor(entity, opts), items, null, ackSeqAtStart)
+            else await applyDelta(entity, cursorKeyFor(entity, opts), items, shape.cursor(syncedAt), ackSeqAtStart, shape.fullList)
           } catch (error) {
             done.get(entity)!.reject(error)
             continue

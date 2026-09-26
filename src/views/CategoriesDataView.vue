@@ -7,6 +7,7 @@
   import { useBudgetsStore } from '../stores/budgets'
   import { usePeriodStore } from '../stores/period'
   import { useSettingsStore } from '../stores/settings'
+  import { useAllAccountsStore } from '../stores/allAccounts'
   import { useViewAsStore } from '../stores/viewAs'
   import { usePopupsStore } from '../stores/popups'
   import { useBaseCurrency } from '../composables/useBaseCurrency'
@@ -25,12 +26,16 @@
   import { budgetProgress, proratedBudgetAmount, type BudgetProgress } from '../utils/budget'
   import { formatMoney } from '../utils/format'
   import { resolveCategoryCurrency } from '../utils/currencies'
-  import { categoryCurrencyAmount } from '../utils/transactionAmounts'
+  import {
+    categoryCurrencyAmount,
+    otherCurrencyAmount as resolveOtherCurrencyAmount,
+    signedAmountInCurrency,
+  } from '../utils/transactionAmounts'
   import { pinLeavingRect, snapshotListRects } from '../utils/listTransition'
   import { seedDefaultCategoriesNow } from '../db/seed'
   import { useAuthStore } from '../stores/auth'
   import { t } from '../i18n'
-  import type { Category, CategoryKind } from '../types/models'
+  import type { Category, CategoryKind, Transaction } from '../types/models'
 
   const categories = useCategoriesStore()
   const authStore = useAuthStore()
@@ -38,6 +43,7 @@
   const budgets = useBudgetsStore()
   const period = usePeriodStore()
   const settings = useSettingsStore()
+  const allAccounts = useAllAccountsStore()
   const viewAs = useViewAsStore()
   const popups = usePopupsStore()
   const router = useRouter()
@@ -59,21 +65,44 @@
   // not a real expense/income for the household as a whole).
   const perspectiveUid = computed(() => (viewAs.mode === 'all' ? null : viewAs.effectiveUid))
 
+  /** See utils/transactionAmounts.ts's otherCurrencyAmount — same resolvers as OverviewDataView.vue's. */
+  function otherCurrencyAmount(t: Transaction): { amount: number; currency: string } | null {
+    return resolveOtherCurrencyAmount(
+      t,
+      (id) => allAccounts.byId(id)?.currency,
+      (id) => resolveCategoryCurrency(categories.byId(id), settings.baseCurrency, transactions.all),
+    )
+  }
+
+  /**
+   * A transaction's magnitude in the base currency — exact when that's the
+   * transaction's own currency or (via `toAmount`) its category's/
+   * destination's, converted at the rate of the transaction's own day only
+   * when it's neither (see signedAmountInCurrency). The same figure
+   * OverviewDataView.vue's own amountInBase produces, so both pages agree on
+   * a period's totals.
+   */
+  function amountInBase(t: Transaction): number {
+    return Math.abs(
+      signedAmountInCurrency(t.amount, t.currency, baseCurrency.code, otherCurrencyAmount(t), baseCurrency.toBase, t.date),
+    )
+  }
+
   // Cross-profile transfers count as income/expense here too (same-profile
   // ones stay excluded) — see utils/transferAnalytics.ts. A transfer has no
   // category of its own, so there's no "its own currency" to show this in —
-  // always normalized live to the base currency, same as expenseTotal/incomeTotal below.
+  // always normalized to the base currency, same as expenseTotal/incomeTotal below.
   const crossProfileTransferExpense = computed(() => {
     if (!perspectiveUid.value) return 0
     return periodTransactions.value
       .filter((t) => isCrossProfileTransfer(t) && t.ownerId === perspectiveUid.value)
-      .reduce((s, t) => s + baseCurrency.toBase(Math.abs(t.amount), t.currency), 0)
+      .reduce((s, t) => s + amountInBase(t), 0)
   })
   const crossProfileTransferIncome = computed(() => {
     if (!perspectiveUid.value) return 0
     return periodTransactions.value
       .filter((t) => isCrossProfileTransfer(t) && t.ownerId !== perspectiveUid.value)
-      .reduce((s, t) => s + baseCurrency.toBase(Math.abs(t.amount), t.currency), 0)
+      .reduce((s, t) => s + amountInBase(t), 0)
   })
   const transferTileAmount = computed(() =>
     kind.value === 'expense' ? crossProfileTransferExpense.value : crossProfileTransferIncome.value,
@@ -126,7 +155,7 @@
     for (const t of periodTransactions.value) {
       const id = t.subcategoryId ?? t.categoryId
       if (!id) continue
-      map[id] = (map[id] ?? 0) + baseCurrency.toBase(Math.abs(t.amount), t.currency)
+      map[id] = (map[id] ?? 0) + amountInBase(t)
     }
     return map
   })
@@ -144,14 +173,14 @@
     () =>
       periodTransactions.value
         .filter((t) => t.type === 'expense')
-        .reduce((s, t) => s + baseCurrency.toBase(Math.abs(t.amount), t.currency), 0) +
+        .reduce((s, t) => s + amountInBase(t), 0) +
       crossProfileTransferExpense.value,
   )
   const incomeTotal = computed(
     () =>
       periodTransactions.value
         .filter((t) => t.type === 'income')
-        .reduce((s, t) => s + baseCurrency.toBase(t.amount, t.currency), 0) +
+        .reduce((s, t) => s + amountInBase(t), 0) +
       crossProfileTransferIncome.value,
   )
 

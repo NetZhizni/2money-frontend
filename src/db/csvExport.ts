@@ -9,8 +9,14 @@ import { resolveAccountLabel } from '../utils/accountLabel'
 import { toCsv, CSV_BOM, type CsvCell } from '../utils/csv'
 import { downloadFile } from '../utils/download'
 import { dateKey, formatDate, getNumberFormatSetting } from '../utils/format'
-import { nativeSignedAmount } from '../utils/transactionAmounts'
-import { convertLatest } from './exchangeRates'
+import { resolveCategoryCurrency } from '../utils/currencies'
+import {
+  nativeSignedAmount,
+  otherCurrencyAmount as resolveOtherCurrencyAmount,
+  signedAmountInCurrency,
+  type ToBase,
+} from '../utils/transactionAmounts'
+import { crossRate, resolveSnapshot, snapshotKey, type RateSnapshot } from './exchangeRates'
 import { t, locale } from '../i18n'
 import type { Transaction } from '../types/models'
 
@@ -42,10 +48,12 @@ function formatAmount(n: number, decimalSeparator: string): string {
 
 /**
  * All of the signed-in profile's transactions, oldest first, as a
- * semicolon-delimited CSV string (with UTF-8 BOM). Async: the base-currency
- * column has no stored snapshot to read anymore (see types/models.ts), so it
- * resolves one live rate per distinct currency up front (rather than one
- * `convertLatest` call per row) and reuses it for every row in that currency.
+ * semicolon-delimited CSV string (with UTF-8 BOM). The base-currency column
+ * is the same figure OperationsDataView.vue shows for a row: an exact
+ * recorded amount when the operation has one in the base currency,
+ * otherwise converted at the rate of the operation's own day. Async
+ * because those days' rates are loaded up front, all at once (see
+ * db/exchangeRates.ts), rather than one awaited lookup per row.
  */
 export async function buildTransactionsCsv(): Promise<string> {
   const allAccounts = useAllAccountsStore()
@@ -70,18 +78,42 @@ export async function buildTransactionsCsv(): Promise<string> {
     t('csv.header.note'),
   ]
 
+  const base = settings.baseCurrency
+  const otherCurrencyAmount = (t: Transaction) =>
+    resolveOtherCurrencyAmount(
+      t,
+      (id) => allAccounts.byId(id)?.currency,
+      (id) => resolveCategoryCurrency(categories.byId(id), base, transactions.all),
+    )
+
   const sorted = [...transactions.all].sort((a, b) => a.date - b.date)
-  const currencies = [...new Set(sorted.map((t) => t.currency))]
-  const rateEntries = await Promise.all(
-    currencies.map(async (currency) => [currency, await convertLatest(1, currency, settings.baseCurrency)] as const),
+  const others = new Map(sorted.map((t) => [t.id, otherCurrencyAmount(t)]))
+  // Only the days a row actually has to be converted on — not ones whose
+  // every operation is already in the base currency, or has it recorded.
+  const neededKeys = new Set(
+    sorted.filter((t) => t.currency !== base && others.get(t.id)?.currency !== base).map((t) => snapshotKey(t.date)),
   )
-  const rateToBase = new Map(rateEntries)
+  const snapshots = new Map<string, RateSnapshot | null>(
+    await Promise.all([...neededKeys].map(async (key) => [key, await resolveSnapshot(key)] as const)),
+  )
+  const toBase: ToBase = (amount, currency, when = Date.now()) => {
+    const snapshot = snapshots.get(snapshotKey(when))
+    const rate = snapshot ? crossRate(snapshot, currency, base) : null
+    return amount * (rate ?? 1)
+  }
 
   const { delimiter, decimalSeparator } = csvNumberFormat()
   const rows: CsvCell[][] = [header]
   for (const t of sorted) {
     const signedAmount = t.type === 'expense' ? -t.amount : t.amount
-    const signedBaseAmount = nativeSignedAmount(t, viewAs.effectiveUid) * (rateToBase.get(t.currency) ?? 1)
+    const signedBaseAmount = signedAmountInCurrency(
+      nativeSignedAmount(t, viewAs.effectiveUid),
+      t.currency,
+      base,
+      others.get(t.id) ?? null,
+      toBase,
+      t.date,
+    )
     rows.push([
       formatDate(t.date),
       typeLabel(t.type),

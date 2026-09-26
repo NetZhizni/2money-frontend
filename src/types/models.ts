@@ -1,16 +1,17 @@
 // Core domain types for the finance tracker.
 // All money amounts are stored as plain numbers in the entity's own currency.
 // A base-currency equivalent, when one is needed for display, is always
-// computed on the fly (see composables/useBaseCurrency.ts) from the CURRENT
-// rate — nothing here stores a historical exchange-rate snapshot.
+// computed on the fly (see composables/useBaseCurrency.ts) — at the rate of
+// the operation's own day for statistics, today's for balances — nothing
+// here stores a rate or a converted amount.
 
 import type { CurrencyDisplayStyle, NumberFormatStyle, DateFormatStyle } from '../utils/format'
 import type { LocaleSetting } from '../i18n/locale'
 
+// A 'loan' account has no stored direction — its balance's sign says it:
+// above zero it's owed to the user, below zero the user owes (see
+// utils/accountTypes.ts's accountTypeLabel).
 export type AccountType = 'regular' | 'savings' | 'loan'
-
-/** Loan accounts can represent money the user lent out, or money the user borrowed. */
-export type LoanDirection = 'lent' | 'borrowed'
 
 export interface Account {
   id: string
@@ -21,7 +22,6 @@ export interface Account {
   icon: string // mdi icon name (key into ICONS map)
   color: string // categorical slot hex
   initialBalance: number
-  loanDirection?: LoanDirection // only meaningful when type === 'loan'
   includeInTotal: boolean
   archived: boolean
   order: number
@@ -37,6 +37,18 @@ export interface Account {
   // a base-currency rollup across several accounts, which always follows
   // the base Settings choice regardless of any one account's override.
   currencyDisplay?: CurrencyDisplayStyle | null
+  // A savings goal — only meaningful (and only ever saved) on a 'savings'
+  // account: the balance it's working toward, in the account's own currency,
+  // and optionally the date it should be reached by (see
+  // utils/savingsGoal.ts). Unset/null means "no goal".
+  goalAmount?: number | null
+  goalDate?: number | null
+  // A credit limit (credit card, overdraft) — only meaningful (and only ever
+  // saved) on a 'regular' account: how far below zero its balance may go, in
+  // the account's own currency (see utils/creditLimit.ts). The balance itself
+  // stays the account's own money — negative means owing the bank — and the
+  // limit never counts toward any total. Unset/null means "no limit".
+  creditLimit?: number | null
 }
 
 export type CategoryKind = 'expense' | 'income'
@@ -131,14 +143,29 @@ export interface RecurringTemplate {
   categoryId?: string
   subcategoryId?: string | null
   amount: number
+  // Same meaning as Transaction.toAmount — copied onto every operation this
+  // template makes (a cross-currency transfer, or a category with its own
+  // currency). Unset: the operations carry none either.
+  toAmount?: number | null
   currency: string
   note?: string
+  tagIds?: string[] // copied onto every operation this template makes
   frequency: RecurringFrequency
   interval: number // every N days/weeks/months/years
+  // The schedule's anchor: monthly/yearly occurrences keep its day of month
+  // (and, yearly, its month), clamped to shorter months — see
+  // db/recurring.ts's advance. Starts out as the first occurrence; the
+  // template editor moves it along whenever the schedule itself is changed.
   startDate: number
   endDate?: number | null
   nextDate: number // next date a transaction should be generated for
+  // false = paused by the user, or finished (nextDate past endDate — see
+  // db/recurring.ts's isFinished). Either way nothing more is generated.
   active: boolean
+  // Don't book occurrences automatically — each due one waits on the
+  // Recurring page to be booked (amount still editable, e.g. a utility bill)
+  // or skipped. Absent on older records, same as false.
+  requireConfirm?: boolean
   createdAt: number
 }
 
@@ -179,18 +206,10 @@ export interface Receipt {
   updatedAt: number
 }
 
-export interface ExchangeRateEntry {
-  // key: `${dateKey}_${base}_${currency}`, dateKey = YYYY-MM-DD — `base` is
-  // part of the key (not just a stored field) because it's whatever the
-  // signed-in profile's base currency happened to be at fetch time (see
-  // db/exchangeRates.ts), not a fixed constant; a later base-currency change
-  // just starts filling a different set of keys instead of reading stale
-  // rates quoted against the old one.
-  id: string
-  dateKey: string
-  currency: string
-  base: string // the currency `rate` is expressed in, e.g. "UAH per 1 unit of currency"
-  rate: number
+/** One day's cached exchange rates — a local-only cache, never synced (see db/exchangeRates.ts). */
+export interface RateSnapshotEntry {
+  dateKey: string // YYYY-MM-DD, the day the rates API published this snapshot for
+  rates: Record<string, number> // units of each currency per 1 USD, lowercase codes as the API sends them
   fetchedAt: number
 }
 

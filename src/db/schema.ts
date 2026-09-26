@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
-import type { Account, AppSettings, Budget, Category, ExchangeRateEntry, Receipt, RecurringTemplate, Tag, Transaction } from '../types/models'
+import type { Account, AppSettings, Budget, Category, RateSnapshotEntry, Receipt, RecurringTemplate, Tag, Transaction } from '../types/models'
 import { monthKeyFromTimestamp } from '../utils/budget'
 
 /** Minimal family-directory row — mirrors GET /api/users (id/displayName/photoUrl/color only, no email/role). */
@@ -41,6 +41,14 @@ export interface OutboxEntry {
    * sync/registry.ts's DELETE_CASCADES), by entity — re-read from the server
    * if the delete itself is refused, so they come back with their parent. */
   cascade?: Partial<Record<SyncableEntity, string[]>>
+  /** On an upsert: whether this write created the record — it wasn't in the
+   * local table yet. Any other upsert is an edit of a record the server
+   * already had, and goes out flagged `mustExist`: should the server no
+   * longer have it at all (deleted, and its tombstone since purged — see the
+   * backend's jobs/purgeDeleted.js), it refuses the edit as deleted instead
+   * of creating the record again. Absent on entries queued before this
+   * existed, which go out unflagged, as they always did. */
+  created?: boolean
 }
 
 /**
@@ -102,7 +110,7 @@ export class AppDB extends Dexie {
   outbox!: EntityTable<OutboxEntry, 'localId'>
   syncIssues!: EntityTable<SyncIssue, 'id'>
   syncCursors!: EntityTable<SyncCursor, 'entity'>
-  exchangeRates!: EntityTable<ExchangeRateEntry, 'id'>
+  rateSnapshots!: EntityTable<RateSnapshotEntry, 'dateKey'>
 
   constructor() {
     super('stork')
@@ -167,6 +175,18 @@ export class AppDB extends Dexie {
     // Changes the server never took — see SyncIssue.
     this.version(6).stores({
       syncIssues: '++id, ownerId, at',
+    })
+
+    // Replaces the per-(day, base, currency) `exchangeRates` cache with one
+    // row per day holding that day's whole USD-quoted snapshot (see
+    // db/exchangeRates.ts) — every base currency's rates derive from it, so
+    // a base-currency change no longer needs a cache of its own. The old
+    // rows are simply dropped: they came from open.er-api.com, which had no
+    // history, so a rate stored under a past date was really whatever the
+    // live rate was when first requested.
+    this.version(7).stores({
+      exchangeRates: null,
+      rateSnapshots: 'dateKey',
     })
   }
 }

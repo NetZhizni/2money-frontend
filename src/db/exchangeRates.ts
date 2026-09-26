@@ -1,135 +1,262 @@
 import { db } from './schema'
 import { dateKey } from '../utils/format'
-import { useSettingsStore } from '../stores/settings'
+import { fetchRateSnapshots, type ServerRateSnapshot } from '../api/rates'
+import { hasConfiguredServer } from '../config/serverConfig'
 
 /**
- * The currency every rate below is expressed in ("<base> per 1 unit of
- * currency") and the one open.er-api.com itself is queried against — the
- * signed-in profile's own base currency (settings.baseCurrency), read live
- * on every call rather than captured once, so a base-currency change in
- * Settings takes effect on the very next lookup. Falls back to UAH (this
- * app's original hardcoded pivot) when no profile is signed in yet, e.g. a
- * rate requested before login.
+ * One day's rates, quoted against USD: units of each currency per 1 USD,
+ * keyed by lowercase code the way the API sends them (see below). USD is
+ * only the pivot every snapshot happens to be fetched in — crossRate() turns
+ * any two of its entries into a direct rate, so the same snapshot serves
+ * every base currency, and changing the profile's base currency never needs
+ * a new fetch.
  */
-const FALLBACK_BASE_CURRENCY = 'UAH'
+export type RateSnapshot = Record<string, number>
 
-function getBaseCurrency(): string {
-  return useSettingsStore().baseCurrency || FALLBACK_BASE_CURRENCY
+// fawazahmed0/currency-api (github.com/fawazahmed0/exchange-api) — a free,
+// no-key, no-rate-limit set of static JSON files, one per base currency per
+// day, each quoting every other currency relative to that base. Served from
+// jsDelivr, with the same files mirrored on Cloudflare Pages as the
+// documented fallback for when jsDelivr is unreachable. It keeps a daily
+// history, but only back to FIRST_AVAILABLE_DATE — anything older is clamped
+// to it, the closest rate there is. Currency codes are lowercase on the wire.
+const FIRST_AVAILABLE_DATE = '2024-03-02'
+const PIVOT = 'usd'
+
+function snapshotUrls(apiDate: string): string[] {
+  const file = `v1/currencies/${PIVOT}.min.json`
+  return [
+    `https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@${apiDate}/${file}`,
+    `https://${apiDate}.currency-api.pages.dev/${file}`,
+  ]
 }
 
-/** In-memory cache for the current session, keyed by `${dateKey}_${base}_${currency}`. */
-const memCache = new Map<string, number>()
+/**
+ * Currencies from utils/currencies.ts the API doesn't quote at all, mapped
+ * to the one each is pegged to 1:1 — FOK (Faroese króna) to DKK, KID
+ * (Kiribati dollar) to AUD — so an account in either still converts instead
+ * of silently falling back to a rate of 1.
+ */
+const PEGGED_TO: Record<string, string> = { FOK: 'DKK', KID: 'AUD' }
 
-function openErApiUrl(base: string): string {
-  return `https://open.er-api.com/v6/latest/${encodeURIComponent(base)}`
+function apiCode(currency: string): string {
+  return (PEGGED_TO[currency] ?? currency).toLowerCase()
 }
 
-// A free, no-key service covering the ~160 currencies in utils/currencies.ts,
-// queried against whichever currency is currently this profile's base (see
-// getBaseCurrency above) — open.er-api.com quotes every other currency
-// relative to whatever base its URL names. It's a single daily snapshot with
-// no per-date history — there's no way to ask "what was the rate on date X",
-// only "what is it right now" — so every lookup below effectively uses
-// today's rate, regardless of which date it's requested for. Fetched once
-// per session per base currency (one Map entry each) and shared by every
-// currency that needs it; a base-currency change simply starts a fresh fetch
-// under its own entry instead of reusing the old base's.
-const openErApiRatesByBase = new Map<string, Promise<Record<string, number>>>()
+/**
+ * Which day's snapshot answers for the moment `when`: its own day, clamped
+ * to FIRST_AVAILABLE_DATE (the API's history start) and to today, since a
+ * future-dated operation has nothing better to go on than today's rate.
+ */
+export function snapshotKey(when: number | Date): string {
+  const dk = dateKey(when)
+  const today = dateKey(Date.now())
+  if (dk >= today) return today
+  return dk < FIRST_AVAILABLE_DATE ? FIRST_AVAILABLE_DATE : dk
+}
 
-function fetchOpenErApiRates(base: string): Promise<Record<string, number>> {
-  let pending = openErApiRatesByBase.get(base)
+/** Units of `to` per 1 unit of `from` on the snapshot's day, or null if it doesn't quote either one. */
+export function crossRate(snapshot: RateSnapshot, from: string, to: string): number | null {
+  const fromCode = apiCode(from)
+  const toCode = apiCode(to)
+  if (fromCode === toCode) return 1 // e.g. FOK against DKK — pegged 1:1
+  const perUsdFrom = snapshot[fromCode]
+  const perUsdTo = snapshot[toCode]
+  if (typeof perUsdFrom !== 'number' || !(perUsdFrom > 0) || typeof perUsdTo !== 'number' || !(perUsdTo > 0)) return null
+  return perUsdTo / perUsdFrom
+}
+
+// A year of statistics can ask for a few hundred days at once — at most this
+// many downloads run at the same time, the rest wait their turn.
+const MAX_CONCURRENT_DOWNLOADS = 6
+let activeDownloads = 0
+const waitingDownloads: (() => void)[] = []
+
+async function withDownloadSlot<T>(task: () => Promise<T>): Promise<T> {
+  if (activeDownloads < MAX_CONCURRENT_DOWNLOADS) activeDownloads++
+  else await new Promise<void>((resolve) => waitingDownloads.push(resolve)) // the finishing task hands its slot straight over
+  try {
+    return await task()
+  } finally {
+    const next = waitingDownloads.shift()
+    if (next) next()
+    else activeDownloads--
+  }
+}
+
+/** A downloaded snapshot and the day it's for — null only for a `latest` the API didn't date. */
+type Downloaded = { date: string | null; rates: RateSnapshot }
+
+/**
+ * Downloads the snapshot for `apiDate` (YYYY-MM-DD, or `latest`), trying each
+ * mirror in turn, along with the day the API says it's for — for `latest`,
+ * whichever day was last published, which may still be yesterday.
+ */
+async function downloadSnapshot(apiDate: string): Promise<Downloaded | null> {
+  // `latest` is a moving alias that jsDelivr serves with a week-long browser
+  // max-age — revalidate it so the HTTP cache can't hand back a days-old
+  // "latest". A dated snapshot never changes, so it may come straight from
+  // that cache.
+  const init: RequestInit = apiDate === 'latest' ? { cache: 'no-cache' } : {}
+  for (const url of snapshotUrls(apiDate)) {
+    try {
+      const res = await fetch(url, init)
+      if (!res.ok) continue
+      const data = await res.json()
+      const rates = data?.[PIVOT]
+      if (!rates || typeof rates !== 'object') continue
+      const date = typeof data.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(data.date) ? data.date : null
+      return { date: date ?? (apiDate === 'latest' ? null : apiDate), rates: rates as RateSnapshot }
+    } catch {
+      // Network error — try the next mirror.
+    }
+  }
+  return null
+}
+
+// With a server configured, a day missing from IndexedDB is asked of the
+// backend's shared cache first (backend/src/services/internal/rates/): it
+// keeps the family's rate history even if the rates API goes away, and
+// turns a period's worth of per-day downloads into a single request —
+// lookups made in the same tick are sent together, SERVER_BATCH_SIZE days
+// per request. Whatever the server doesn't return (or everything, when it
+// can't be reached) is downloaded straight from the API, as with no server.
+const SERVER_BATCH_SIZE = 200
+
+interface QueuedLookup {
+  key: string
+  isToday: boolean
+  resolve: (result: Downloaded | null) => void
+}
+let serverQueue: QueuedLookup[] | null = null
+
+function fetchViaServer(key: string, isToday: boolean): Promise<Downloaded | null> {
+  return new Promise((resolve) => {
+    if (!serverQueue) {
+      serverQueue = []
+      setTimeout(flushServerQueue, 0)
+    }
+    serverQueue.push({ key, isToday, resolve })
+  })
+}
+
+async function flushServerQueue(): Promise<void> {
+  const queue = serverQueue ?? []
+  serverQueue = null
+  const dates = [...new Set(queue.filter((q) => !q.isToday).map((q) => q.key))]
+  const batches: string[][] = []
+  for (let i = 0; i < dates.length; i += SERVER_BATCH_SIZE) batches.push(dates.slice(i, i + SERVER_BATCH_SIZE))
+  const wantsLatest = queue.some((q) => q.isToday)
+  if (!batches.length) batches.push([]) // today's rates only
+
+  const byDate = new Map<string, RateSnapshot>()
+  const found: { latest: ServerRateSnapshot | null } = { latest: null }
+  await Promise.all(
+    batches.map(async (batch, i) => {
+      try {
+        const response = await fetchRateSnapshots(batch, wantsLatest && i === 0)
+        for (const snapshot of response.snapshots ?? []) byDate.set(snapshot.date, snapshot.rates)
+        if (response.latest) found.latest = response.latest
+      } catch {
+        // Unreachable, or an older backend without this endpoint — covered by the direct download.
+      }
+    }),
+  )
+  for (const q of queue) {
+    const rates = q.isToday ? undefined : byDate.get(q.key)
+    q.resolve(q.isToday ? found.latest : rates ? { date: q.key, rates } : null)
+  }
+}
+
+/**
+ * The backend first (see fetchViaServer), then the rates API directly —
+ * also for today when the server's "latest" is more than a day old, which
+ * is what it falls back to when it can't reach the API itself; if the
+ * direct download fails too, that older day is still better than nothing.
+ */
+async function downloadFromNetwork(key: string, isToday: boolean): Promise<Downloaded | null> {
+  const viaServer = hasConfiguredServer() ? await fetchViaServer(key, isToday) : null
+  const staleToday = isToday && viaServer != null && (viaServer.date ?? '') < dateKey(Date.now() - 24 * 60 * 60 * 1000)
+  if (viaServer && !staleToday) return viaServer
+  const direct = await withDownloadSlot(() => downloadSnapshot(isToday ? 'latest' : key))
+  return direct ?? viaServer
+}
+
+/**
+ * IndexedDB first (a past day's snapshot never changes, so one stored there
+ * is final), then the network (see downloadFromNetwork): today's via
+ * `latest`, any other day via its own dated file. Whatever comes back is
+ * stored under the day the API says it's for — so `latest` also fills in
+ * yesterday's row while today's file isn't published yet, and that row is
+ * what a later offline session falls back to (see resolveSnapshot).
+ */
+async function loadSnapshot(key: string): Promise<RateSnapshot | null> {
+  try {
+    const stored = await db.rateSnapshots.get(key)
+    if (stored) return stored.rates
+  } catch {
+    // Unreadable cache — carry on to the network.
+  }
+  const isToday = key === dateKey(Date.now())
+  const downloaded = await downloadFromNetwork(key, isToday)
+  if (!downloaded) return null
+  if (downloaded.date) {
+    try {
+      await db.rateSnapshots.put({ dateKey: downloaded.date, rates: downloaded.rates, fetchedAt: Date.now() })
+    } catch {
+      // Couldn't cache it (e.g. storage full) — the rates are still good for this session.
+    }
+  }
+  return downloaded.rates
+}
+
+// Exact-day snapshots, memoized per session and shared by every caller. A
+// day that couldn't be loaded is dropped again, so a later lookup retries
+// (e.g. once back online) instead of being stuck without it.
+const pendingSnapshots = new Map<string, Promise<RateSnapshot | null>>()
+const loadedSnapshots = new Map<string, RateSnapshot>()
+
+/** The snapshot for `key` (see snapshotKey) if this session already has it in memory — synchronous, never fetches. */
+export function peekSnapshot(key: string): RateSnapshot | undefined {
+  return loadedSnapshots.get(key)
+}
+
+/** The snapshot for exactly day `key` (see snapshotKey), or null if it can't be had right now. */
+export function getSnapshot(key: string): Promise<RateSnapshot | null> {
+  let pending = pendingSnapshots.get(key)
   if (!pending) {
-    pending = fetch(openErApiUrl(base))
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => (data?.result === 'success' ? (data.rates as Record<string, number>) : {}))
-      .catch(() => ({}))
-    openErApiRatesByBase.set(base, pending)
+    pending = loadSnapshot(key).then((rates) => {
+      if (rates) loadedSnapshots.set(key, rates)
+      else pendingSnapshots.delete(key)
+      return rates
+    })
+    pendingSnapshots.set(key, pending)
   }
   return pending
 }
 
-async function fetchRate(currency: string, base: string): Promise<number | null> {
-  const rates = await fetchOpenErApiRates(base)
-  const perBase = rates[currency] // open.er-api gives "units of `currency` per 1 <base>"
-  return perBase ? 1 / perBase : null // ...we want the inverse: "<base> per 1 unit"
-}
-
 /**
- * Get the rate (base currency per 1 unit of `currency`, see getBaseCurrency
- * above) for a given date, using the IndexedDB cache first. Falls back to
- * the most recent cached rate for that currency+base pair if the network is
- * unavailable and nothing is cached for the exact date.
- *
- * `when` only picks the cache slot — the source has no real history (see
- * above), so the value stored under a given date is whatever the live rate
- * happened to be the first time that date was requested.
+ * The snapshot for day `key`, or — offline, or for a day the API skipped —
+ * the nearest one stored in IndexedDB (the closest earlier day, else the
+ * closest later one). Null only when there's nothing at all to go on.
  */
-export async function getRateForDate(currency: string, when: number | Date = Date.now()): Promise<number> {
-  const base = getBaseCurrency()
-  if (currency === base) return 1
-  const dk = dateKey(when)
-  const cacheKey = `${dk}_${base}_${currency}`
-
-  if (memCache.has(cacheKey)) return memCache.get(cacheKey)!
-
-  const cached = await db.exchangeRates
-    .where('[dateKey+currency]')
-    .equals([dk, currency])
-    .and((entry) => entry.base === base)
-    .first()
-  if (cached) {
-    memCache.set(cacheKey, cached.rate)
-    return cached.rate
+export async function resolveSnapshot(key: string): Promise<RateSnapshot | null> {
+  const exact = await getSnapshot(key)
+  if (exact) return exact
+  try {
+    const nearest =
+      (await db.rateSnapshots.where('dateKey').belowOrEqual(key).last()) ??
+      (await db.rateSnapshots.where('dateKey').above(key).first())
+    return nearest?.rates ?? null
+  } catch {
+    return null
   }
-
-  const fetched = await fetchRate(currency, base)
-  if (fetched != null) {
-    await db.exchangeRates.put({
-      id: cacheKey,
-      dateKey: dk,
-      currency,
-      base,
-      rate: fetched,
-      fetchedAt: Date.now(),
-    })
-    memCache.set(cacheKey, fetched)
-    return fetched
-  }
-
-  // Offline / API failure fallback: most recent cached rate we have for this currency+base pair.
-  const latest = await db.exchangeRates
-    .where('currency')
-    .equals(currency)
-    .and((entry) => entry.base === base)
-    .sortBy('dateKey')
-  if (latest.length) {
-    const rate = latest[latest.length - 1].rate
-    memCache.set(cacheKey, rate)
-    return rate
-  }
-
-  return 1 // last-resort fallback so calculations never throw
-}
-
-/** Latest available rate for a currency (used for account-balance rollups). */
-export async function getLatestRate(currency: string): Promise<number> {
-  return getRateForDate(currency, Date.now())
-}
-
-/** Pre-warms today's rates for a set of currencies (call once on app start). */
-export async function preloadTodayRates(currencies: string[]): Promise<void> {
-  await Promise.all(currencies.map((c) => getRateForDate(c, Date.now())))
 }
 
 /**
- * Converts an amount between ANY two currencies, pivoting through
- * base-currency-denominated rates (see getBaseCurrency above — the ratio
- * below cancels the pivot out regardless of which currency it actually is,
- * so this works correctly no matter what the profile's base currency is set
- * to). This is the one place that should be used whenever converting "to the
- * app's base/display currency" — using a raw getRateForDate(currency) result
- * directly as if it were "rate to base" is only correct when `to` happens to
- * equal the current base currency.
+ * Converts an amount between any two currencies at the rate of `when`'s day
+ * (see snapshotKey) — today's by default. Falls back to 1:1 only when no
+ * rate at all is available, so calculations never throw.
  */
 export async function convertAmount(
   amount: number,
@@ -138,9 +265,9 @@ export async function convertAmount(
   when: number | Date = Date.now(),
 ): Promise<number> {
   if (from === to) return amount
-  const [fromRate, toRate] = await Promise.all([getRateForDate(from, when), getRateForDate(to, when)])
-  if (!toRate) return amount
-  return (amount * fromRate) / toRate
+  const snapshot = await resolveSnapshot(snapshotKey(when))
+  const rate = snapshot ? crossRate(snapshot, from, to) : null
+  return rate == null ? amount : amount * rate
 }
 
 /** Same as convertAmount, but always using today's latest rate (for "current value" rollups). */
